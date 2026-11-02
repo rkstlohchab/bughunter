@@ -14,7 +14,7 @@ import TorResearch from './TorResearch';
 import { KnowledgeTransfer, ScriptDrafts, SourceLearning } from './Learning';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, Globe, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
+import { Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
@@ -28,22 +28,10 @@ const MAIN_PAGES: {label: 'Chat'|'Library'|'Settings'; page: Page; icon: LucideI
  {label:'Library',page:'Library',icon:BookOpen},
  {label:'Settings',page:'Settings',icon:Settings2},
 ];
-const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon; detail: string}[] = [
- {label:'Tasks',page:'Team',icon:ListChecks,detail:'Running jobs, approvals and evidence'},
- {label:'Web testing',page:'Overview',icon:Globe,detail:'Scoped authorized web investigations'},
- {label:'Cheat Engine bridge',page:'CE bridge',icon:Cpu,detail:'Local memory inspection on your own process'},
- {label:'AI red team',page:'AI red team',icon:FlaskConical,detail:'Prompt-corpus trials against the configured model'},
- {label:'Tor browser',page:'Tor research',icon:Network,detail:'Bookmarked onion research with human review'},
- {label:'Training lab',page:'Training lab',icon:Activity,detail:'Fixture-lab experiments and model fine-tune jobs'},
- {label:'Methods',page:'Methods',icon:FileText,detail:'Saved playbooks and reviewed skills'},
- {label:'Knowledge graph',page:'Knowledge graph',icon:GitFork,detail:'Related ideas and concept links'},
-];
 function pageTitle(page: Page): string {
  if (page==='Chat') return 'Chat';
  if (page==='Library') return 'Library';
  if (page==='Settings') return 'Settings';
- const found = TOOL_PAGES.find(t => t.page === page);
- if (found) return found.label;
  if (WEB_PAGES.includes(page)) return 'Web testing';
  return page;
 }
@@ -65,7 +53,6 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 
 export default function App() {
   const [page, setPage] = useState<Page>('Chat');
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [memoryHandoff, setMemoryHandoff] = useState<{ id: number; text: string } | null>(null);
   const [data, setData] = useState<Collections>(EMPTY);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
@@ -112,7 +99,6 @@ export default function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Hexagon size={30} /><Network size={15} /></div><div><strong>BugHunter<span>Claudex</span></strong><small>Research workbench</small></div></div>
       <nav aria-label="Main navigation" className="simple-nav">
         {MAIN_PAGES.map(({label,page:destination,icon:Icon}) => { const selected = sidebarSelection(page) === label; return <button key={label} aria-label={label} className={`nav-item ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={19}/><span>{label}</span></button>; })}
-        <button type="button" className={`nav-item nav-tools ${sidebarSelection(page) === null ? 'selected' : ''}`} aria-haspopup="dialog" aria-expanded={toolsOpen} onClick={() => setToolsOpen(true)}><Settings2 size={19}/><span>Tools</span>{approvals > 0 && <b title="Requests awaiting review">{approvals}</b>}</button>
       </nav>
       <div className="sidebar-bottom"><div className="local-note"><span className={`connection-dot ${connectionError ? 'offline' : ''}`} /><div><strong>{connectionError ? 'Backend disconnected' : 'Local workspace'}</strong><small>{connectionError ? 'Check the backend connection' : 'Sources and evidence stay here'}</small></div></div><div className="sidebar-footer"><span>v0.1.0</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</button></div></div>
     </aside>
@@ -125,7 +111,7 @@ export default function App() {
         {connectionError && <div className="connection-banner" role="alert"><CircleHelp size={20}/><div><strong>The local backend is not available</strong><p>{connectionError}</p><small>Start the desktop app, or run the development backend with the matching RPC session token.</small></div></div>}
         {notice && <div className={`notice app-toast ${notice.error ? 'error' : 'success'}`} role={notice.error ? 'alert' : 'status'}>{notice.error ? <CircleHelp size={17}/> : <Check size={17}/>}<span>{notice.text}</span><button aria-label="Dismiss notification" className="icon-button" onClick={() => setNotice(null)}><X size={16}/></button></div>}
         {loading ? <div className="loading"><LoaderCircle className="spin"/>Opening your workspace…</div> : <>
-          {page === 'Chat' && <Chat navigate={setPage} selectProject={selectExistingOrCreatedProject} onMemoryTask={task => { setMemoryHandoff({ id: Date.now(), text: task }); setPage('CE bridge'); }} projectId={projectId} projectName={data.projects.find(p=>p.id===projectId)?.name}/>}
+          {page === 'Chat' && <Chat navigate={setPage} projectId={projectId} projectName={data.projects.find(p=>p.id===projectId)?.name}/>}
           {page === 'Overview' && <><SimpleHome {...shared} system={system} selectProject={setProjectId}/><WebsiteAuditPanel projectId={projectId} navigate={setPage}/>{scoped.actions.some(a => ['pending_approval','approved'].includes(a.status)) && <section className="home-approvals"><h2>Needs your review</h2><p>Review the exact request below. Approve it, then choose Send once.</p><Approvals {...shared}/></section>}</>}
           {page === 'Team' && <Team perform={perform} busy={busy} projectId={projectId} onOpenAITesting={()=>setPage('AI red team')} onOpenMemory={()=>setPage('CE bridge')}/>}
           {page === 'CE bridge' && <CeMcpPanel projectId={projectId} handoff={memoryHandoff} onHandoffConsumed={() => setMemoryHandoff(null)}/>}
@@ -144,7 +130,6 @@ export default function App() {
           {page === 'Settings' && <Settings perform={perform} busy={busy} revision={revision} projectId={projectId} projects={data.projects} system={system} onSystemChange={setSystem}/>}
         </>}
       </main>
-      {toolsOpen && <Modal title="More tools" onClose={()=>setToolsOpen(false)} wide><p className="muted">Everyday work happens in Chat — the AI will open the right tool automatically. Use this list if you want to drive one of them directly.</p><div className="tools-grid">{TOOL_PAGES.map(({label,page:destination,icon:Icon,detail}) => <button key={label} type="button" className="tools-card" onClick={() => { setToolsOpen(false); setPage(destination); }}><Icon size={22}/><strong>{label}{label==='Tasks' && approvals>0 && <span className="tab-count">{approvals}</span>}</strong><small>{detail}</small></button>)}</div></Modal>}
       {showProjectPicker && <Modal title="New project" onClose={()=>setShowProjectPicker(false)}><form onSubmit={async e=>{e.preventDefault();const saved=await perform('Creating project',()=>rpc('projects.save',{name:projectTitle.trim(),scope:projectUrl.trim()?[projectUrl.trim()]:[],authorization:projectPermission.trim(),workspace_only:!projectUrl.trim(),exclusions:[],read_only_paths:[],requests_per_second:1,max_concurrency:2,max_requests:1000,allow_private:false}), 'Project created.');if(saved?.id){setProjectId(saved.id);setShowProjectPicker(false);setProjectTitle('');setProjectUrl('');setProjectPermission('');}}}><p className="muted">Use one project for conversations and all workspaces. A website and authorization are needed only when you want to run web tests.</p><Field label="Project name"><input required value={projectTitle} onChange={e=>setProjectTitle(e.target.value)} placeholder="My test application"/></Field><Field label="Website or API (optional)"><input type="url" value={projectUrl} onChange={e=>setProjectUrl(e.target.value)} placeholder="https://your-app.example"/></Field><Field label="Permission / scope notes (needed for web testing)"><textarea required={!!projectUrl.trim()} rows={3} value={projectPermission} onChange={e=>setProjectPermission(e.target.value)} placeholder="What is permitted to test?"/></Field><div className="form-actions"><Button onClick={()=>setShowProjectPicker(false)}>Cancel</Button><Button type="submit" variant="primary" disabled={!!busy}>Create project</Button></div></form></Modal>}
       <footer className="workspace-footer"><span><ShieldCheck size={13}/>Authorized research • Individual request approvals</span><span>Knowledge → hypothesis → evidence</span></footer>
     </div>
@@ -176,7 +161,9 @@ function Library({ data, perform, busy, revision, projectId, navigate }: Shared)
     if (value !== undefined) { setShowImport(false); setFiles([]); setPath(''); setWebsiteUrl(''); }
   }
 
-  return <><div className="knowledge-intro"><div><h2>My knowledge</h2><p>Keep files, videos, and links here. Your AI can find relevant parts when you chat.</p></div></div><div className="toolbar"><form className="search" onSubmit={e => { e.preventDefault(); perform('Searching knowledge', () => rpc('knowledge.search', { query, limit: 20, project_id: projectId || null })).then(v => v && setResults(asList(v))); }}><Search size={17}/><input aria-label="Search knowledge" placeholder="Ask your library or search a technique…" value={query} onChange={e => setQuery(e.target.value)}/>{results && <button type="button" aria-label="Clear search" onClick={() => { setResults(null); setQuery(''); }}><X size={15}/></button>}<button type="submit" disabled={!query.trim()}>Search</button></form><Button variant="primary" icon={Upload} onClick={() => setShowImport(true)}>Upload / add link</Button></div>
+  return <><div className="knowledge-intro"><div><h2>Library</h2><p>What your models have learned, and the sources behind it. Everything stays on this Mac.</p></div></div>
+    <Learnings revision={revision} onOpenSource={openSource}/>
+    <div className="toolbar"><form className="search" onSubmit={e => { e.preventDefault(); perform('Searching knowledge', () => rpc('knowledge.search', { query, limit: 20, project_id: projectId || null })).then(v => v && setResults(asList(v))); }}><Search size={17}/><input aria-label="Search knowledge" placeholder="Ask your library or search a technique…" value={query} onChange={e => setQuery(e.target.value)}/>{results && <button type="button" aria-label="Clear search" onClick={() => { setResults(null); setQuery(''); }}><X size={15}/></button>}<button type="submit" disabled={!query.trim()}>Search</button></form><Button variant="primary" icon={Upload} onClick={() => setShowImport(true)}>Upload / add link</Button></div>
     {results !== null ? <section className="surface"><div className="section-title"><h2>{results.length} matching passages</h2><Button onClick={() => setResults(null)}>Back to library</Button></div>{results.length ? <div className="passages">{results.map((hit, i) => <article key={hit.id || i} className="passage"><button className="source-citation" onClick={() => hit.source_id && openSource(hit.source_id)}><BookOpen size={14}/>{hit.title || hit.source_title || 'Source'}<span>{pretty(hit.locator || hit.citation)}</span></button><p>{hit.text || hit.content}</p>{hit.score != null && <small>Relevance {Number(hit.score).toFixed(3)}</small>}</article>)}</div> : <Empty icon={Search} title="No matching passages" description="Try a different term, or import a resource that covers this topic."/>}</section> : <section className="surface"><div className="section-title"><div><h2>Your files</h2><p>{data.sources.length} imported sources. Each file opens as one document.</p></div><span className="quiet-badge"><FolderOpen size={14}/>Stored locally</span></div>{!data.sources.length ? <Empty icon={BookOpen} title="Build your research memory" description="Import a book, lesson, or exploit write-up. The workbench preserves citations and connects related concepts."><Button icon={Upload} onClick={() => setShowImport(true)}>Import your first resource</Button></Empty> : <div className="table-scroll"><table><thead><tr><th>Resource</th><th>Type</th><th>Status</th><th>Added</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.sources.map(source => <tr key={source.id}><td><button className="table-title" onClick={() => openSource(source.id)}><FileText size={18}/><div><strong>{source.title || source.filename}</strong>{source.error && <small className="error-text">{source.error}</small>}</div></button></td><td>{source.media_type || source.type || 'Document'}</td><td><Status value={source.status}/></td><td className="muted nowrap">{shortDate(source.created_at)}</td><td><div className="row-actions">{['ready', 'error', 'failed', 'partial', 'incomplete'].includes(source.status) && <button aria-label={source.url ? 'Refresh website source' : 'Reprocess resource'} className="icon-button" onClick={() => perform('Retrying ingestion', () => rpc('sources.retry', { id: source.id }))}><RefreshCw size={15}/></button>}<button aria-label={`Delete ${source.title || source.filename}`} className="icon-button" onClick={() => setDeleteId(source.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}</section>}
     <details className="knowledge-advanced knowledge-extra"><summary><span><strong>More</strong><small>Video timeline and optional research tools</small></span></summary><div className="knowledge-extra-links"><Button onClick={()=>setKnowledgeDetail('video')}>Video processing</Button><details className="settings-more"><summary>Research organization (optional)</summary><div className="button-group wrap"><Button onClick={()=>navigate('Knowledge graph')}>Related ideas</Button><Button onClick={()=>navigate('Methods')}>Saved methods</Button><Button onClick={()=>navigate('Training lab')}>Training examples</Button></div></details></div>{knowledgeDetail==='video' && <MediaAI sources={data.sources as any} mode="viewer" onOpenSettings={()=>navigate('Settings')}/>}<KnowledgeTransfer perform={perform} busy={busy}/><ScriptDrafts perform={perform} busy={busy} revision={revision}/></details>
     {showImport && <Modal title="Add to knowledge" onClose={() => setShowImport(false)}><form onSubmit={importSource}><div className="import-tabs" role="group" aria-label="Import method">{[['files','Upload files'],['url','Paste a link'],['path','Large course / folder']].map(([value,label]) => <Button key={value} variant={importMode === value ? 'primary' : ''} onClick={() => {setImportMode(value);setFiles([]);setPath('');setWebsiteUrl('');}}>{label}</Button>)}</div>{importMode === 'files' && <label className="file-drop" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();chooseFiles(Array.from(e.dataTransfer.files));}}><Upload size={25}/><strong>{files.length ? `${files.length} files selected` : 'Choose files or drop them here'}</strong><span>Documents, ZIPs, images, text/code, audio, or video · up to 64 MiB each</span><input type="file" multiple onChange={e => chooseFiles(Array.from(e.target.files || []))}/></label>}{importMode === 'path' && <><Field label="Absolute file path" hint="A file or folder up to 500 files, 32 GiB per file. Large course ZIPs are processed progressively and can resume after interruption. Keep the original ZIP in place until import finishes."><input value={path} onChange={e => setPath(e.target.value)} placeholder="/Users/you/Courses"/></Field><p className="muted">Keep these files in place until extraction finishes. Check the extracted text and warnings before deleting your originals.</p></>}{importMode === 'url' && <><Field label="Public link" hint="Supports public YouTube videos, playlists and channels (first 50 videos per import), web pages, and direct files. Instagram profiles and restricted sites cannot be reliably bulk imported."><input type="url" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://youtube.com/watch?v=... or https://example.com/article"/></Field>{youtube && <label className="checkbox"><input type="checkbox" checked={downloadMedia} onChange={e => setDownloadMedia(e.target.checked)}/><span>Also download the video to extract audio and sample screen images.</span></label>}</>}<div className="form-actions"><Button onClick={() => setShowImport(false)}>Cancel</Button><Button type="submit" variant="primary" icon={Upload} disabled={!!busy || (!path && !files.length && !websiteUrl)}>Import resource</Button></div></form></Modal>}
@@ -184,6 +171,38 @@ function Library({ data, perform, busy, revision, projectId, navigate }: Shared)
     {chunkCorrection && <Modal title="Correct source passage" wide onClose={() => setChunkCorrection(null)}><Field label="Corrected text" hint="The source and correction history remain traceable."><textarea rows={12} value={chunkText} onChange={e => setChunkText(e.target.value)}/></Field><div className="form-actions"><Button onClick={() => setChunkCorrection(null)}>Cancel</Button><Button variant="primary" onClick={() => perform('Saving correction', () => rpc('knowledge.correct', { id: chunkCorrection.id, text: chunkText }), 'Passage corrected.').then(value => { if (value) { setChunkCorrection(null); setSelected(null); } })}>Save correction</Button></div></Modal>}
     {deleteId && <Modal title="Delete this resource?" onClose={() => setDeleteId('')}><p>Remove the source, its searchable passages, and knowledge assertions that no longer have supporting sources.</p><div className="form-actions"><Button onClick={() => setDeleteId('')}>Keep resource</Button><Button variant="danger" onClick={() => perform('Deleting source', () => rpc('sources.delete', { id: deleteId }), 'Resource deleted.').then(() => setDeleteId(''))}>Delete resource</Button></div></Modal>}
   </>;
+}
+
+const LEARNING_GROUPS: { key: string; label: string }[] = [
+  { key: 'technique', label: 'Techniques' },
+  { key: 'vulnerability', label: 'Vulnerability classes' },
+  { key: 'tool', label: 'Tools' },
+  { key: 'prerequisite', label: 'Prerequisites' },
+  { key: 'example', label: 'Worked examples' },
+];
+function Learnings({ revision, onOpenSource }: { revision: number; onOpenSource: (id: string) => void }) {
+  const [data, setData] = useState<{ groups: Record<string, Row[]>; models: Record<string, number>; total: number } | null>(null);
+  const [open, setOpen] = useState<string>('technique');
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => { let alive = true; rpc<any>('knowledge.learnings').then(v => { if (alive) setData(v); }).catch(() => {}); return () => { alive = false; }; }, [revision]);
+  if (!data) return null;
+  const models = Object.entries(data.models || {}).sort((a, b) => b[1] - a[1]);
+  if (!data.total) return <section className="surface learnings-empty"><div className="section-title"><div><h2>What your models have learned</h2><p>Nothing recorded yet. Ask the agent in Chat to study a source or run a task — durable techniques, vulnerability classes and tools it establishes will collect here, tagged by the model that learned them.</p></div><GitFork size={20}/></div></section>;
+  const groupsWithItems = LEARNING_GROUPS.filter(g => (data.groups[g.key] || []).length);
+  const active = data.groups[open]?.length ? open : (groupsWithItems[0]?.key || 'technique');
+  const items = (data.groups[active] || []);
+  const shown = expanded ? items : items.slice(0, 12);
+  return <section className="surface learnings">
+    <div className="section-title"><div><h2>What your models have learned</h2><p>{data.total} source-backed assertions. Each keeps a verbatim quote, its source, and the model that recorded it.</p></div><GitFork size={20}/></div>
+    {models.length > 0 && <div className="learnings-models">{models.map(([name, count]) => <span key={name} className="learnings-model-chip"><Cpu size={13}/>{name}<b>{count}</b></span>)}</div>}
+    <div className="learnings-tabs" role="tablist">{groupsWithItems.map(g => <button key={g.key} role="tab" aria-selected={active === g.key} className={active === g.key ? 'active' : ''} onClick={() => { setOpen(g.key); setExpanded(false); }}>{g.label} <span>{(data.groups[g.key] || []).length}</span></button>)}</div>
+    <div className="learnings-list">{shown.map(item => <article key={item.id} className="learnings-card">
+      <div className="learnings-card-head"><strong>{item.label}</strong>{item.model ? <span className="learnings-badge" title="Model that recorded this">{item.model}</span> : <span className="learnings-badge quiet">{item.status || 'inferred'}</span>}</div>
+      {item.quote && <blockquote className="learnings-quote">"{String(item.quote).slice(0, 320)}"</blockquote>}
+      <div className="learnings-card-foot"><button className="source-citation" onClick={() => item.source_id && onOpenSource(item.source_id)}><BookOpen size={13}/>{item.source_title || 'Source'}{item.locator ? ` · ${item.locator}` : ''}</button></div>
+    </article>)}</div>
+    {items.length > 12 && <Button onClick={() => setExpanded(v => !v)}>{expanded ? 'Show less' : `Show all ${items.length}`}</Button>}
+  </section>;
 }
 
 function KnowledgeGraph({ perform, revision }: { perform: Execute; revision: number }) {

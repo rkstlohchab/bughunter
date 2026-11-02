@@ -91,11 +91,81 @@ class ChatService:
             }), ensure_ascii=False, indent=2)}
         if method == "chat.send":
             return self.send(params)
+        if method == "chat.agent":
+            return self.agent(params)
+        if method == "chat.finalize":
+            return self.finalize(params)
         if method == "chat.autopilot":
             return self.autopilot(params)
         if method == "chat.delegate":
             return self.delegate(params)
         raise ValueError("Unknown chat operation.")
+
+    @_serial_turn
+    def agent(self, params: dict):
+        """Start an autonomous agent run from the chat box. The run executes the full
+        tool surface unattended in a background thread; the frontend streams its
+        activity and calls chat.finalize when it ends. One user message, one run."""
+        if self.tasks is None or not getattr(self.tasks.app, "runs", None):
+            raise ValueError("The agent engine is unavailable.")
+        message = params.get("message", "")
+        if not isinstance(message, str) or not message.strip() or len(message) > MAX_INPUT:
+            raise ValueError("Enter a valid request.")
+        message = message.strip()
+        session_id = params.get("id")
+        if session_id is not None and (not isinstance(session_id, str) or not session_id.startswith("chat_")):
+            raise ValueError("Invalid chat session.")
+        session = self.store.get("chat", session_id) if session_id else None
+        if session_id and not session:
+            raise ValueError("Chat not found.")
+        project_id = params.get("project_id") or (session or {}).get("project_id")
+        if session and project_id != session.get("project_id"):
+            raise ValueError("This conversation belongs to another project.")
+        source_ids = params.get("source_ids") or (session or {}).get("source_ids", [])
+        cursor = self.store.events_cursor()
+        run = self.tasks.app.runs.start_agent(prompt=message, project_id=project_id, source_ids=source_ids)
+        messages = list((session or {}).get("messages", []))
+        messages.extend([{"role": "user", "content": message},
+                         {"role": "assistant", "content": "", "run_id": run["id"], "pending": True}])
+        saved = self.store.put("chat", {**(session or {}),
+            "title": (session or {}).get("title") or message[:64],
+            "messages": messages, "project_id": project_id, "source_ids": source_ids,
+            "run_id": run["id"], "task_ids": _task_ids(session)},
+            id=session_id or new_id("chat"))
+        return {"session": saved, "run_id": run["id"], "status": run["status"], "cursor": cursor}
+
+    def finalize(self, params: dict):
+        """Write a terminated agent run's result into its pending chat message.
+        Idempotent and safe to call repeatedly while the run is still active."""
+        session_id = params.get("id")
+        run_id = params.get("run_id")
+        session = self.store.get("chat", str(session_id)) if session_id else None
+        if not session:
+            raise ValueError("Chat not found.")
+        run = self.store.get("run", str(run_id)) if run_id else None
+        if not run:
+            raise ValueError("Agent run not found.")
+        status = run.get("status")
+        terminal = status in {"completed", "failed", "cancelled", "paused", "limited", "interrupted"}
+        messages = list(session.get("messages", []))
+        changed = False
+        for entry in messages:
+            if entry.get("role") == "assistant" and entry.get("run_id") == run_id and entry.get("pending"):
+                if terminal:
+                    answer = run.get("summary") or run.get("error") or "The agent finished without a summary."
+                    if status == "failed":
+                        answer = "The task could not be completed: " + str(run.get("error") or answer)
+                    elif status in {"cancelled", "paused", "limited", "interrupted"}:
+                        answer = (run.get("summary") or "") + f"\n\n(The agent run {status}. " + str(run.get("error") or "Review the activity above.") + ")"
+                    entry["content"] = answer.strip()
+                    entry.pop("pending", None)
+                    changed = True
+                break
+        if changed:
+            session = self.store.put("chat", {**session, "messages": messages}, id=session["id"])
+        return {"session": session, "status": status, "terminal": terminal,
+                "summary": run.get("summary"), "error": run.get("error"),
+                "api_cost_usd": run.get("api_cost_usd")}
 
     @_serial_turn
     def autopilot(self, params: dict):

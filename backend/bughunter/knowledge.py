@@ -325,6 +325,7 @@ class KnowledgeService:
             "knowledge.examples.list": lambda: self.store.list("learning_example"),
             "knowledge.search": lambda: self.search(p.get("query", ""), p.get("limit", 10), project_id=p.get("project_id", "*")),
             "knowledge.graph": lambda: self.graph(p.get("limit", 250)),
+            "knowledge.learnings": lambda: self.learnings(p.get("limit", 300)),
             "knowledge.correct": lambda: self.correct(p["id"], p["text"]),
             "knowledge.enrich": lambda: self.enrich(p["source_id"], p["assertions"]),
             "knowledge.frames": lambda: self.list_frames(p["source_id"]),
@@ -1396,12 +1397,17 @@ class KnowledgeService:
         self.store.event("knowledge.corrected", {"chunk_id": id, "correction_id": correction_id})
         return {"id": id, "text": text, "status": "corrected", "correction_id": correction_id, "source_id": source["id"], "locator": row["locator"]}
 
-    def enrich(self, source_id: str, assertions: list[dict]) -> dict:
-        """Accept model-reviewed graph suggestions with quotes, never executable tools."""
+    def enrich(self, source_id: str, assertions: list[dict], provenance: dict | None = None) -> dict:
+        """Accept model-reviewed graph suggestions with quotes, never executable tools.
+
+        provenance records which model produced the assertion (provider/model/run)
+        so the Library can show what each model has learned."""
         if not isinstance(assertions, list) or len(assertions) > 100:
             raise ValueError("Provide at most 100 source-backed assertions.")
         if not self.store.get("source", source_id):
             raise ValueError("Source not found.")
+        learned_by = {k: str(v)[:80] for k, v in (provenance or {}).items()
+                      if k in {"provider", "model", "run_id"} and v} or None
         accepted = []
         with self.store.connection(immediate=True) as db:
             for assertion in assertions:
@@ -1414,10 +1420,40 @@ class KnowledgeService:
                 if kind not in {"vulnerability", "technique", "prerequisite", "tool", "example"}:
                     raise ValueError("Unsupported knowledge assertion type.")
                 id = f"assertion_{_digest(source_id + chunk['id'] + kind + label)[:24]}"
-                self._node(db, id, kind, label, {"source_id": source_id, "chunk_id": chunk["id"], "status": "inferred", "origin": "model", "quote": quote, "locator": chunk["locator"]})
+                data = {"source_id": source_id, "chunk_id": chunk["id"], "status": "inferred", "origin": "model", "quote": quote, "locator": chunk["locator"]}
+                if learned_by:
+                    data["learned_by"] = learned_by
+                    data["learned_at"] = now()
+                self._node(db, id, kind, label, data)
                 self._edge(db, chunk["id"], id, "supports", source_id, chunk["id"], {"origin": "model", "status": "inferred", "quote": quote})
                 accepted.append(id)
         return {"source_id": source_id, "assertion_ids": accepted, "status": "inferred"}
+
+    def learnings(self, limit: int = 300) -> dict:
+        """Aggregate what every model has learned: source-backed assertions grouped
+        by kind, with per-model provenance. Read-only; powers the Library view."""
+        limit = max(10, min(int(limit), 1000))
+        groups: dict[str, list] = {"technique": [], "vulnerability": [], "tool": [], "prerequisite": [], "example": []}
+        models: dict[str, int] = {}
+        with self.store.connection() as db:
+            rows = db.execute("SELECT id,kind,label,data FROM knowledge_nodes WHERE kind IN ('technique','vulnerability','tool','prerequisite','example') ORDER BY rowid DESC LIMIT ?", (limit,)).fetchall()
+            for row in rows:
+                data = json.loads(row["data"])
+                source = db.execute("SELECT data FROM entities WHERE kind='source' AND id=?", (data.get("source_id"),)).fetchone()
+                source_title = json.loads(source[0]).get("title", "Source") if source else "Source"
+                learned_by = data.get("learned_by") or {}
+                model_label = learned_by.get("model") or ("desktop review" if data.get("origin") == "reviewed_investigation" else "unattributed")
+                models[model_label] = models.get(model_label, 0) + 1
+                groups.setdefault(row["kind"], []).append({
+                    "id": row["id"], "kind": row["kind"], "label": row["label"],
+                    "quote": data.get("quote"), "locator": data.get("locator"),
+                    "source_id": data.get("source_id"), "source_title": source_title,
+                    "status": data.get("status", "inferred"),
+                    "model": learned_by.get("model"), "provider": learned_by.get("provider"),
+                    "learned_at": data.get("learned_at")})
+        return {"groups": groups, "models": models,
+                "total": sum(len(v) for v in groups.values()),
+                "note": "Source-backed assertions recorded by models during study and autonomous runs. Inferred unless reviewed; quotes are verbatim from the cited source."}
 
     def list_frames(self, source_id: str) -> list[dict]:
         source = self.store.get("source", source_id)

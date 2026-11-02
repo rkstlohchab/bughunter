@@ -306,6 +306,9 @@ class ReleaseReadinessP7:
                 if process:
                     self._terminate(process)
 
+    def shutdown(self):
+        self.cancel_all()
+
     def dispatch(self, method: str, params: dict) -> dict | list:
         if method == "readiness.p7.preflight": return self.preflight()
         if method == "readiness.p7.runs": return self.list_runs()

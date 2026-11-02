@@ -103,6 +103,21 @@ class ModelTools:
             raise ValueError("The record does not belong to the current project.")
         return entity
 
+    def _autodispatch(self, action: dict) -> dict:
+        """In an autonomous run, approve (if needed) and execute a queued action,
+        returning its real response. Scope, gateway routing and request budgets
+        still bound this in policy.execute; failures come back as evidence."""
+        if not isinstance(action, dict) or not action.get("id"):
+            return action
+        try:
+            if action.get("effect") not in {"read_only", "read-only"} and action.get("status") == "pending_approval":
+                self.app.policy.approve(action["id"])
+            executed = self.app.policy.execute(action["id"])
+            return {**executed, "autonomous": True}
+        except Exception as exc:
+            return {**action, "autonomous_execution_error": str(exc),
+                    "note": "The request could not be sent automatically. Report this to the operator rather than assuming it ran."}
+
     def _can_share_tor(self):
         return (self.app.settings.get().get("provider") in {"ollama", "crucible"}
                 or self.app.tor.settings()["allow_remote_ai"])
@@ -299,7 +314,8 @@ class ModelTools:
         elif name == "learn_assertions":
             if not self._source_visible(arguments["source_id"]):
                 raise ValueError("Tor research requires local inference or explicit remote AI sharing.")
-            result = self.app.knowledge.enrich(arguments["source_id"], json.loads(arguments["assertions_json"]))
+            result = self.app.knowledge.enrich(arguments["source_id"], json.loads(arguments["assertions_json"]),
+                provenance={"provider": run.get("provider"), "model": run.get("model"), "run_id": self.run_id})
         elif name == "list_traffic":
             result = [{"id":t["id"],"session_id":t.get("session_id"),"method":t["request"]["method"],
                 "url":t["request"]["url"],"response_status":(t.get("response") or {}).get("status"),"inventory":t.get("inventory")} for t in self.app.store.list("traffic", project_id=project_id)[:100]]
@@ -313,6 +329,8 @@ class ModelTools:
             result = self.app.testing.queue(arguments["id"])
             if isinstance(result,dict) and result.get("id"):
                 result = self.app.store.put("action", {**result,"run_id":self.run_id})
+                if run.get("autonomous"):
+                    result = self._autodispatch(result)
         elif name == "queue_action":
             request = json.loads(arguments["request_json"])
             session = str(arguments["session_id"])
@@ -320,6 +338,8 @@ class ModelTools:
             if session not in recorded:
                 raise ValueError("Choose a session from captured traffic. The agent cannot invent authenticated identities.")
             result = self.app.policy.queue(project_id,request,session_id=session,run_id=self.run_id)
+            if run.get("autonomous"):
+                result = self._autodispatch(result)
         elif name == "list_actions":
             result = self.app.store.list("action",project_id=project_id)[:100]
         elif name == "execute_read_only":
@@ -339,11 +359,15 @@ class ModelTools:
             session = str(arguments["session_id"])
             result = self.app.capabilities.queue_binary({"project_id":project_id,
                 "request":request, "session_id":session, "run_id":self.run_id})
+            if run.get("autonomous"):
+                result = self._autodispatch(result)
         elif name == "queue_websocket":
             frames = json.loads(arguments["frames_json"])
             result = self.app.capabilities.queue_websocket({"project_id":project_id,
                 "url":arguments["url"], "frames":frames,
                 "session_id":str(arguments.get("session_id","websocket")), "run_id":self.run_id})
+            if run.get("autonomous"):
+                result = self._autodispatch(result)
         elif name == "memory_tool":
             args = json.loads(arguments["arguments_json"])
             result = self.app.capabilities.memory_call({"tool":arguments["tool"],"arguments":args})

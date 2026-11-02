@@ -604,6 +604,55 @@ main,.surface,.redteam-layout,.training-stack,.split-view,.inspector,.inspector-
 .tools-card:hover small{color:inherit;opacity:.85}
 @media(max-width:720px){.tools-grid{grid-template-columns:1fr}}
 
+/* ---- Minimal chatbot ---- */
+.chat-home main{display:flex;flex-direction:column;padding:0;max-width:none}
+.conversation{flex:1;display:flex;flex-direction:column;min-height:0;width:100%;max-width:880px;margin:0 auto;padding:0 20px}
+.conversation-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 2px 10px}
+.conversation-new{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--paper);color:var(--ink);border-radius:8px;padding:8px 13px;font-size:13px;font-weight:500}
+.conversation-new:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+.conversation-new:disabled{opacity:.5}
+.conversation-bar-meta{display:flex;align-items:center;gap:12px;font-size:12px}
+.conversation-project{color:var(--accent);background:var(--accent-light);padding:4px 10px;border-radius:20px}
+.conversation-project.muted{color:var(--muted);background:transparent}
+.conversation-history-toggle{border:0;background:none;color:var(--muted);font-size:12px;padding:5px 8px;border-radius:6px}
+.conversation-history-toggle:hover{color:var(--accent);background:var(--accent-light)}
+.conversation-history{border:1px solid var(--line);border-radius:10px;background:var(--paper);padding:10px;margin-bottom:10px;max-height:260px;overflow-y:auto}
+.conversation-history-row{display:flex;align-items:center;gap:6px}
+.conversation-history-row>button:first-child{flex:1;text-align:left;border:0;background:none;color:var(--ink);font-size:13px;padding:8px 9px;border-radius:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.conversation-history-row>button:first-child:hover{background:var(--accent-light);color:var(--accent)}
+.conversation-history-row.active>button:first-child{background:var(--accent-light);color:var(--accent);font-weight:500}
+.conversation-scroll{flex:1;overflow-y:auto;min-height:0;padding:8px 2px 4px;display:flex;flex-direction:column}
+.conversation-scroll .conversation-welcome{margin:auto 0}
+.agent-live{border:1px solid var(--accent);background:var(--accent-light);border-radius:12px;padding:14px 16px;margin:8px 0 14px}
+.agent-live-head{display:flex;align-items:center;gap:9px;color:var(--accent);font-size:13px;margin-bottom:6px}
+.agent-live-head strong{font-weight:600}
+.agent-live-steps{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:5px;max-height:320px;overflow-y:auto}
+.agent-step{display:flex;align-items:baseline;gap:7px;font-size:12.5px;line-height:1.5;color:var(--ink)}
+.agent-step.tool{color:var(--muted)}
+.agent-step-tool{font-family:var(--mono,ui-monospace,monospace);font-size:11.5px;background:var(--paper);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
+.agent-step-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.conversation .conversation-compose-wrap{padding:10px 0 18px;background:transparent;border:0}
+
+/* ---- Library: what models learned ---- */
+.learnings{margin-bottom:18px}
+.learnings-models{display:flex;flex-wrap:wrap;gap:8px;padding:0 19px 14px}
+.learnings-model-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--ink);background:var(--paper-subtle,var(--accent-light));border:1px solid var(--line);border-radius:20px;padding:5px 11px}
+.learnings-model-chip b{color:var(--accent);font-weight:600}
+.learnings-tabs{display:flex;flex-wrap:wrap;gap:7px;padding:0 19px 14px}
+.learnings-tabs button{border:1px solid var(--line);background:var(--paper);color:var(--muted);border-radius:8px;padding:7px 13px;font-size:12.5px;display:inline-flex;align-items:center;gap:7px}
+.learnings-tabs button span{background:var(--accent-light);color:var(--accent);border-radius:10px;padding:0 7px;font-size:11px}
+.learnings-tabs button.active{background:var(--accent-light);border-color:var(--accent);color:var(--accent)}
+.learnings-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;padding:0 19px 16px}
+.learnings-card{border:1px solid var(--line);border-radius:10px;padding:13px 14px;background:var(--paper);display:flex;flex-direction:column;gap:8px}
+.learnings-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.learnings-card-head strong{font-size:13.5px;font-weight:600;line-height:1.4}
+.learnings-badge{flex-shrink:0;font-size:10.5px;color:var(--accent);background:var(--accent-light);border-radius:5px;padding:2px 7px;white-space:nowrap}
+.learnings-badge.quiet{color:var(--muted);background:transparent;border:1px solid var(--line)}
+.learnings-quote{margin:0;font-size:12px;color:var(--muted);line-height:1.55;border-left:2px solid var(--line);padding-left:10px;overflow-wrap:anywhere}
+.learnings-card-foot .source-citation{font-size:11.5px}
+.learnings-empty .section-title{align-items:flex-start}
+@media(max-width:720px){.learnings-list{grid-template-columns:1fr}.conversation{padding:0 12px}}
+
 /* Chat keeps one reading column. History and detailed evidence open on demand. */
 .chat-home main{padding:0;max-width:none;display:flex;flex-direction:column;min-height:0}
 .chat-home .workspace-footer{display:none}

@@ -115,3 +115,8 @@ class Store:
         with self.connection() as db:
             rows = db.execute("SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT ?", (after,min(limit,500))).fetchall()
         return [{**dict(r),"data":json.loads(r["data"])} for r in rows]
+
+    def events_cursor(self) -> int:
+        with self.connection() as db:
+            row = db.execute("SELECT COALESCE(MAX(seq),0) FROM events").fetchone()
+        return int(row[0])
