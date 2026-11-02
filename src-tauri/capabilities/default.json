@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "The workbench window communicates with its controlled local backend.",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

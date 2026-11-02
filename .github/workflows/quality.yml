@@ -1,0 +1,77 @@
+name: Project quality
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  backend:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install backend dependencies
+        run: python -m pip install -e './backend[dev,browser,tools]'
+      - name: Run backend tests
+        run: python -m pytest -q backend/tests
+      - name: P7 integration and cancellation regression
+        run: python -m pytest -q backend/tests/test_readiness_p7.py
+      - name: Verify Chat -> Knowledge -> Tool -> Agents -> restart
+        run: python scripts/smoke_production_workflow.py --python
+      - name: Smoke-test task recovery
+        run: python scripts/smoke_task_recovery.py --python
+      - name: Check Python syntax
+        run: python -m compileall -q backend/bughunter scripts
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install Chromium for UI tests
+        run: npx playwright install --with-deps chromium
+      - name: UI regression suite
+        run: npm run test:ui
+  macos-release-validation:
+    # Only build the full Mac app on manually requested workflows. This is a
+    # release gate, not a claim of Apple notarization or real external-tool access.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install application dependencies
+        run: |
+          python -m pip install uv
+          python scripts/setup.py
+      - name: Build Python backend sidecar
+        run: python scripts/build_backend.py
+      - name: Build macOS app bundle
+        run: npm run desktop:build
+      - name: Validate installer bundle and packaged backend
+        run: python scripts/validate_macos_release.py --smoke
+      - name: P7 release readiness gate
+        run: bash scripts/verify_p7_release.sh --quick
+      - name: Save local release bundle (not notarized)
+        uses: actions/upload-artifact@v4
+        with:
+          name: BugHunterClaudex-macos-unnotarized
+          path: src-tauri/target/release/bundle/macos/BugHunterClaudex.app
+          if-no-files-found: error

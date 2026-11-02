@@ -1,0 +1,53 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "BugHunterClaudex",
+  "version": "0.1.0",
+  "identifier": "dev.bughunterclaudex.workbench",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "python3 scripts/ensure_sidecar.py && npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "BugHunterClaudex",
+        "width": 1380,
+        "height": 900,
+        "minWidth": 760,
+        "minHeight": 560,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' asset: http://asset.localhost data: blob:; connect-src ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "app"
+    ],
+    "category": "DeveloperTool",
+    "shortDescription": "Local knowledge and controlled security investigations",
+    "longDescription": "An educational workbench for authorized web and API vulnerability research, source-backed learning, individual request approvals, and reproducible reports.",
+    "externalBin": [
+      "binaries/bughunter-backend"
+    ],
+    "resources": [
+      "resources/mac_memory_mcp.py"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "minimumSystemVersion": "11.0"
+    }
+  }
+}

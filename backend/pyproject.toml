@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bughunter-workbench"
+version = "0.1.0"
+description = "Local knowledge and controlled web security investigation workbench"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "pydantic>=2.10,<3", "httpx>=0.28,<1", "sqlite-vec>=0.1.6,<0.2",
+  "pypdf>=5,<7", "ddgs>=9,<11", "beautifulsoup4>=4.12,<5", "ebooklib>=0.18,<1",
+  "keyring>=25,<26", "mcp>=1.12,<2", "pillow>=11,<13",
+  "youtube-transcript-api>=1.2,<2", "yt-dlp>=2025",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10", "pytest-asyncio>=0.25,<2", "ruff>=0.9,<1", "pyinstaller>=6,<7"]
+browser = ["selenium>=4.25,<5"]
+tools = ["mitmproxy>=11,<13", "playwright>=1.50,<2", "pymupdf>=1.25,<2", "pytesseract>=0.3,<1"]
+
+[project.scripts]
+bughunter-backend = "bughunter.__main__:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bughunter"]
