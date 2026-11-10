@@ -28,6 +28,20 @@ const MAIN_PAGES: {label: 'Chat'|'Library'|'Settings'; page: Page; icon: LucideI
  {label:'Library',page:'Library',icon:BookOpen},
  {label:'Settings',page:'Settings',icon:Settings2},
 ];
+// Reachable again from the sidebar "Advanced tools" group. Chat is still home and the
+// agent can open the right workspace on its own, but every page has a manual entry so
+// the app is one unified surface rather than orphaned routes.
+const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon}[] = [
+ {label:'Tasks',page:'Team',icon:ListChecks},
+ {label:'Web testing',page:'Overview',icon:Target},
+ {label:'Approvals',page:'Approvals',icon:ShieldCheck},
+ {label:'Methods',page:'Methods',icon:FileText},
+ {label:'Knowledge graph',page:'Knowledge graph',icon:GitFork},
+ {label:'CE / memory bridge',page:'CE bridge',icon:Cpu},
+ {label:'AI red team',page:'AI red team',icon:FlaskConical},
+ {label:'Training lab',page:'Training lab',icon:Activity},
+ {label:'Tor research',page:'Tor research',icon:Network},
+];
 function pageTitle(page: Page): string {
  if (page==='Chat') return 'Chat';
  if (page==='Library') return 'Library';
@@ -99,6 +113,9 @@ export default function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Hexagon size={30} /><Network size={15} /></div><div><strong>BugHunter<span>Claudex</span></strong><small>Research workbench</small></div></div>
       <nav aria-label="Main navigation" className="simple-nav">
         {MAIN_PAGES.map(({label,page:destination,icon:Icon}) => { const selected = sidebarSelection(page) === label; return <button key={label} aria-label={label} className={`nav-item ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={19}/><span>{label}</span></button>; })}
+        <details className="nav-advanced" open={sidebarSelection(page)===null}><summary>Advanced tools{approvals>0 && <b className="tab-count">{approvals}</b>}</summary>
+          <div className="nav-advanced-list">{TOOL_PAGES.map(({label,page:destination,icon:Icon}) => <button key={label} type="button" aria-label={label} className={`nav-item nav-sub ${page===destination ? 'selected' : ''}`} aria-current={page===destination ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={17}/><span>{label}</span>{label==='Approvals' && approvals>0 && <b className="tab-count">{approvals}</b>}</button>)}</div>
+        </details>
       </nav>
       <div className="sidebar-bottom"><div className="local-note"><span className={`connection-dot ${connectionError ? 'offline' : ''}`} /><div><strong>{connectionError ? 'Backend disconnected' : 'Local workspace'}</strong><small>{connectionError ? 'Check the backend connection' : 'Sources and evidence stay here'}</small></div></div><div className="sidebar-footer"><span>v0.1.0</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</button></div></div>
     </aside>

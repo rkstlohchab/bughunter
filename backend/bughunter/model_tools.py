@@ -104,19 +104,25 @@ class ModelTools:
         return entity
 
     def _autodispatch(self, action: dict) -> dict:
-        """In an autonomous run, approve (if needed) and execute a queued action,
-        returning its real response. Scope, gateway routing and request budgets
-        still bound this in policy.execute; failures come back as evidence."""
+        """In an autonomous run, auto-SEND only requests the policy classified as
+        read-only. State-changing or unknown-effect requests are left queued for the
+        operator to approve and release from the desktop. The model never approves its
+        own writes (AGENTS.md invariant 1: "Never add a path that auto-approves or
+        bypasses the gateway"); the queued action becomes evidence the agent should
+        report, then continue with read-only work rather than wait. The human sending
+        the request later triggers RunManager.maybe_auto_resume, which continues the run
+        with the real result -- autonomy within the gate, not instead of it."""
         if not isinstance(action, dict) or not action.get("id"):
             return action
+        if action.get("effect") not in {"read_only", "read-only"}:
+            return {**action, "autonomous": False, "awaiting_approval": True,
+                    "note": "This request may change state, so it was QUEUED for the operator to review and send from the desktop -- it was NOT sent. Do not assume it ran. Continue with read-only evidence gathering and report that this request is awaiting the operator's approval."}
         try:
-            if action.get("effect") not in {"read_only", "read-only"} and action.get("status") == "pending_approval":
-                self.app.policy.approve(action["id"])
             executed = self.app.policy.execute(action["id"])
             return {**executed, "autonomous": True}
         except Exception as exc:
             return {**action, "autonomous_execution_error": str(exc),
-                    "note": "The request could not be sent automatically. Report this to the operator rather than assuming it ran."}
+                    "note": "The read-only request could not be sent automatically. Report this to the operator rather than assuming it ran."}
 
     def _can_share_tor(self):
         return (self.app.settings.get().get("provider") in {"ollama", "crucible"}

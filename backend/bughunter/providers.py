@@ -128,6 +128,46 @@ Reporting:
 """
 
 
+TRANSCRIPT_MAX_STR = 4000
+
+
+def _truncate_strings(value, limit=TRANSCRIPT_MAX_STR):
+    """Deep copy that shortens long strings while preserving list/dict structure, so a
+    persisted transcript stays bounded without breaking provider message pairing (a
+    tool_use must keep its matching tool_result) when a run resumes."""
+    if isinstance(value, str):
+        return value if len(value) <= limit else value[:limit] + "\u2026[truncated for storage]"
+    if isinstance(value, list):
+        return [_truncate_strings(v, limit) for v in value]
+    if isinstance(value, dict):
+        return {k: _truncate_strings(v, limit) for k, v in value.items()}
+    return value
+
+
+def storable_transcript(messages):
+    """Structure-preserving, size-bounded copy of the live message list for durable
+    persistence. Messages are never dropped (that would break tool-call pairing); only
+    long string contents are truncated."""
+    return _truncate_strings(list(messages))
+
+
+def relevant_methods(app, prompt, project_id):
+    """Prime an autonomous run with human-reviewed, evidence-cited reusable methods
+    relevant to the task. Only methods the operator marked verified are returned
+    (SkillService.match), so this injects nothing the operator has not already
+    approved, and it never blocks a run."""
+    try:
+        matches = app.skills.match(str(prompt or "")[:5000], project_id=project_id, limit=3)
+    except Exception:
+        return ""
+    if not matches:
+        return ""
+    lines = ["\n\nRelevant methods you learned earlier and the operator reviewed (reusable and source-cited; confirm each still applies before you rely on it):"]
+    for row in matches:
+        lines.append("- " + str(row.get("title", "Method"))[:120] + ": " + str(row.get("method", ""))[:600])
+    return "\n".join(lines)
+
+
 def fallback_tool_protocol(specs=None) -> str:
     """Prompt-level tool contract for local models without a native tool API.
 
@@ -644,6 +684,8 @@ class RunManager:
             prompt = f"No project is set, so web-target tools have no authorized scope. Use library, file-analysis and drafting tools, and tell the operator if a web project is needed.\n{redact_text(prompt)}"
         else:
             prompt = f"Current project ID: {run['project_id']}. Only this project's scope is authorized.\n{redact_text(prompt)}"
+        if not run.get("resuming") and not study:
+            prompt = prompt + relevant_methods(self.app, run.get("prompt"), run.get("project_id"))
         process = subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,
             cwd=workspace,env=subscription_env(),start_new_session=True,bufsize=1)
         self.processes[id] = process
@@ -739,7 +781,15 @@ class RunManager:
             framing = "No project is set; web-target tools have no authorized scope. Use library, file-analysis and drafting tools, and say if a web project is needed."
         else:
             framing = f"Current project: {run['project_id']}."
-        messages = [{"role":"user","content":framing+f"\n{redact_text(run['prompt'])}"}]
+        prior = run.get("transcript") if isinstance(run.get("transcript"), list) else None
+        if prior:
+            messages = prior
+            if run.get("resuming"):
+                messages = messages + [{"role":"user","content":"The operator has reviewed and sent any requests that were awaiting approval; their recorded outcomes are now available through list_actions and get_traffic. Continue the task from where you left off. Do not re-queue or re-send a request that already ran."}]
+        else:
+            primer = "" if study else relevant_methods(self.app, run.get("prompt"), run.get("project_id"))
+            messages = [{"role":"user","content":framing+f"\n{redact_text(run['prompt'])}"+primer}]
+        start_turn = int(run.get("turns_done", 0)) if prior else 0
         system = effective_system_prompt(STUDY_PROMPT if study else (AGENT_PROMPT if agent else prompt_text()),custom_prompt_for(settings))
         tooldefs = [{"type":"function","function":spec} for spec in active_specs]
         cost = float(run.get("api_cost_usd",0))
@@ -785,11 +835,16 @@ class RunManager:
                 native_tools = "tools" in model_info.get("capabilities",[])
             if not native_tools:
                 system = system + "\n\n" + fallback_tool_protocol(active_specs)
-            for turn in range(settings["max_agent_turns"]):
+            for turn in range(start_turn, settings["max_agent_turns"]):
                 if stop.is_set():
                     raise InterruptedError()
                 if time.monotonic() > deadline:
                     raise TimeoutError("Agent run time limit reached.")
+                # Durable progress: persist a bounded transcript each turn so a paused,
+                # crashed or restarted run resumes with full context instead of from the
+                # original prompt. turns_done lets a resumed run continue the turn budget
+                # rather than restart it.
+                self._update(run["id"], transcript=storable_transcript(messages), turns_done=turn)
                 # Worst-case byte/token upper bound plus tools/system overhead is reserved before a paid call.
                 input_bound = len(json.dumps({"system":system,"messages":messages,"tools":tooldefs}).encode())+4096
                 reservation = (input_bound*settings["input_price_per_million"]+maximum_output*settings["output_price_per_million"])/1_000_000
