@@ -131,3 +131,23 @@ autonomy + method recall) is production-grade and well-tested. The **unified orc
 **desktop/vision/verification** layers are the real remaining work and are macOS-dependent to prove
 out. This increment makes the autonomous path durable and safe; it does not yet make the three agents
 one. That is the next milestone (Proposed #1 and #4).
+
+---
+
+## Increment 2 — plan milestones implemented (orchestrated via opus subagents, each verified + committed separately)
+
+All backend changes keep the approval gate intact (the model never approves or auto-sends a state-changing request) and were each confirmed against the full suite before commit. Final: **554 passed, 0 failed**; `tsc --noEmit` clean; Rust `ce_policy`/`ce_core` unit tests pass.
+
+| Milestone | What shipped | Commit |
+|---|---|---|
+| **M1 Unified orchestrator** | Tool-free planner decomposes a fresh agent objective into an ordered, persisted `plan` entity (2–6 subtasks) injected into the run; run-local `get_plan`/`update_plan` tools (no target/gateway/scope/approval surface); deterministic end-of-run "Plan status" line; skipped on resume; budget-counted; single-subtask fallback on any failure. | `e4da0d8` |
+| **M2 Live context compaction** | `compact_context()` bounds the in-RAM working set once it passes a byte budget by shrinking only *old* tool-result content, preserving message count/order, tool-call pairing ids, images, and the system frame. Wired as one line after the per-turn transcript persist. | `81f28bd` |
+| **M3 Procedural promotion** | On a grounded autonomous completion, auto-drafts ONE reusable-method **candidate** (`skills.propose`, tag `autodrafted`) from the run's done subtasks + summary, linked to real evidence. Never auto-verified → never auto-recalled until a human reviews it; idempotent; failure can't change run outcome. | `e2258f5` |
+| **M5 Unified memory (desktop)** | The macOS desktop planner is now primed with the same operator-verified reusable methods as the web agent (read-only, cited, SYSTEM-prompt only); the control-label privacy filter is unchanged. | `8095d31` |
+| **M4 Desktop reachable** | `MacAutopilotPanel` reconnected to the UI via an "Advanced tools" entry. | `1c83aa0` |
+
+### Still deferred (cannot be verified from this Linux container)
+- **M4 Rust/vision**: screenshot→model vision channel and real before/after outcome verification in `src-tauri/src/mac_desktop.rs`. These need GTK/macOS to compile and a real Mac to test, so they are intentionally NOT shipped unverified. They remain a documented follow-up with the existing frontmost-app / consequential-word / approval guards to be preserved.
+
+### Net effect
+The autonomous path is now **durable** (survives restart/pause), **bounded** (context can't overflow a local model), **plan-driven** (explicit, inspectable subtasks with replan-on-block), and **compounding** (verified methods auto-recalled on web *and* desktop; new methods drafted for human review) — all while every target-touching write still stops at the human approval gate.
