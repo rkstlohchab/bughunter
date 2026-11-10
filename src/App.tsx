@@ -11,15 +11,16 @@ import CeMcpPanel from './CeMcpPanel';
 import RedTeam from './RedTeam';
 import TrainingLab from './TrainingLab';
 import TorResearch from './TorResearch';
+import MacAutopilotPanel from './MacAutopilotPanel';
 import { KnowledgeTransfer, ScriptDrafts, SourceLearning } from './Learning';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
 
-type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research';
+type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research' | 'Mac control';
 const WEB_PAGES: Page[] = ['Overview','Targets','Traffic','Tests','Approvals','Findings'];
 // Chat is home. Everything else is reachable from the top-bar quick menu or lives
 // as a background capability the AI can invoke directly.
@@ -41,6 +42,7 @@ const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon}[] = [
  {label:'AI red team',page:'AI red team',icon:FlaskConical},
  {label:'Training lab',page:'Training lab',icon:Activity},
  {label:'Tor research',page:'Tor research',icon:Network},
+ {label:'Mac control',page:'Mac control',icon:AppWindow},
 ];
 function pageTitle(page: Page): string {
  if (page==='Chat') return 'Chat';
@@ -135,6 +137,7 @@ export default function App() {
           {page === 'AI red team' && <RedTeam perform={perform} busy={busy} revision={revision} projectId={projectId}/>}
           {page === 'Training lab' && <TrainingLab perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Tor research' && <TorResearch perform={perform} revision={revision} projectId={projectId}/>}
+          {page === 'Mac control' && <MacAutopilotPanel initialTask="" projectId={projectId} onClose={()=>setPage('Chat')}/>}
           {page === 'Library' && <Library {...shared}/>}
           {page === 'Knowledge graph' && <KnowledgeGraph perform={perform} revision={revision}/>}
           {page === 'Methods' && <SkillsView projectId={projectId}/>}
