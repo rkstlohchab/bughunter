@@ -152,6 +152,112 @@ def storable_transcript(messages):
     return _truncate_strings(list(messages))
 
 
+# Live context compaction: the IN-RAM working context sent to the provider each turn
+# (unlike the durable transcript, which storable_transcript already bounds) grows without
+# limit on a long run and overflows a small local model's context window. Compaction keeps
+# it bounded WITHOUT ever altering provider message structure: it shrinks only the string
+# CONTENT of OLD tool-RESULT messages (those older than a recent window), replacing a long
+# result with a short placeholder. Message count, order, roles, tool_use/function_call
+# requests, tool-call pairing ids, images, and the system/first framing message are all
+# left byte-for-byte identical. It is deterministic - no model call - because the agent has
+# already extracted what it needs into actions/findings before a result goes cold.
+CONTEXT_COMPACT_BUDGET_BYTES = 180000
+COMPACT_KEEP_RECENT = 8
+
+
+def _elision_placeholder(n):
+    return f"[earlier tool output elided to fit context: {n} chars]"
+
+
+def _shrink_result_string(value):
+    """Replace one oversized tool-result string with an elision placeholder, but only when
+    that actually makes it shorter. Returns (new_value, chars_elided); chars_elided is 0
+    (and value is returned unchanged) for a non-string or an already-short result."""
+    if not isinstance(value, str):
+        return value, 0
+    placeholder = _elision_placeholder(len(value))
+    if len(placeholder) >= len(value):
+        return value, 0
+    return placeholder, len(value)
+
+
+def _compact_message(message):
+    """Return (new_message, chars_elided) for a single OLD message. Only a tool-RESULT
+    message's result CONTENT is shrunk, and only into a new object - the input message is
+    never mutated, so the caller can keep the original when nothing changed. Any other
+    message (system/framing, assistant text, a tool_use/function_call request, an image
+    follow-up) yields (message, 0) and is left untouched. The four provider tool-RESULT
+    shapes are detected structurally, so a provider that can switch between native and
+    fallback tool protocols (e.g. ollama) is handled either way."""
+    if not isinstance(message, dict):
+        return message, 0
+    # OpenAI Responses API tool result: {"type":"function_call_output","call_id":...,"output":<str>}.
+    if message.get("type") == "function_call_output":
+        new_output, elided = _shrink_result_string(message.get("output"))
+        return ({**message, "output": new_output}, elided) if elided else (message, 0)
+    role, content = message.get("role"), message.get("content")
+    # Chat tool reply (ollama/remote_ollama and other chat APIs): {"role":"tool",...,"content":<str>}.
+    if role == "tool" and isinstance(content, str):
+        new_content, elided = _shrink_result_string(content)
+        return ({**message, "content": new_content}, elided) if elided else (message, 0)
+    # Fallback prompt-protocol tool reply: a user message whose text begins "Result of <tool>:".
+    # Keep that prefix line (so the shape stays recognizable); elide the rest. The "images"
+    # guard leaves the fallback image follow-up (raw content, no prefix) alone regardless.
+    if role == "user" and isinstance(content, str) and content.startswith("Result of ") and "images" not in message:
+        prefix, sep, rest = content.partition("\n")
+        if sep and rest:
+            placeholder = _elision_placeholder(len(rest))
+            if len(placeholder) < len(rest):
+                return {**message, "content": prefix + "\n" + placeholder}, len(rest)
+        return message, 0
+    # Anthropic tool_result blocks live inside a user message whose content is a list. Shrink
+    # only the "text" parts of each tool_result block; leave tool_use_id, image blocks, and
+    # any non-tool_result block (e.g. an image follow-up's input_text/image) untouched.
+    if role == "user" and isinstance(content, list):
+        new_blocks, elided_total = [], 0
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result" and isinstance(block.get("content"), list):
+                inner, inner_elided = [], 0
+                for part in block["content"]:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        new_text, elided = _shrink_result_string(part.get("text"))
+                        if elided:
+                            inner.append({**part, "text": new_text})
+                            inner_elided += elided
+                            continue
+                    inner.append(part)
+                if inner_elided:
+                    new_blocks.append({**block, "content": inner})
+                    elided_total += inner_elided
+                    continue
+            new_blocks.append(block)
+        return ({**message, "content": new_blocks}, elided_total) if elided_total else (message, 0)
+    return message, 0
+
+
+def compact_context(messages, provider, budget=CONTEXT_COMPACT_BUDGET_BYTES, keep_recent=COMPACT_KEEP_RECENT):
+    """Bound the working context without breaking provider message structure. Returns a NEW
+    list of the SAME length and order (no message dropped, merged, split, reordered, or
+    re-roled). If the json-serialized size is already within budget, `messages` is returned
+    unchanged. Otherwise only OLD tool-RESULT messages - indices 1..len-keep_recent-1, i.e.
+    never index 0 (the system/first framing message) and never the most recent `keep_recent`
+    messages - have their long result CONTENT replaced by a short placeholder, oldest first,
+    re-checking after each until the size is within budget or nothing shrinkable remains.
+    `provider` is accepted for parity with the _api call site; the shapes are detected
+    structurally, so it is not needed to disambiguate them. Pure: the input is not mutated."""
+    if len(json.dumps(messages, default=str).encode()) <= budget:
+        return messages
+    result = list(messages)
+    for index in range(1, len(result) - keep_recent):
+        new_message, elided = _compact_message(result[index])
+        if not elided:
+            continue
+        result[index] = new_message
+        if len(json.dumps(result, default=str).encode()) <= budget:
+            break
+    return result
+
+
 def relevant_methods(app, prompt, project_id):
     """Prime an autonomous run with human-reviewed, evidence-cited reusable methods
     relevant to the task. Only methods the operator marked verified are returned
@@ -992,6 +1098,13 @@ class RunManager:
                 # original prompt. turns_done lets a resumed run continue the turn budget
                 # rather than restart it.
                 self._update(run["id"], transcript=storable_transcript(messages), turns_done=turn)
+                # Live context compaction: bound the IN-RAM working set sent to the provider so
+                # a small local model's context window does not overflow on a long run. Done in
+                # place (the agent has already extracted what it needs into actions/findings) and
+                # right after the persist so the next persisted snapshot is bounded too. It only
+                # elides OLD tool-RESULT string content - message count, order, and tool-call
+                # pairing are preserved (AGENTS.md: never break provider message structure).
+                messages[:] = compact_context(messages, provider)
                 # Worst-case byte/token upper bound plus tools/system overhead is reserved before a paid call.
                 input_bound = len(json.dumps({"system":system,"messages":messages,"tools":tooldefs}).encode())+4096
                 reservation = (input_bound*settings["input_price_per_million"]+maximum_output*settings["output_price_per_million"])/1_000_000
