@@ -152,6 +152,29 @@ def model_visible_controls(observation: str, allow_visible_text: bool = False) -
     return '\n'.join(safe) or '(No shareable control labels exposed by this app)'
 
 
+def relevant_desktop_methods(app, objective, project_id):
+    """Prime the desktop planner with the operator's human-verified reusable methods.
+
+    This is the desktop twin of the web agent's providers.relevant_methods: both read
+    the single source of verified methods (SkillService.match returns only operator
+    'verified' rows, project-scoped + global), so a method the operator reviewed applies
+    whether the task runs on the web or the desktop. It adds no execution power - it only
+    renders our own already-reviewed guidance text for the planner's SYSTEM prompt. The
+    block is bounded, never carries observation/target text, and is best-effort: it never
+    raises and never blocks planning.
+    """
+    try:
+        matches = app.skills.match(str(objective or '')[:5000], project_id=project_id, limit=3)
+    except Exception:
+        return ''
+    if not matches:
+        return ''
+    lines = ['Reviewed methods you may reuse for this task (operator-verified, source-cited; confirm each still applies):']
+    for row in matches:
+        lines.append('- ' + str(row.get('title','Method'))[:120] + ': ' + str(row.get('method',''))[:400])
+    return '\n'.join(lines)
+
+
 class DesktopPlanner:
     def __init__(self, app): self.app=app
 
@@ -180,6 +203,9 @@ class DesktopPlanner:
             'input_allowed':allow,
         }
         planner_system = SYSTEM + '\n\n' + DESKTOP_CAPABILITY_CONTEXT
+        methods = relevant_desktop_methods(self.app, objective.strip(), params.get('project_id'))
+        if methods:
+            planner_system = planner_system + '\n\n' + methods
         messages=[{'role':'system','content':planner_system}, {'role':'user','content':json.dumps(prompt,ensure_ascii=False)}]
         candidate={'id':'primary',**settings,'base_url':settings.get('api_base_url','')}
         from .model_routing import request_chat
