@@ -66,6 +66,8 @@ TOOL_SPECS = [
     {"name":"list_source_frames","description":"List sampled video frames and timestamp locators for an imported source.","parameters":schema({"source_id":TEXT},["source_id"])},
     {"name":"get_source_frame","description":"View a registered video frame as an image for visual analysis. Never infer a screen demonstration from its transcript alone.","parameters":schema({"source_id":TEXT,"artifact_id":TEXT},["source_id","artifact_id"])},
     {"name":"interpret_source_frame","description":"Store your visual interpretation of a viewed source frame with its timestamp. It remains labeled inferred.","parameters":schema({"source_id":TEXT,"artifact_id":TEXT,"text":TEXT},["source_id","artifact_id","text"])},
+    {"name":"get_plan","description":"Read this run's ordered subtask plan and each subtask's current status. Run-local and read-only: it reaches no target, gateway, scope, or approval queue.","parameters":schema()},
+    {"name":"update_plan","description":"Update the status of ONE subtask in this run's plan. status is 'active', 'done', or 'blocked'. Marking a subtask blocked returns guidance: try an alternative for the remaining goals, or - if truly blocked, e.g. a state-changing request is awaiting the operator's approval - summarize and stop. Run-local: it never sends a request, changes scope, or approves anything.","parameters":schema({"subtask_id":TEXT,"status":TEXT,"note":TEXT},["subtask_id","status"])},
     # ----- Capability-unlocked tools (require their operator toggle enabled) -----
     {"name":"queue_binary_action","description":"Queue a state-changing HTTP request with a binary body (up to 32 MiB) for operator approval. Body is passed as base64. Still requires per-request desktop approval.","parameters":schema({"request_json":TEXT,"session_id":TEXT},["request_json","session_id"])},
     {"name":"queue_websocket","description":"Queue a WebSocket replay (up to 50 frames) for operator approval. Each frame has direction (send|receive), payload, and opcode.","parameters":schema({"url":TEXT,"frames_json":TEXT,"session_id":TEXT},["url","frames_json","session_id"])},
@@ -84,6 +86,11 @@ STUDY_TOOL_NAMES = {"get_evidence_casebook","get_advanced_verification","get_adv
 # How many cited chunks get_source returns per page (keeps a tool result well under
 # the serialization cap so long courses can be paged through in full).
 SOURCE_PAGE = 25
+# Run-local orchestration tools. They read and update only the run's own "plan"
+# entity - no target, gateway, scope, or approval surface - so they are deliberately
+# kept out of STUDY_TOOL_NAMES (a study run has no plan) and reach nothing a target
+# could touch. The planner that seeds the plan lives in providers.RunManager.
+PLAN_TOOL_NAMES = {"get_plan", "update_plan"}
 
 
 class ModelTools:
@@ -162,6 +169,41 @@ class ModelTools:
         if row.get('next',{}).get('procedure_id') and not visible(row['next']['procedure_id']):
             result['next'] = {'type':'private_source','detail':'Open this mission locally to review the private source.'}
         return result
+
+    def _plan_for_run(self):
+        """The run's own plan entity, if one was seeded for this autonomous run."""
+        plans = self.app.store.list("plan", run_id=self.run_id)
+        return plans[0] if plans else None
+
+    def _plan_view(self):
+        plan = self._plan_for_run()
+        if not plan:
+            return {"plan": None, "note": "No plan was recorded for this run; work the objective directly."}
+        return {"plan_id": plan["id"], "objective": plan.get("objective", ""),
+                "subtasks": [{"id": s.get("id"), "goal": s.get("goal"), "status": s.get("status")} for s in plan.get("subtasks", [])]}
+
+    def _update_plan(self, subtask_id, status, note):
+        """Set one subtask's status in this run's plan. Reads and writes only the plan
+        entity - no target, gateway, scope, or approval surface is reachable here."""
+        if status not in {"active", "done", "blocked"}:
+            raise ValueError("A subtask status must be 'active', 'done', or 'blocked'.")
+        plan = self._plan_for_run()
+        if not plan:
+            raise ValueError("This run has no plan to update.")
+        subtasks = [dict(s) for s in plan.get("subtasks", [])]
+        target = next((s for s in subtasks if s.get("id") == subtask_id), None)
+        if not target:
+            raise ValueError("No subtask with that id belongs to this run's plan.")
+        target["status"] = status
+        if isinstance(note, str) and note.strip():
+            target["note"] = note.strip()[:500]
+        self.app.store.put("plan", {**plan, "subtasks": subtasks}, id=plan["id"])
+        view = self._plan_view()
+        if status == "blocked":
+            view["instruction"] = ("This subtask is blocked. Try an alternative approach for the remaining goals. "
+                                    "If you are truly blocked - for example a state-changing request is queued and awaiting the "
+                                    "operator's approval - summarize what you found and what is still pending, then stop rather than waiting.")
+        return view
 
     def call(self, name: str, arguments: dict):
         if name not in {t["name"] for t in TOOL_SPECS}:
@@ -390,5 +432,9 @@ class ModelTools:
         elif name == "bulk_import_source":
             result = self.app.capabilities.bulk_download({"source_url":arguments["source_url"],
                 "max_items":arguments.get("max_items",100)})
+        elif name == "get_plan":
+            result = self._plan_view()
+        elif name == "update_plan":
+            result = self._update_plan(arguments["subtask_id"], arguments["status"], arguments.get("note", ""))
         self.app.store.event("agent.tool", {"run_id":self.run_id,"tool":name})
         return redact(result)
