@@ -800,6 +800,7 @@ class RunManager:
             current = self.store.get("run",id)
             if current.get("status") not in {"limited","cancelled","paused"}:
                 self._update(id,status="awaiting_approval" if pending else "completed",summary=summary)
+                self._maybe_promote_skill(self.store.get("run",id))
         except InterruptedError:
             self._update(id,status="paused")
         except Exception as exc:
@@ -1006,6 +1007,71 @@ class RunManager:
         if blocked:
             line += f", {len(blocked)} blocked: " + "; ".join(redact_text(str(s.get('goal', '')))[:80] for s in blocked)
         return "\n\n" + line + "."
+
+    def _autodraft_skill_title(self, run):
+        """Deterministic, bounded title derived from the run's objective, so the idempotency
+        check can recognize a candidate already auto-drafted for this same run."""
+        objective = re.sub(r"\s+", " ", redact_text(str(run.get("prompt") or ""))).strip()
+        return (("Reusable method: " + objective) if objective else "Reusable method from autonomous run")[:120]
+
+    def _maybe_promote_skill(self, run):
+        """Close the learn -> apply -> learn loop: when an autonomous AGENT run finishes
+        successfully, auto-draft ONE reusable-method CANDIDATE from what the run actually did,
+        so skill compounds over time. This is strictly additive and adds no execution power -
+        a single store write, through the normal SkillService.propose path, of a candidate
+        linked to real evidence. The result is status 'candidate', NEVER 'verified': it is
+        invisible to SkillService.match / relevant_methods until a human reviews it, so it is
+        never auto-recalled (AGENTS.md: reusable methods and findings are human-reviewed; the
+        agent only drafts hypotheses). It promotes only on real grounding - a plan with a
+        completed subtask, plus evidence skills.propose will accept - and never fabricates a
+        quote, finding or method. It is best-effort: any failure is swallowed so a promotion
+        problem can never change the run's outcome."""
+        try:
+            if run.get("kind") != "agent" or not run.get("project_id"):
+                return  # only autonomous, project-scoped agent runs promote a method
+            project_id = run["project_id"]
+            plans = self.store.list("plan", run_id=run["id"])
+            subtasks = plans[0].get("subtasks", []) if plans else []
+            done = [s for s in subtasks if s.get("status") == "done"]
+            if not done:
+                return  # the run completed nothing it planned; invent nothing
+            # Evidence skills.propose will accept, produced by this run: a finding from this run
+            # (preferred), else the most recent finding in the project, else an attached source.
+            findings = self.store.list("finding", project_id=project_id)
+            by_run = [f for f in findings if f.get("run_id") == run["id"]]
+            evidence_id = None
+            if by_run:
+                evidence_id = by_run[0]["id"]
+            elif findings:
+                evidence_id = findings[0]["id"]
+            else:
+                for sid in run.get("source_ids") or []:
+                    source = self.store.get("source", sid)
+                    if source and source.get("project_id") in (None, project_id):
+                        evidence_id = sid
+                        break
+            if not evidence_id:
+                return  # nothing grounded to attach; do not fabricate evidence
+            title = self._autodraft_skill_title(run)
+            # Idempotency: at most one auto-drafted candidate per (project, evidence) - never duplicate.
+            for row in self.store.list("reviewed_skill", project_id=project_id):
+                if row.get("evidence_id") == evidence_id and ("autodrafted" in (row.get("tags") or []) or row.get("title") == title):
+                    return
+            goals = [redact_text(str(s.get("goal", "")))[:300] for s in done if str(s.get("goal", "")).strip()]
+            lines = ["Reusable method auto-drafted from a completed autonomous run; a human must review it before relying on it.",
+                     "Completed steps the run actually performed:"]
+            lines += [f"- {g}" for g in goals] or ["- (no step detail recorded)"]
+            summary = redact_text(str(run.get("summary") or "")).strip()
+            if summary:
+                lines += ["", "Recorded run outcome: " + summary[:2000]]
+            method = "\n".join(lines)[:4000]
+            self.app.skills.propose(title, method, evidence_id, project_id=project_id, tags=["autodrafted"])
+            self._log(run["id"], "info", "Drafted a candidate reusable method from this run for operator review.")
+        except Exception as exc:  # strictly best-effort: a promotion failure never changes the run outcome
+            try:
+                self._log(run.get("id"), "info", f"Skill promotion skipped ({type(exc).__name__}).")
+            except Exception:
+                pass
 
     def _api(self,run,stop):
         settings = run["settings_snapshot"]
