@@ -11,15 +11,16 @@ import CeMcpPanel from './CeMcpPanel';
 import RedTeam from './RedTeam';
 import TrainingLab from './TrainingLab';
 import TorResearch from './TorResearch';
+import MacAutopilotPanel from './MacAutopilotPanel';
 import { KnowledgeTransfer, ScriptDrafts, SourceLearning } from './Learning';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, Circle, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
 
-type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research';
+type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research' | 'Mac control';
 const WEB_PAGES: Page[] = ['Overview','Targets','Traffic','Tests','Approvals','Findings'];
 // Chat is home. Everything else is reachable from the top-bar quick menu or lives
 // as a background capability the AI can invoke directly.
@@ -27,6 +28,21 @@ const MAIN_PAGES: {label: 'Chat'|'Library'|'Settings'; page: Page; icon: LucideI
  {label:'Chat',page:'Chat',icon:MessageSquare},
  {label:'Library',page:'Library',icon:BookOpen},
  {label:'Settings',page:'Settings',icon:Settings2},
+];
+// Reachable again from the sidebar "Advanced tools" group. Chat is still home and the
+// agent can open the right workspace on its own, but every page has a manual entry so
+// the app is one unified surface rather than orphaned routes.
+const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon}[] = [
+ {label:'Tasks',page:'Team',icon:ListChecks},
+ {label:'Web testing',page:'Overview',icon:Target},
+ {label:'Approvals',page:'Approvals',icon:ShieldCheck},
+ {label:'Methods',page:'Methods',icon:FileText},
+ {label:'Knowledge graph',page:'Knowledge graph',icon:GitFork},
+ {label:'CE / memory bridge',page:'CE bridge',icon:Cpu},
+ {label:'AI red team',page:'AI red team',icon:FlaskConical},
+ {label:'Training lab',page:'Training lab',icon:Activity},
+ {label:'Tor research',page:'Tor research',icon:Network},
+ {label:'Mac control',page:'Mac control',icon:AppWindow},
 ];
 function pageTitle(page: Page): string {
  if (page==='Chat') return 'Chat';
@@ -99,6 +115,9 @@ export default function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Hexagon size={30} /><Network size={15} /></div><div><strong>BugHunter<span>Claudex</span></strong><small>Research workbench</small></div></div>
       <nav aria-label="Main navigation" className="simple-nav">
         {MAIN_PAGES.map(({label,page:destination,icon:Icon}) => { const selected = sidebarSelection(page) === label; return <button key={label} aria-label={label} className={`nav-item ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={19}/><span>{label}</span></button>; })}
+        <details className="nav-advanced" open={sidebarSelection(page)===null}><summary>Advanced tools{approvals>0 && <b className="tab-count">{approvals}</b>}</summary>
+          <div className="nav-advanced-list">{TOOL_PAGES.map(({label,page:destination,icon:Icon}) => <button key={label} type="button" aria-label={label} className={`nav-item nav-sub ${page===destination ? 'selected' : ''}`} aria-current={page===destination ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={17}/><span>{label}</span>{label==='Approvals' && approvals>0 && <b className="tab-count">{approvals}</b>}</button>)}</div>
+        </details>
       </nav>
       <div className="sidebar-bottom"><div className="local-note"><span className={`connection-dot ${connectionError ? 'offline' : ''}`} /><div><strong>{connectionError ? 'Backend disconnected' : 'Local workspace'}</strong><small>{connectionError ? 'Check the backend connection' : 'Sources and evidence stay here'}</small></div></div><div className="sidebar-footer"><span>v0.1.0</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</button></div></div>
     </aside>
@@ -118,6 +137,7 @@ export default function App() {
           {page === 'AI red team' && <RedTeam perform={perform} busy={busy} revision={revision} projectId={projectId}/>}
           {page === 'Training lab' && <TrainingLab perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Tor research' && <TorResearch perform={perform} revision={revision} projectId={projectId}/>}
+          {page === 'Mac control' && <MacAutopilotPanel initialTask="" projectId={projectId} onClose={()=>setPage('Chat')}/>}
           {page === 'Library' && <Library {...shared}/>}
           {page === 'Knowledge graph' && <KnowledgeGraph perform={perform} revision={revision}/>}
           {page === 'Methods' && <SkillsView projectId={projectId}/>}
