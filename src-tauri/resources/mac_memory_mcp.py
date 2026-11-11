@@ -15,7 +15,9 @@ refused for SIP-protected and hardened-runtime targets. check_access reports wha
 A /proc backend exists so the protocol and scan logic are testable on Linux. It is a dev/test aid only.
 """
 import ctypes
+import hashlib
 import json
+import math
 import os
 import re
 import struct
@@ -275,6 +277,7 @@ class Session:
         self.pid = None
         self.lock = threading.RLock()
         self.scan = None  # dict(type, size, align, values={addr: bytes}, truncated)
+        self.mapping_scans = {}
         self.frozen = {}
         self.next_freeze_id = 1
         self.freezer = None
@@ -302,6 +305,7 @@ class Session:
             self.stop_freezer()
             self.frozen.clear()
             self.scan = None
+            self.mapping_scans.clear()
             if self.backend is not None:
                 self.backend.close()
             self.backend, self.pid = None, None
@@ -632,8 +636,8 @@ def process_instance_identity(pid):
     if sys.platform == 'darwin':
         try:
             done = subprocess.run(['ps', '-p', str(pid), '-o', 'lstart='], capture_output=True,
-                                  text=True, timeout=2, check=False)
-            stamp = done.stdout.strip()
+                                  text=True, timeout=2, check=False, env={**os.environ,'LC_ALL':'C'})
+            stamp = ' '.join(done.stdout.split())
             if done.returncode == 0 and stamp:
                 return f'{pid}:mac:{stamp}'
         except (OSError, subprocess.TimeoutExpired):
@@ -883,6 +887,241 @@ def t_verify_module_pointer_chain(a):
                        'note': 'This is a single-process check. Repeat on a new instance with the same verified module/RVA recipe.'}, indent=2)
 
 
+# Separate bounded scans keep mapping checks independent of the raw Tools scan.
+K_MAPPING_BYTES = 64 * 1024 * 1024
+K_MAPPING_SECONDS = 8
+K_MAPPING_RESULTS = 20000
+K_MAPPING_SCANS = 8
+K_BUILD_BYTES = 256 * 1024 * 1024
+K_PROCESS_PATH_BYTES = 4096  # Darwin PROC_PIDPATHINFO_MAXSIZE
+
+
+def process_executable_path(pid):
+    if type(pid) is not int or not 1 < pid <= 0x7fffffff:
+        raise ValueError('Invalid selected process identifier.')
+    if sys.platform.startswith('linux'):
+        return os.readlink(f'/proc/{pid}/exe')
+    if sys.platform != 'darwin':
+        raise MemError('Mapping checks require the native macOS or Linux helper.')
+    # ps comm can be relative or changed by argv; libproc resolves the executable vnode.
+    # Signature: apple-oss-distributions/xnu libsyscall/wrappers/libproc/libproc.h
+    try:
+        libproc = ctypes.CDLL('/usr/lib/libproc.dylib', use_errno=True)
+        call = libproc.proc_pidpath
+        call.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_uint32]
+        call.restype = ctypes.c_int
+        buffer = ctypes.create_string_buffer(K_PROCESS_PATH_BYTES)
+        length = call(pid, buffer, len(buffer))
+        if length <= 0 or length >= len(buffer):
+            raise MemError(f'Cannot resolve the selected executable path (errno {ctypes.get_errno()}).')
+        path = os.fsdecode(buffer.value)
+    except (OSError, AttributeError) as exc:
+        raise MemError('macOS process path lookup is unavailable.') from exc
+    if not os.path.isabs(path):
+        raise MemError('macOS did not return an absolute executable path.')
+    return path
+
+
+def mapping_process_context():
+    S.need()
+    pid = S.pid
+    identity = process_instance_identity(pid)
+    if not identity:
+        raise MemError('Process creation identity is unavailable; reselect the program.')
+    path = process_executable_path(pid)
+    if not os.path.isabs(path) or not os.path.isfile(path):
+        raise MemError('Cannot fingerprint the selected executable on disk.')
+    hasher = hashlib.sha256()
+    deadline = time.monotonic() + 4
+    with open(path, 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if before.st_size > K_BUILD_BYTES:
+            raise MemError('Executable exceeds the 256 MiB fingerprint limit.')
+        hashed = 0
+        while True:
+            chunk = stream.read(1024 * 1024)
+            if not chunk:
+                break
+            hashed += len(chunk)
+            if hashed > K_BUILD_BYTES or time.monotonic() > deadline:
+                raise MemError('Executable fingerprint timed out.')
+            hasher.update(chunk)
+        after = os.fstat(stream.fileno())
+    if (before.st_size, before.st_mtime_ns) != (after.st_size, after.st_mtime_ns):
+        raise MemError('Executable changed during fingerprinting.')
+    if S.pid != pid or process_instance_identity(pid) != identity:
+        raise MemError('Selected process exited or changed during the check.')
+    return {'pid': pid, 'process_instance_id': identity, 'program': os.path.basename(path),
+            'build_sha256': hasher.hexdigest(), 'build_identity': 'executable_file_sha256'}
+
+
+def t_get_mapping_context(_a):
+    with S.lock:
+        return json.dumps(mapping_process_context())
+
+
+def t_list_mapping_processes(a):
+    """Process choices include creation identity so PID reuse cannot change the selection."""
+    needle = str(a.get('filter',''))[:120].lower()
+    result = subprocess.run(['ps','-u',str(os.getuid()),'-o','pid=,lstart=,comm='],
+        capture_output=True,text=True,timeout=4,check=False,env={**os.environ,'LC_ALL':'C'})
+    if result.returncode: raise MemError('Cannot list the current user\'s running programs.')
+    rows=[]
+    for line in result.stdout.splitlines():
+        match = re.match(r'^\s*(\d+)\s+([A-Z][a-z]{2} [A-Z][a-z]{2}\s+\d{1,2} \d\d:\d\d:\d\d \d{4})\s+(.+)$',line)
+        if not match: continue
+        pid, name = int(match[1]), os.path.basename(match[3])
+        if pid <= 1 or pid == os.getpid() or needle not in name.lower(): continue
+        identity = (f'{pid}:mac:'+' '.join(match[2].split()) if sys.platform=='darwin' else process_instance_identity(pid))
+        if identity: rows.append({'pid':pid,'program':name[:160],'process_instance_id':identity})
+    rows.sort(key=lambda row:(row['program'].lower(),row['pid']))
+    return json.dumps({'processes':rows[:300],'truncated':len(rows)>300})
+
+
+def t_attach_mapping_process(a):
+    pid, identity = a.get('pid'), a.get('process_instance_id')
+    if type(pid) is not int or pid <= 1 or not isinstance(identity,str) or len(identity)>200:
+        raise ValueError('Select one running program.')
+    if process_instance_identity(pid) != identity:
+        raise MemError('The selected program exited or restarted. Refresh the program list.')
+    with S.lock:
+        S.attach(pid)
+        try:
+            context=mapping_process_context()
+            if context['process_instance_id'] != identity: raise MemError('Program identity changed during attachment.')
+            return json.dumps(context)
+        except Exception:
+            S.detach()
+            raise
+
+
+def t_verify_mapping(a):
+    """Structured read-only recipe execution; no attach, scripts, or memory writes."""
+    check_id = a.get('check_id', '')
+    if not isinstance(check_id, str) or not re.fullmatch(r'mapping_check_[a-f0-9]{32}', check_id):
+        raise ValueError('Invalid mapping check identifier.')
+    kind, vtype = a.get('kind'), a.get('value_type')
+    if kind not in {'address', 'module_pointer', 'value_scan'} or vtype not in TYPES:
+        raise ValueError('Unsupported mapping recipe.')
+    if not isinstance(a.get('expected_value'), str) or len(a['expected_value']) > 60:
+        raise ValueError('Expected value must be a bounded numeric string.')
+    want = encode(vtype, a['expected_value'])
+    expected = decode(vtype, want)
+    if not math.isfinite(expected):
+        raise ValueError('Expected value must be finite.')
+    size = TYPES[vtype][1]
+    with S.lock:
+        context = mapping_process_context()
+        if type(a.get('pid')) is not int or a['pid'] != context['pid'] or a.get('process_instance_id') != context['process_instance_id']:
+            raise MemError('Attached process differs from the selected program instance. Select it again.')
+        backend = S.need()
+        samples, partial, truncated, count = [], False, False, 0
+        scan_id = None
+        scan_state = None
+        deadline = time.monotonic() + K_MAPPING_SECONDS
+        if kind == 'value_scan':
+            scan_id = a.get('scan_id') or check_id
+            previous = S.mapping_scans.get(scan_id) if a.get('scan_id') else None
+            if a.get('scan_id') and not previous:
+                raise MemError('Mapping scan expired or the helper reconnected. Start a new scan.')
+            found = []
+            if previous:
+                if previous['context'] != context or previous['type'] != vtype:
+                    raise MemError('Mapping scan belongs to a different process, build, or value type.')
+                partial, truncated = previous['partial'], previous['truncated']
+                for addr in previous['addresses']:
+                    if time.monotonic() > deadline:
+                        partial = True
+                        break
+                    try:
+                        raw = backend.read(addr, size)
+                    except MemError:
+                        partial = True
+                        continue
+                    if len(raw) != size:
+                        partial = True
+                    elif raw == want:
+                        found.append(addr)
+            else:
+                scanned = 0
+                for start, length, prot in backend.regions():
+                    if not prot & 1:
+                        continue
+                    for offset in range(0, length, K_CHUNK):
+                        if scanned >= K_MAPPING_BYTES or time.monotonic() > deadline:
+                            partial = True
+                            break
+                        amount = min(K_CHUNK + size - 1, length - offset, K_MAPPING_BYTES - scanned)
+                        scanned += amount
+                        try:
+                            raw = backend.read(start + offset, amount)
+                        except MemError:
+                            partial = True
+                            continue
+                        if len(raw) != amount:
+                            partial = True
+                        for position in Session._matches(raw, want, None, min(K_CHUNK, len(raw))):
+                            addr = start + offset + position
+                            if addr % size == 0:
+                                found.append(addr)
+                                if len(found) >= K_MAPPING_RESULTS:
+                                    truncated = True
+                                    break
+                        if truncated:
+                            break
+                    if truncated or scanned >= K_MAPPING_BYTES or time.monotonic() > deadline:
+                        partial = partial or scanned >= K_MAPPING_BYTES or time.monotonic() > deadline
+                        break
+            count = len(found)
+            # Read samples again: scanning a buffer is not a current readback.
+            for addr in found[:20]:
+                try:
+                    raw = backend.read(addr, size)
+                    if len(raw) != size:
+                        partial = True
+                        continue
+                    value = decode(vtype, raw)
+                    if not math.isfinite(value):
+                        partial = True
+                        continue
+                    samples.append({'address': hex(addr), 'value': value, 'matched': value == expected})
+                except MemError:
+                    partial = True
+            scan_state = {'context': context, 'type': vtype, 'addresses': found,
+                          'partial': partial, 'truncated': truncated}
+        else:
+            if kind == 'module_pointer':
+                name, rva = a.get('module_name'), parse_int(a.get('rva'))
+                if not isinstance(name, str) or not re.fullmatch(r'[\w. -]{2,160}', name) or not 0 <= rva <= 256 * 1024 * 1024:
+                    raise ValueError('Invalid module recipe.')
+                matches = [m for m in get_loaded_modules(S.pid) if m['name'] == name]
+                if len(matches) != 1:
+                    raise MemError('Module is missing or ambiguous.')
+                addr, _trail = resolve_chain(backend, matches[0]['base'] + rva, a.get('offsets', []))
+            else:
+                addr = parse_int(a.get('base'))
+            if not 0 < addr <= 0xffffffffffffffff - size:
+                raise ValueError('Read address is outside bounds.')
+            raw = backend.read(addr, size)
+            if len(raw) != size:
+                raise MemError('Short value read; no observation was verified.')
+            value = decode(vtype, raw)
+            if not math.isfinite(value):
+                raise MemError('Readback is not finite.')
+            samples = [{'address': hex(addr), 'value': value, 'matched': value == expected}]
+            count = 1
+        # Recheck identity and executable after all reads; never mix processes/builds.
+        if mapping_process_context() != context:
+            raise MemError('Selected process or executable changed during the check.')
+        if scan_state is not None:
+            if scan_id not in S.mapping_scans and len(S.mapping_scans) >= K_MAPPING_SCANS:
+                del S.mapping_scans[next(iter(S.mapping_scans))]
+            S.mapping_scans[scan_id] = scan_state
+        return json.dumps({**context, 'read_only': True, 'expected_input': a['expected_value'],
+                           'expected': expected, 'samples': samples, 'scan_id': scan_id,
+                           'candidate_count': count, 'partial': partial, 'truncated': truncated}, allow_nan=False)
+
+
 def t_write_memory(a):
     b = S.need()
     addr = parse_int(a["address"])
@@ -1014,6 +1253,16 @@ TOOLS = [
     ("attach_process", "Attach to a process by pid (acquires its Mach task port). Detaches any previous target.",
      schema({"pid": {"type": "integer"}}, ["pid"]), t_attach_process),
     ("detach_process", "Release the current target, freezes and scan.", schema({}), t_detach_process),
+    ("get_mapping_context", "Read the attached process creation identity and executable fingerprint.", schema({}), t_get_mapping_context),
+    ("list_mapping_processes", "List selectable user programs with exact process creation identities.", schema({"filter":{"type":"string"}}), t_list_mapping_processes),
+    ("attach_mapping_process", "Attach to one operator-selected process creation identity; approval required.",
+     schema({"pid":{"type":"integer"},"process_instance_id":{"type":"string"}},["pid","process_instance_id"]), t_attach_mapping_process),
+    ("verify_mapping", "Check a bounded cited numeric mapping against the already attached process; read only.",
+     schema({"check_id": {"type": "string"}, "kind": {"type": "string", "enum": ["address", "module_pointer", "value_scan"]},
+             "pid": {"type": "integer"}, "process_instance_id": {"type": "string"}, "expected_value": {"type": "string"},
+             "value_type": {"type": "string", "enum": sorted(TYPES)}, "base": _ADDR, "module_name": {"type": "string"},
+             "rva": _ADDR, "offsets": {"type": "array", "items": _ADDR}, "scan_id": {"type": ["string", "null"]}},
+            ["check_id", "kind", "pid", "process_instance_id", "expected_value", "value_type"]), t_verify_mapping),
     ("get_process_info", "Summary of the attached process: regions, mapped bytes, freezes, scan size.", schema({}), t_get_process_info),
     ("list_memory_regions", "Readable regions with protections.",
      schema({"writable_only": {"type": "boolean"}, "executable_only": {"type": "boolean"}, "limit": {"type": "integer"}}), t_list_memory_regions),

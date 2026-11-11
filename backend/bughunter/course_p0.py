@@ -251,12 +251,15 @@ class ProcedureP0:
             if len(procedures) >= MAX_PROCEDURES: return
             first = grouped[0]
             label = re.sub(r'\s+', ' ', first['quote'])[:100]
-            pid = 'procedure_'+_sha(source_id+':'+first['chunk_id']+':'+first['quote'])[:24]
+            # Repeated instructions in one chunk can start different groups.
+            # Bind the ID to the occurrence, retaining every quoted step.
+            pid = 'procedure_'+_sha(source_id+':'+first['chunk_id']+':'+str(first['source_line'])+':'+first['quote'])[:24]
             steps=[]
             for step_idx,item in enumerate(grouped):
                 steps.append({'id':pid+f'_step_{step_idx+1}', 'number':step_idx+1,
                     'quote':item['quote'], 'chunk_id':item['chunk_id'],
                     'locator':item['locator'], 'modality':item['modality'],
+                    'source_line':item['source_line'],
                     'timestamp_seconds':item.get('timestamp_seconds'),
                     'evidence_type':'observed_description' if item['modality']=='vision' else 'quoted_source',
                     'verified':False})
@@ -268,8 +271,8 @@ class ProcedureP0:
             metadata = json.loads(row['metadata'] or '{}')
             # One or two lines from a passage can be an instruction, never the whole
             # unbounded paragraph. Chunk ID + verbatim quote is durable evidence.
-            lines = [line.strip() for line in row['text'].splitlines() if line.strip()]
-            for line in lines:
+            for line_index, line in enumerate(row['text'].splitlines()):
+                line = line.strip()
                 if len(line) < 12 or not (ACTION_RE.search(line) or NUMBERED_RE.match(line)):
                     continue
                 if not ACTION_RE.search(line) and len(line) > 250: continue
@@ -277,6 +280,7 @@ class ProcedureP0:
                 # Refuse truncated quotes: a partial command is not valid provenance.
                 if len(line) > 450: continue
                 item = {'quote':quote, 'chunk_id':row['id'],
+                        'source_line':line_index + 1,
                         'locator':row['locator'],'modality':row['modality'],
                         'timestamp_seconds':metadata.get('start')}
                 if grouped and (row['ordinal'] > grouped[-1]['ordinal'] + 1 or len(grouped)>=6):

@@ -76,6 +76,9 @@ export interface CeConnectionHealth {
   capabilities?: Record<string,boolean>;
 }
 
+export type MappingProgram = {pid:number;program:string;process_instance_id:string;build_sha256?:string};
+export type MappingCheckReply = {check_id:string;saved?:boolean;approval_required?:boolean;request?:Record<string,unknown>;reason?:string};
+
 export const ceMcpApi = {
   getConfig: () => invoke<CeAppConfig>("ce_get_config"),
   saveConfig: (newCfg: CeAppConfig) => invoke<string>("ce_save_config", { newCfg }),
@@ -93,4 +96,8 @@ export const ceMcpApi = {
   cancelAgent: () => invoke<string>("ce_cancel_agent"),
   preflight: () => invoke<CePreflightItem[]>("ce_preflight"),
   connectionHealth: () => invoke<CeConnectionHealth>("ce_connection_health"),
+  checkMapping: (checkId: string) => invoke<MappingCheckReply>("ce_check_mapping", { checkId }),
+  checkMappingAutomatic: (checkId: string) => invoke<MappingCheckReply>("ce_check_mapping", { checkId, automatic:true }),
+  prepareMappingChat: () => invoke<{processes:MappingProgram[];context:MappingProgram|null;truncated?:boolean}>("ce_prepare_mapping_chat"),
+  selectMappingProgram: (program:MappingProgram) => invoke<MappingProgram>("ce_select_mapping_program", {pid:program.pid,processInstanceId:program.process_instance_id}),
 };

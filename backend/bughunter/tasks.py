@@ -100,6 +100,14 @@ class TaskService:
             rows.reverse()
             events.extend({'id':e['id'], 'kind':e.get('kind','output'), 'agent':e.get('agent'),
                            'text':e.get('content',''), 'time':e.get('created_at')} for e in rows)
+        elif linked and task['kind'] in {'study', 'web_investigation'}:
+            # RunManager stores its bounded live tail on the run and the full
+            # chronology in the durable event ledger.
+            with self.store.connection() as db:
+                rows = db.execute("SELECT data FROM events WHERE type='run.event' AND json_extract(data,'$.run_id')=? ORDER BY seq", (linked['id'],)).fetchall()
+            recorded = [json.loads(r[0]) for r in rows]
+            entries = recorded or linked.get('events', [])
+            events.extend({'kind': e.get('type','event'), 'text': e.get('text',''), 'time': e.get('time')} for e in entries)
         elif linked:
             events.extend({'kind':e.get('kind') or e.get('type','event'), 'text':e.get('text',''),
                            'time':e.get('time')} for e in linked.get('events', []))
@@ -131,7 +139,7 @@ class TaskService:
                 if not row['summary']:
                     row['summary'] = '\n\n'.join(f'{name}: {worker["summary"]}' for name, worker in row['workers'].items() if worker.get('summary'))
             elif task['kind'] == 'app_checks':
-                row['result'] = {key:linked.get(key) for key in ('suite','status','exit_code','output','detail','results','duration_seconds','finished_at')}
+                row['result'] = {key:linked.get(key) for key in ('suite','status','exit_code','output','detail','results','duration_seconds','finished_at','log_path','output_truncated')}
                 if row['status'] == 'failed': row['error'] = linked.get('detail') or 'App checks failed. Review the saved output.'
             elif full:
                 row['approvals'] = [

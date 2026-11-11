@@ -11,7 +11,7 @@ import tempfile
 import keyring
 import httpx
 from urllib.parse import urlsplit
-from .providers import PROVIDERS, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS, is_local_network_host
+from .providers import PROVIDERS, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS, is_local_network_host, ollama_inference_options
 
 SERVICE = 'BugHunterClaudex-ModelRoutes'
 TRANSIENT_HTTP = {408, 429, 500, 502, 503, 504}
@@ -209,10 +209,12 @@ def request_chat(candidate, messages, system, max_output, estimated_input):
     elif provider in {'ollama','remote_ollama'}:
         endpoint = base + '/api/chat'
         payload = {'model':candidate['model'],'messages':messages,'options':{'num_predict':max_output},'stream':False}
+        if provider == 'ollama':
+            payload.update(ollama_inference_options(candidate, max_output))
     else:
         endpoint = base + ('/v1/chat/completions' if provider=='crucible' else '/chat/completions')
         payload = {'model':candidate['model'],'messages':messages,'max_tokens':max_output,'stream':False}
-    with httpx.Client(timeout=210, follow_redirects=False, trust_env=False) as client:
+    with httpx.Client(timeout=candidate.get("ollama_timeout_seconds", 240) if provider == "ollama" else 210, follow_redirects=False, trust_env=False) as client:
         response = client.post(endpoint,headers=headers,json=payload)
         response.raise_for_status()
         data = response.json()

@@ -108,6 +108,14 @@ pub fn classify(name: &str, args: &Value, auto_approve_readonly: bool) -> Verdic
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mapping_reads_obey_the_existing_readonly_switch() {
+        for name in ["get_mapping_context", "list_mapping_processes", "verify_mapping"] {
+            assert_eq!(classify(name, &serde_json::json!({}), true), Verdict::Auto);
+            assert!(matches!(classify(name, &serde_json::json!({}), false), Verdict::NeedsApproval(_)));
+        }
+    }
     use serde_json::json;
 
     #[test]
@@ -166,7 +174,7 @@ mod tests {
                   "read_pointer_chain", "scan_value", "next_scan", "get_scan_results", "list_frozen"] {
             assert_eq!(classify(t, &a, true), Verdict::Auto, "{t}");
         }
-        for t in ["attach_process", "write_memory", "freeze_value", "unfreeze_value", "detach_process", "clear_scan"] {
+        for t in ["attach_process", "attach_mapping_process", "write_memory", "freeze_value", "unfreeze_value", "detach_process", "clear_scan"] {
             assert!(matches!(classify(t, &a, true), Verdict::NeedsApproval(_)), "{t}");
         }
     }

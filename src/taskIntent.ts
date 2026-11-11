@@ -1,5 +1,14 @@
 /** Small, deterministic UI router. This proposes workflows; it never executes a tool. */
 export type TaskIntent = 'chat' | 'website' | 'cart' | 'memory' | 'ai_test' | 'agents' | 'research';
+
+/** Open the cited mapping workflow; execution still requires a selected native process. */
+export function wantsMappingResearch(message: string): boolean {
+  const text = message.trim();
+  if (/^(?:how|why|what|where|when|explain|describe|tell me)\b/i.test(text)) return false;
+  return /\b(?:research|find|propose|verify|check)\b.{0,180}\b(?:memory mappings?|pointer mappings?|candidate mappings?|program mappings?)\b/i.test(text)
+    || /\bresearch\b.{0,80}\breferences\b.{0,80}\bmappings?\b/i.test(text)
+    || /\b(?:research|find|propose|verify|check)\b.{0,120}\bmappings?\b.{0,120}\b(?:program|process)\b/i.test(text);
+}
 export function classifyTask(message: string): TaskIntent {
   const text = message.trim().toLowerCase();
   // Ordinary questions should get ordinary answers, not surprise tool launches.

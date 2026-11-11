@@ -4,6 +4,7 @@ from __future__ import annotations
 import types
 import sys
 
+import httpx
 import pytest
 
 from bughunter.store import Store
@@ -15,6 +16,11 @@ def test_api_prices_are_optional_for_self_hosted_provider(tmp_path, monkeypatch)
     from bughunter import providers
     keys = {('BugHunterClaudex','openai_compatible'): 'hidden'}
     monkeypatch.setattr(providers.keyring, 'get_password', lambda s,p: keys.get((s,p)))
+    def models(request):
+        assert request.method == 'GET' and request.url.path == '/v1/models'
+        return httpx.Response(200, json={'data':[{'id':'bughunter-moe'}]})
+    client = httpx.Client
+    monkeypatch.setattr(providers.httpx, 'Client', lambda **kwargs: client(transport=httpx.MockTransport(models), **kwargs))
     settings = ProviderSettings(Store(tmp_path / 'db'))
     stored = settings.save({'provider':'openai_compatible','model':'bughunter-moe',
                             'api_base_url':'https://example.test/v1','pricing_confirmed':False,

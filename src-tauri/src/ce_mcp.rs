@@ -80,6 +80,34 @@ pub async fn ce_connect_mcp(app: AppHandle, state: State<'_, CeMcpState>) -> Res
     ce_core::connect(&state, bundled_mac_script(&app)).await
 }
 
+/// User-requested mapping workflow setup. It does not choose or attach a target.
+#[tauri::command]
+pub async fn ce_prepare_mapping_chat(app: AppHandle, state: State<'_, CeMcpState>) -> Result<Value,String> {
+    if state.mcp.lock().await.is_none() {
+        if let Some(config) = ce_core::read_config_file(&config_file_path(&app)?) {
+            *state.config.lock().await = config;
+        }
+        if state.config.lock().await.backend != ce_core::BACKEND_MAC {
+            return Err("Chat mapping checks currently require the native Mac helper selected in Settings.".into());
+        }
+        ce_core::connect(&state,bundled_mac_script(&app)).await?;
+    }
+    if state.config.lock().await.backend != ce_core::BACKEND_MAC {
+        return Err("Chat mapping checks currently require the native Mac helper selected in Settings.".into());
+    }
+    let raw = ce_core::call_tool(&state,"list_mapping_processes",json!({})).await?;
+    if raw.starts_with("error:") { return Err(raw); }
+    let mut result:Value = serde_json::from_str(&raw).map_err(|_| "Could not read the running program list")?;
+    let current = ce_core::call_tool(&state,"get_mapping_context",json!({})).await?;
+    result["context"] = serde_json::from_str(&current).unwrap_or(Value::Null);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn ce_select_mapping_program(pid:u32, process_instance_id:String, state:State<'_,CeMcpState>) -> Result<Value,String> {
+    ce_core::select_mapping_process(&state,pid,process_instance_id).await
+}
+
 #[tauri::command]
 pub async fn ce_disconnect_mcp(state: State<'_, CeMcpState>) -> Result<String, String> {
     ce_core::disconnect(&state).await;

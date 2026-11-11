@@ -230,6 +230,9 @@ class LocalMediaRuntime:
             self._set_job(state="error", detail=str(exc)[:350])
 
     def vision(self, image: Path, timestamp: float):
+        config = self.config()
+        if not config.get("enabled") or not config.get("vision_enabled"):
+            raise ValueError("Local vision is disabled. Enable it in the Library's Video AI settings.")
         self.start()
         prompt = ("Analyze this exact screenshot from a recorded software tutorial. "
                   "Describe the application/window, visible buttons, menu labels, fields, mouse cursor, "
@@ -239,10 +242,20 @@ class LocalMediaRuntime:
                   "If code is readable, quote only visible lines; never fill in code that is off-screen. "
                   "Separate observations from hypotheses. Use concise technical language. "
                   f"Video timestamp: {timestamp:.2f} seconds.")
-        payload = {"model": self.config()["vision_model"], "stream": False, "keep_alive": "3m",
+        payload = {"model": config["vision_model"], "stream": False, "keep_alive": "3m",
                    "messages": [{"role": "user", "content": prompt, "images": [base64.b64encode(image.read_bytes()).decode("ascii")]}],
-                   "options": {"temperature": 0, "num_predict": 420}}
-        with httpx.Client(timeout=httpx.Timeout(240, connect=5), trust_env=False) as client:
+                   "options": {"temperature": 0, "num_predict": 420, "num_ctx": 4096}}
+        with httpx.Client(timeout=httpx.Timeout(240, connect=5), trust_env=False, follow_redirects=False) as client:
+            # A loopback Ollama endpoint can itself delegate to a cloud model.
+            # Inspect the exact selected model before sending any image bytes.
+            metadata = client.post(OLLAMA_HOST + "/api/show", json={"model": config["vision_model"]})
+            metadata.raise_for_status()
+            info = metadata.json()
+            if (not isinstance(info, dict) or info.get("remote_host") or info.get("remote_model")
+                    or "cloud" in config["vision_model"].lower()):
+                raise ValueError("Vision requires locally installed weights; cloud-backed models cannot receive media.")
+            if "vision" not in (info.get("capabilities") or []):
+                raise ValueError("The selected local model does not advertise vision support.")
             response = client.post(OLLAMA_HOST + "/api/chat", json=payload)
             response.raise_for_status()
             return (response.json().get("message") or {}).get("content", "").strip()[:4000]

@@ -481,6 +481,34 @@ pub async fn call_tool(state: &CeCoreState, name: &str, arguments: Value) -> Res
     Ok(extract_mcp_text(&res))
 }
 
+/// Fixed read-only mapping operation, selected by a desktop click, never by model text.
+pub async fn check_mapping(state: &CeCoreState, arguments: Value) -> Result<Value, String> {
+    let _busy = BusyGuard::acquire(&state.busy)?;
+    if state.agent.lock().await.is_some() {
+        return Err("Finish or cancel the current memory agent task before checking a mapping.".into());
+    }
+    if state.config.lock().await.backend != BACKEND_MAC {
+        return Err("Cited mapping checks currently require the native Mac memory helper.".into());
+    }
+    let text = call_tool(state, "verify_mapping", arguments).await?;
+    if text.starts_with("error:") { return Err(text); }
+    serde_json::from_str(&text).map_err(|_| "The native helper did not return a structured mapping readback.".into())
+}
+
+/// A single explicit program selection in Chat authorizes this exact attachment.
+pub async fn select_mapping_process(state: &CeCoreState, pid: u32, identity: String) -> Result<Value, String> {
+    let _busy = BusyGuard::acquire(&state.busy)?;
+    if state.agent.lock().await.is_some() {
+        return Err("Finish or cancel the memory agent task before selecting another program.".into());
+    }
+    if state.config.lock().await.backend != BACKEND_MAC {
+        return Err("Mapping checks require the native Mac helper.".into());
+    }
+    let text = call_tool(state, "attach_mapping_process", json!({"pid":pid,"process_instance_id":identity})).await?;
+    if text.starts_with("error:") { return Err(text); }
+    serde_json::from_str(&text).map_err(|_| "The helper did not return the selected program identity.".into())
+}
+
 // ----------------------------------------------------------- agent loop
 
 fn log(trace: &mut Vec<CeStepLog>, kind: &str, name: &str, payload: impl Into<String>) {

@@ -124,8 +124,11 @@ def main():
             gateway = rpc("tools.gateway_start",port=port)
             assert rpc("tools.gateway_verify",burp_proxy=f"http://127.0.0.1:{port}",burp_ca=gateway["ca_path"])["verified"]
             print("Packaged gateway: HTTP and HTTPS loopback routing probes passed (Burp not involved).",flush=True)
+            preserved_sources = {source['id'] for source in rpc('sources.list')}
+            assert source['id'] in preserved_sources and zipped['id'] in preserved_sources
             rpc('projects.delete',id=setup['project']['id'])
-            assert not rpc('projects.list') and len(rpc('sources.list'))==2
+            assert not rpc('projects.list')
+            assert {source['id'] for source in rpc('sources.list')} == preserved_sources
             print('Packaged project deletion kept the shared library.',flush=True)
         finally:
             process.stdin.close()

@@ -16,6 +16,8 @@ import subprocess
 import sys
 import threading
 import time
+import queue
+from collections import deque
 from pathlib import Path
 
 from .store import now, new_id
@@ -23,6 +25,7 @@ from .security import redact_text
 
 ROOT = Path(__file__).resolve().parents[2]
 SUITES = {
+    "all": ("All local app checks", ["python", "scripts/verify_app.py"], 2400),
     "learning": ("P0–P6 learning regression", ["bash", "scripts/verify_p6_learning.sh"], 300),
     "web_lab": ("Checkout and price integrity regression", ["bash", "scripts/verify_staging_quote_sandbox.sh"], 180),
     "memory_lab": ("Two-process memory pointer lab (read-only)", ["python", "scripts/verify_game_memory_restarts.py"], 120),
@@ -144,7 +147,7 @@ class ReleaseReadinessP7:
     @staticmethod
     def _public(row: dict) -> dict:
         return {key: row.get(key) for key in ("id", "suite", "title", "status", "started_at", "finished_at",
-                                              "exit_code", "duration_seconds", "output", "detail")}
+                                              "exit_code", "duration_seconds", "output", "detail", "events", "results", "log_path", "output_truncated")}
 
     def start(self, suite: str, approved: bool) -> dict:
         if approved is not True:
@@ -160,7 +163,7 @@ class ReleaseReadinessP7:
             if self._active:
                 raise ValueError("A verification suite is already running.")
             run = self.store.put("p7_run", {"suite": suite, "title": SUITES[suite][0], "status": "queued",
-                                                 "started_at": now(), "output": "", "detail": ""}, id=new_id("p7"))
+                                                 "started_at": now(), "output": "", "detail": "", "events": []}, id=new_id("p7"))
             cancel = threading.Event()
             self._active[run["id"]] = (cancel, None)
             threading.Thread(target=self._worker, args=(run["id"], suite, cancel), daemon=True).start()
@@ -170,9 +173,16 @@ class ReleaseReadinessP7:
     def _worker(self, run_id: str, suite: str, cancel: threading.Event):
         label, template, timeout = SUITES[suite]
         command = [sys.executable if token == "python" else token for token in template]
+        directory = self.store.root / 'artifacts' / run_id
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if suite == 'all':
+            command += ['--output-dir', str(directory)]
         began = time.monotonic()
         process = None
-        output: list[str] = []
+        output = ''
+        events = deque(maxlen=250)
+        log_size = 0
+        truncated = False
         status = "failed"
         exit_code = None
         detail = ""
@@ -186,18 +196,58 @@ class ReleaseReadinessP7:
             row["status"] = "running"
             self.store.put("p7_run", row, id=run_id)
             process = subprocess.Popen(command, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, text=True, start_new_session=True,
+                                       stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace', start_new_session=True,
                                        env={**os.environ, "PYTHONUNBUFFERED": "1"})
             with self._guard:
                 self._active[run_id] = (cancel, process)
-            try:
-                stdout, _ = process.communicate(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                self._terminate(process)
-                stdout, _ = process.communicate(timeout=5)
-                status = "timed_out"
-                detail = f"Stopped at the fixed {timeout}s timeout."
-            output.append(_redact(stdout))
+            lines = queue.Queue(maxsize=256)
+            def read_output():
+                try:
+                    while True:
+                        line = process.stdout.readline(65536)
+                        if not line: break
+                        # Oversized lines are discarded through the newline so a
+                        # credential split at the boundary cannot leak its tail.
+                        if len(line) == 65536 and not line.endswith('\n'):
+                            while line and not line.endswith('\n'):
+                                line = process.stdout.readline(65536)
+                            line = '[Oversized output line omitted.]\n'
+                        lines.put(line)
+                finally:
+                    lines.put(None)
+            reader = threading.Thread(target=read_output, daemon=True)
+            reader.start()
+            log_path = directory / 'output.log'
+            with log_path.open('w', encoding='utf-8') as log:
+                log_path.chmod(0o600)
+                next_save = 0.0
+                while True:
+                    if cancel.is_set() or time.monotonic() - began > timeout:
+                        self._terminate(process)
+                        if not cancel.is_set():
+                            status, detail = 'timed_out', f'Stopped at the fixed {timeout}s timeout.'
+                    try:
+                        line = lines.get(timeout=.2)
+                    except queue.Empty:
+                        continue
+                    if line is None: break
+                    clean = _redact(line, 65536)
+                    if log_size + len(clean.encode('utf-8')) <= 4 * 1024 * 1024:
+                        log.write(clean)
+                        log.flush()
+                        log_size += len(clean.encode('utf-8'))
+                    else:
+                        truncated = True
+                    output = (output + clean)[-20000:]
+                    if clean.strip():
+                        events.append({'time': now(), 'kind': 'output', 'text': clean.strip()[:1500]})
+                    if time.monotonic() >= next_save:
+                        current = self.store.get('p7_run', run_id)
+                        self.store.put('p7_run', {**current, 'output': output, 'events': list(events),
+                                                'log_path': str(log_path), 'output_truncated': truncated}, id=run_id)
+                        next_save = time.monotonic() + .4
+                if truncated: log.write('\n[Log exceeded 4 MiB; further output omitted.]\n')
+            process.wait(timeout=5)
             exit_code = process.returncode
             if cancel.is_set():
                 status = "cancelled"
@@ -210,8 +260,18 @@ class ReleaseReadinessP7:
                 self._terminate(process)
             row = self.store.get("p7_run", run_id)
             if row and row.get("status") not in {"interrupted"}:
+                results = None
+                if suite == 'all' and (directory / 'report.json').is_file():
+                    try:
+                        results = json.loads((directory / 'report.json').read_text(encoding='utf-8'))
+                        if results.get('status') == 'incomplete' and status == 'failed':
+                            status = 'blocked'
+                            detail = 'Some checks require dependencies or platform access. See the saved report.'
+                    except (OSError, ValueError):
+                        detail = 'The check report could not be read; inspect the saved log.'
                 row.update(status="cancelled" if cancel.is_set() else status, exit_code=exit_code,
-                           output="\n".join(output)[-2800:], detail=detail,
+                           output=output, detail=detail, results=results, events=list(events),
+                           log_path=str(directory / 'output.log'), output_truncated=truncated,
                            duration_seconds=round(time.monotonic()-began, 2), finished_at=now())
                 self.store.put("p7_run", row, id=run_id)
                 self.store.event("p7.finished", {"id": run_id, "suite": suite, "status": row["status"]})

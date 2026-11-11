@@ -163,7 +163,7 @@ def test_agent_remote_provider_has_explicit_tor_optin(tmp_path):
     run = store.put("run", {"project_id": "project_example", "status": "running"})
     source = store.put("source", {"tor_research_page_id": "example", "title": "Onion evidence"})
     public = store.put("source", {"title": "Public evidence"})
-    knowledge = SimpleNamespace(search=lambda q, limit: [
+    knowledge = SimpleNamespace(search_for_project=lambda q, project_id, limit: [
         {"source_id": source["id"], "text": "restricted evidence"},
         {"source_id": public["id"], "text": "ordinary evidence"},
     ])

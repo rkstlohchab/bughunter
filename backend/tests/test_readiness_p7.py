@@ -41,7 +41,7 @@ def test_preflight_never_claims_mac_verified(tmp_path):
     assert {x['id'] for x in row['checks']} >= {'mac', 'source', 'model', 'burp', 'tor', 'course', 'memory'}
     assert next(x for x in row['checks'] if x['id']=='burp')['state']=='not_verified'
     assert all('api_base_url' not in json.dumps(x) for x in row['checks'])
-    assert len(row['suites']) == 5
+    assert {s['id'] for s in row['suites']} == set(SUITES)
 
 
 def test_approval_scope_and_unknown_method(tmp_path):

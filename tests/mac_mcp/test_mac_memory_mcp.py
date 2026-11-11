@@ -51,6 +51,8 @@ class MacMcpTests(unittest.TestCase):
         text, err = self.rpc.tool("attach_process", pid=self.target.pid)
         if err and "Operation not permitted" in text:
             self.skipTest("ptrace not permitted in this sandbox")
+        if err and sys.platform == 'darwin' and 'task_for_pid' in text:
+            self.skipTest('macOS denied debugger access to the disposable external process')
         self.assertFalse(err, text)
 
     def test_handshake_and_tool_surface(self):

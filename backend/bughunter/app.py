@@ -17,7 +17,7 @@ from .testing import TestingService
 from .lab import LabService
 from .reports import ReportService
 from .script_drafts import ScriptDraftService
-from .providers import ProviderSettings, RunManager, claude_status, probe_provider
+from .providers import ProviderSettings, RunManager, claude_status, probe_provider, PROVIDERS
 from .team import TeamService
 from .agent_jobs import AgentJobService
 from .redteam import RedTeamService
@@ -34,6 +34,8 @@ from .commerce_audit import CommerceAudit
 from .staging_price import StagingPriceAudit
 from .website_audit import WebsiteAudit
 from .pointer_notebook import PointerNotebook
+from .memory_mappings import MemoryMappings
+from .mapping_chat import MappingChat
 from .local_media import LocalMediaRuntime
 from .autopilot import Autopilot
 from .desktop_planner import DesktopPlanner
@@ -93,22 +95,34 @@ class Application:
         self.staging_price = StagingPriceAudit(self)
         self.website_audit = WebsiteAudit(self)
         self.pointer_notebook = PointerNotebook(self.store)
+        self.memory_mappings = MemoryMappings(self, recover=primary)
         self.autopilot = Autopilot(self)
         self.desktop_planner = DesktopPlanner(self)
         self.burp_history = BurpHistory(self)
         self.tool_installer = ToolInstaller(self.store)
         self.chat = ChatService(self.store, self.settings, self.knowledge, self.agent_jobs, self.tasks, self.model_routes, self.research)
+        self.mapping_chat = MappingChat(self)
         self.team = TeamService(self.store)
         self.redteam = RedTeamService(self.store,self.settings,self.knowledge)
         self.training = TrainingService(self.store)
         self.tor = TorResearchService(self.store, self.knowledge)
         self.tor.task_service = self.tasks
         self.capabilities = CapabilityService(self)
+        self.memory = None
+        try:
+            import platform as _plat
+            if _plat.system() == "Darwin":
+                from .mac_memory import MacMemory
+                self.memory = MacMemory()
+        except Exception:
+            self.memory = None
         self._tools = None
         self._lock = threading.RLock()
         self._claude_cache = None
         self._claude_cache_time = 0
-        if primary:
+        if primary and not self.store.setting('curated_seeded', False):
+            # Seed the bundled reference library once. Gating on a flag means a
+            # deliberate knowledge-base wipe is not undone on the next launch.
             # A versioned, review-oriented reference is indexed as library data.
             # It contains no executable prompts and is duplicate-safe by hash.
             from .prompt_archive import CURATED_GUIDE
@@ -124,6 +138,8 @@ class Application:
                     filename=summary.name,
                     content_base64=base64.b64encode(summary.read_bytes()).decode('ascii'),
                 )
+            self.store.set_setting('curated_seeded', True)
+        if primary:
             self.policy.recover()
             self.runs.recover()
             self.store.set_setting("lab_runtime",{})
@@ -172,10 +188,18 @@ class Application:
             return self.autopilot.dispatch(method, p)
         if method.startswith("media."):
             return self.media.dispatch(method, p)
+        if method == "models.available":
+            return self.available_models()
+        if method == "models.select":
+            return self.select_model(str(p.get("provider","")), str(p.get("model","")))
         if method.startswith('models.routes'):
             return self.model_routes.dispatch(method,p)
+        if method.startswith('memory.engine.'):
+            return self._memory_dispatch(method[len('memory.engine.'):], p)
         if method.startswith('memory.pointers.'):
             return self.pointer_notebook.dispatch(method,p)
+        if method.startswith('memory.mappings.'):
+            return self.memory_mappings.dispatch(method,p)
         if method.startswith('website.audit.'):
             return self.website_audit.dispatch(method,p)
         if method.startswith('commerce.staging.'):
@@ -206,6 +230,8 @@ class Application:
             return self.tasks.dispatch(method,p)
         if method.startswith("agents."):
             return self.agent_jobs.dispatch(method,p)
+        if method.startswith('chat.mapping.'):
+            return self.mapping_chat.dispatch(method,p)
         if method.startswith("chat."):
             return self.chat.dispatch(method,p)
         if method.startswith("tor."):
@@ -305,6 +331,16 @@ class Application:
         if method == "runs.resume":
             return self.runs.resume(p["id"])
         if method == "system.stop":
+            for task in self.store.list('mapping_chat'):
+                if task['status'] in {'needs_program','researching','needs_value','checking','blocked'}:
+                    with self.chat._turn_locks[hash(task['chat_id']) % len(self.chat._turn_locks)]:
+                        session = self.store.get('chat',task['chat_id'])
+                        if session and session.get('mapping_id') == task['id']:
+                            self.mapping_chat.stop(task['chat_id'])
+                        else:
+                            if task.get('research_id'): self.memory_mappings.stop(task['research_id'])
+                            self.store.put('mapping_chat',{**task,'status':'cancelled'},id=task['id'])
+            self.memory_mappings.stop_all()
             self.readiness_p7.cancel_all()
             for job in self.agent_jobs.dispatch("agents.list", {}):
                 if job.get("status") in {"starting", "running"}:
@@ -332,6 +368,10 @@ class Application:
         if method == "system.dependencies":
             from .tool_readiness import inventory
             return inventory(self.store.setting('tool_locations', {}))
+        if method == "system.autosetup":
+            return self.autosetup(bool(p.get("install_missing", False)))
+        if method == "system.open_privacy":
+            return self.open_privacy(str(p.get("pane", "")))
         if method == 'system.tools.locate':
             from .tool_readiness import validate_tool_path, inventory
             self.store.require_desktop_owner()
@@ -372,8 +412,277 @@ class Application:
                 "recent_events":self.store.events(max(0,int(p.get("after",0))),30)}
         raise ValueError(f"Unknown application operation: {method}")
 
+    # Curated, sensible default model lists per provider for the chat picker.
+    PROVIDER_CATALOG = {
+        "claude_code": {"label": "Claude subscription", "kind": "subscription",
+                        "models": ["opus", "sonnet", "haiku"]},
+        "anthropic": {"label": "Anthropic API", "kind": "api",
+                      "models": ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"]},
+        "openai": {"label": "OpenAI (ChatGPT API)", "kind": "api",
+                   "models": ["gpt-4.1", "gpt-4.1-mini", "gpt-4o"]},
+        "deepseek": {"label": "DeepSeek", "kind": "api",
+                     "models": ["deepseek-chat", "deepseek-reasoner"]},
+        "ollama": {"label": "Local model (Ollama)", "kind": "local", "models": []},
+        "remote_ollama": {"label": "Remote Ollama", "kind": "api", "models": []},
+        "openai_compatible": {"label": "Kaggle / custom model", "kind": "api", "models": []},
+        "crucible": {"label": "On-device (CrucibleLLM)", "kind": "local", "models": []},
+    }
+
+    def available_models(self) -> dict:
+        """List model providers for the chat picker: which are ready to use now,
+        which need a key/sign-in added, and the models each offers."""
+        settings = self.settings.get()
+        creds = self.settings.credentials()
+        active_provider = settings.get("provider")
+        active_model = settings.get("model")
+        if self._claude_cache is None or time.monotonic() - self._claude_cache_time > 30:
+            self._claude_cache = claude_status()
+            self._claude_cache_time = time.monotonic()
+        try:
+            media = self.media.status()
+            ollama_models = [m for m in media.get("installed_models", []) if ":" not in m or "embed" not in m.lower()]
+            ollama_running = media.get("ollama_running", False)
+        except Exception:
+            ollama_models, ollama_running = [], False
+        out = []
+        for provider, meta in self.PROVIDER_CATALOG.items():
+            ready, needs, models = False, "", list(meta["models"])
+            if provider == "claude_code":
+                ready = bool(self._claude_cache.get("subscription_ready"))
+                needs = "" if ready else "Sign in: run  claude auth login  in Terminal."
+            elif provider == "ollama":
+                models = ollama_models or meta["models"]
+                ready = ollama_running and bool(models)
+                needs = "" if ready else ("Start Ollama and pull a model." if not models else "Start Ollama from Settings.")
+            elif provider in {"anthropic", "openai", "deepseek", "remote_ollama", "openai_compatible"}:
+                ready = bool(creds.get(provider))
+                needs = "" if ready else "Add an API key in Settings."
+                if provider == "openai_compatible" and settings.get("api_base_url"):
+                    models = models or [settings.get("model") or "custom"]
+            elif provider == "crucible":
+                ready = bool(settings.get("api_base_url")) and active_provider == "crucible"
+                needs = "" if ready else "Set your device address in Settings."
+            out.append({"provider": provider, "label": meta["label"], "kind": meta["kind"],
+                        "ready": ready, "needs": needs, "models": models,
+                        "active": provider == active_provider})
+        return {"providers": out, "active": {"provider": active_provider, "model": active_model}}
+
+    def select_model(self, provider: str, model: str) -> dict:
+        """Switch the active chat model. Fills in safe defaults so a subscription or
+        local model never trips the paid-API pricing confirmation."""
+        if provider not in PROVIDERS:
+            raise ValueError("Unknown provider.")
+        settings = self.settings.get()
+        patch = {"provider": provider, "model": model or settings.get("model")}
+        if provider != settings.get('provider'):
+            if provider in {'remote_ollama', 'openai_compatible', 'crucible'}:
+                raise ValueError('Configure this provider and its endpoint in Settings before selecting it.')
+            # A provider credential must never follow a custom endpoint from the
+            # previously selected provider.
+            patch['api_base_url'] = ''
+            if provider in {'anthropic', 'openai', 'deepseek'}:
+                patch['pricing_confirmed'] = False
+        from .providers import LOCAL_PROVIDERS as _LOCAL, SELF_HOSTED_PROVIDERS as _SELF
+        if provider == "claude_code" or provider in _LOCAL or provider in _SELF:
+            patch["pricing_confirmed"] = True
+        return self.settings.save({**settings, **patch})
+
+    def _full_disk_access(self) -> bool:
+        """Probe whether this process has macOS Full Disk Access by reading a
+        TCC-protected path. macOS gates FDA behind a manual toggle; we can only
+        detect it and deep-link the user to the pane, never grant it."""
+        if platform.system() != "Darwin":
+            return True
+        from pathlib import Path
+        probe = Path.home() / "Library/Application Support/com.apple.TCC/TCC.db"
+        try:
+            with open(probe, "rb") as handle:
+                handle.read(1)
+            return True
+        except PermissionError:
+            return False
+        except (FileNotFoundError, OSError):
+            return False
+
+    def open_privacy(self, pane: str) -> dict:
+        """Open a specific macOS Privacy & Security pane so the user can grant a
+        permission that only a human can toggle."""
+        panes = {
+            "full_disk": "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+            "accessibility": "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+            "screen_recording": "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+            "automation": "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation",
+        }
+        url = panes.get(pane)
+        if not url:
+            raise ValueError("Unknown privacy pane.")
+        if platform.system() != "Darwin":
+            return {"opened": False, "detail": "Privacy panes are macOS-only."}
+        import subprocess
+        subprocess.Popen(["open", url])
+        return {"opened": True, "pane": pane}
+
+    def autosetup(self, install_missing: bool = False) -> dict:
+        """Autonomously bring the local environment up: detect tools, start the
+        local model server, start and verify the policy gateway, enable sensible
+        defaults, and report which macOS permissions still need a manual toggle.
+
+        Each step is isolated so one failure never aborts the rest. Returns a
+        checklist the UI renders; items marked needs_you require a human OS action
+        that macOS does not allow software to perform."""
+        from .tool_readiness import inventory
+        self.store.require_desktop_owner()
+        if self.store.setting('emergency_stop', False):
+            raise ValueError('Resume tasks before starting automatic setup.')
+        steps = []
+        def record(key, label, status, detail, action=None):
+            steps.append({"key": key, "label": label, "status": status, "detail": detail, "action": action})
+
+        # 1. Detect installed tools.
+        try:
+            tools = inventory(self.store.setting("tool_locations", {}))
+            found = [t["name"] for t in tools if t.get("installed")]
+            missing = [t["name"] for t in tools if not t.get("installed")]
+            record("tools", "Detect local tools", "done",
+                   f"Found: {', '.join(found) or 'none'}." + (f" Not installed: {', '.join(missing)}." if missing else ""))
+        except Exception as exc:
+            record("tools", "Detect local tools", "error", str(exc))
+
+        # 2. Local model server + video/vision tools.
+        try:
+            media = self.media.status()
+            cfg = media.get("config", {})
+            if media.get("ollama_bin") and not media.get("ollama_running"):
+                try:
+                    self.media.start()
+                    media = self.media.status()
+                except Exception:
+                    pass
+            if media.get("ollama_running"):
+                record("ollama", "Start local model server", "done", "Ollama is running.")
+            elif media.get("ollama_bin"):
+                record("ollama", "Start local model server", "error", "Ollama is installed but did not start. Open it once, then recheck.")
+            elif install_missing:
+                try:
+                    self.media.setup({"target": "ollama", "approved": True})
+                    record("ollama", "Install local model server", "installing", "Ollama installation started in the background.")
+                except Exception as exc:
+                    record("ollama", "Install local model server", "error", str(exc))
+            else:
+                record("ollama", "Local model server", "optional", "Ollama is not installed. Needed only for local models, embeddings and video analysis.", "install:ollama")
+            # ffmpeg/whisper for media
+            if media.get("ffmpeg"):
+                record("ffmpeg", "Media tools", "done", "FFmpeg is ready.")
+            elif install_missing:
+                try:
+                    self.media.setup({"target": "ffmpeg", "approved": True})
+                    record("ffmpeg", "Install media tools", "installing", "FFmpeg installation started in the background.")
+                except Exception as exc:
+                    record("ffmpeg", "Install media tools", "error", str(exc))
+            else:
+                record("ffmpeg", "Media tools", "optional", "FFmpeg is not installed. Needed only to analyze audio/video.", "install:ffmpeg")
+            # Enable video enrichment defaults without a wall of toggles.
+            try:
+                self.media.configure({**cfg, "enabled": True, "vision_enabled": True, "speech_enabled": True})
+            except Exception:
+                pass
+        except Exception as exc:
+            record("ollama", "Local model server", "error", str(exc))
+
+        # 3. Local semantic search (embeddings) when the server + model are present.
+        try:
+            media = self.media.status()
+            installed = [m.lower() for m in media.get("installed_models", [])]
+            settings = self.settings.get()
+            embed_model = str(settings.get("embedding_model", "nomic-embed-text")).lower()
+            has_embed = any(embed_model.split(":")[0] in m for m in installed)
+            if media.get("ollama_running") and has_embed:
+                self.settings.save({**settings, "use_local_embeddings": True})
+                record("embeddings", "Enable semantic search", "done", "Local embeddings are on; knowledge search is now hybrid (keyword + meaning).")
+            elif media.get("ollama_running") and install_missing:
+                record("embeddings", "Enable semantic search", "needs_you",
+                       f"Pull the embedding model once: run  ollama pull {embed_model}  then recheck.", "pull:embedding")
+            else:
+                record("embeddings", "Semantic search", "optional", "Keyword search already works. Install Ollama + an embedding model to add meaning-based search.")
+        except Exception as exc:
+            record("embeddings", "Semantic search", "error", str(exc))
+
+        # 4. Policy gateway (needed for live web testing).
+        try:
+            import time as _t
+            gateway = self.store.setting("gateway", {})
+            fresh = gateway.get("verified_at") and _t.time() - gateway["verified_at"] < 300
+            if not fresh:
+                port = int(self.settings.get().get("gateway_port") or 8091)
+                self.tools.gateway_start(port=port)
+                self.tools.gateway_verify_direct()
+            record("gateway", "Connect web-testing gateway", "done", "Built-in local gateway is running and verified.")
+        except Exception as exc:
+            record("gateway", "Connect web-testing gateway", "optional",
+                   "Could not auto-connect the gateway. It is only needed to send live web requests; everything else works without it.")
+
+        # 5. macOS permissions that only a human can grant.
+        if platform.system() == "Darwin":
+            if self._full_disk_access():
+                record("full_disk", "Full Disk Access", "done", "Granted. The app can read your files for analysis.")
+            else:
+                record("full_disk", "Full Disk Access", "needs_you",
+                       "macOS only lets you grant this by hand. Click Open to jump to the exact pane, enable BugHunterClaudex, then recheck.", "open:full_disk")
+            record("ax", "Screen Recording & Accessibility", "needs_you",
+                   "Needed only for desktop control and inspecting other apps. Grant in the same Privacy pane when you want those.", "open:accessibility")
+
+        done = sum(1 for s in steps if s["status"] == "done")
+        blocking = [s for s in steps if s["status"] == "needs_you"]
+        return {"steps": steps, "done": done, "total": len(steps),
+                "needs_you": len(blocking),
+                "summary": f"Set up {done} of {len(steps)} automatically." +
+                           (f" {len(blocking)} item(s) need a one-time macOS permission you must toggle yourself." if blocking else " Everything the app can do on its own is ready.")}
+
+    @staticmethod
+    def _addr(value):
+        if isinstance(value, str):
+            return int(value, 16) if value.lower().startswith("0x") else int(value)
+        return int(value)
+
+    def _memory_dispatch(self, op: str, p: dict):
+        """Route memory.engine.* RPCs to the native macOS memory engine."""
+        if not self.memory:
+            raise ValueError("The native memory engine is only available on macOS.")
+        m = self.memory
+        pid = int(p["pid"]) if "pid" in p else None
+        if op == "processes":
+            return m.list_processes(p.get("filter"))
+        if op == "attach":
+            return m.attach(pid)
+        if op == "detach":
+            return m.detach(pid)
+        if op == "scan":
+            return m.scan(pid, p.get("type", "int"), value=p.get("value"),
+                          between=p.get("between"), unknown=bool(p.get("unknown", False)))
+        if op == "next_scan":
+            return m.next_scan(pid, p.get("comparison", "exact"), value=p.get("value"))
+        if op == "results":
+            return m.results(pid, int(p.get("limit", 100)))
+        if op == "read":
+            return m.read_value(pid, self._addr(p["address"]), p.get("type", "int"))
+        if op == "write":
+            return m.write_value(pid, self._addr(p["address"]), p["value"], p.get("type", "int"))
+        if op == "freeze":
+            return m.freeze(pid, self._addr(p["address"]), p["value"], p.get("type", "int"),
+                            enable=bool(p.get("enable", True)))
+        if op == "modules":
+            return m.modules(pid, p.get("filter"))
+        if op == "resolve_chain":
+            return m.resolve_chain(pid, self._addr(p["base"]), [self._addr(o) for o in p.get("offsets", [])],
+                                   p.get("type", "int"))
+        raise ValueError(f"Unknown memory engine operation: {op}")
+
     def delete_project(self, id):
         project = self.policy.project(id)
+        for job in self.store.list('mapping_research', project_id=id):
+            self.memory_mappings.stop(job['id'])
+        mapping_receipts = [self.memory_mappings.receipts / (check['id'] + '.json')
+                            for check in self.store.list('mapping_check', project_id=id)]
         runs = self.store.list("run",project_id=id)
         actions = self.store.list("action",project_id=id)
         traffic = self.store.list("traffic",project_id=id)
@@ -399,7 +708,7 @@ class Application:
                 self.policy.cancel(action["id"])
         if project.get("lab_project"):
             self.lab.stop()
-        kinds = ("traffic","test","action","finding","run","asset","observation","script_draft","reviewed_skill","work_task","work_task_event","research_watch","research_discovery")
+        kinds = ("traffic","test","action","finding","run","asset","observation","script_draft","reviewed_skill","work_task","work_task_event","research_watch","research_discovery","mapping_research","mapping_candidate","mapping_check","mapping_chat")
         counts = {kind:len(self.store.list(kind,project_id=id)) for kind in kinds}
         with self.store.connection(immediate=True) as db:
             db.execute("INSERT OR REPLACE INTO settings(key,value) VALUES(?,?)",("deleted_project:"+id,"true"))
@@ -411,6 +720,8 @@ class Application:
             for kind in kinds: db.execute("DELETE FROM entities WHERE kind=? AND json_extract(data,'$.project_id')=?",(kind,id))
             db.execute("DELETE FROM entities WHERE kind='project' AND id=?",(id,))
         workspace = (self.store.root/"workspaces").resolve()
+        for receipt in mapping_receipts:
+            receipt.unlink(missing_ok=True)
         for run in runs:
             folder = (workspace/run["id"]).resolve()
             if folder.parent == workspace: shutil.rmtree(folder,ignore_errors=True)
@@ -425,6 +736,7 @@ class Application:
         return {"id":id,"deleted":True,"removed":counts,"library_preserved":True,"exported_files_preserved":True}
 
     def shutdown(self):
+        self.memory_mappings.stop_all()
         self.readiness_p7.shutdown()
         try: self.capabilities.shutdown()
         except Exception: pass
@@ -447,6 +759,8 @@ class Application:
         self.research_p2.shutdown()
         self.knowledge.shutdown()
         self.media.shutdown()
+        if self.memory:
+            self.memory.shutdown()
         if self._owner_file:
             self._owner_file.close()
             self._owner_file = None

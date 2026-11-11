@@ -117,3 +117,97 @@ def test_no_automatic_method_verification(setup):
     k.process_source(source['id'])
     candidates=k.procedures.list(source_id=source['id'])
     assert all(p['status']=='candidate' and p['verified'] is False for p in candidates)
+
+
+def test_repeated_course_instructions_have_unique_stable_procedure_ids(setup):
+    import base64
+    k=setup
+    lesson='\n'.join(['Click the test button and verify the output.']*14)
+    source=k.import_source(filename='repeated.md',content_base64=base64.b64encode(lesson.encode()).decode())
+    result=k.process_source(source['id'])
+    assert result['status']=='ready',result.get('warnings')
+    procedures=k.procedures.list(source_id=source['id'])
+    assert len(procedures)==3
+    assert sum(len(p['steps']) for p in procedures)==14
+    assert len({p['id'] for p in procedures})==3
+    before={p['id']:p['steps'] for p in procedures}
+    k.procedures.build(source['id'])
+    assert {p['id']:p['steps'] for p in k.procedures.list(source_id=source['id'])}==before
+
+
+@pytest.mark.parametrize('unreadable',[False,True])
+def test_repair_keeps_real_gaps_and_preserves_citations_without_original(setup,monkeypatch,unreadable):
+    from bughunter.knowledge import MEDIA_SAMPLING_NOTE
+    k=setup
+    source=k.import_source(filename='lesson.md',content_base64='U2VsZWN0IHRoZSBtZW51IGFuZCBjbGljayBTYXZlLg==')
+    k.process_source(source['id'])
+    before=k.get_source(source['id'])['chunks']
+    warnings=[MEDIA_SAMPLING_NOTE,'Procedure extraction unavailable: UNIQUE constraint failed: entities.id']
+    if unreadable:warnings.append('Skipped an unreadable frame at 00:03:00.')
+    k._update(source['id'],status='partial',warnings=warnings,original_retained=False)
+    monkeypatch.setattr(k,'_extract',lambda *_args:pytest.fail('Repair must reuse saved chunks'))
+    repaired=k.rebuild_procedures(source['id'])
+    row=k.get_source(source['id'])
+    assert repaired['source_status']==('partial' if unreadable else 'ready')
+    assert row['extraction_notes']==[MEDIA_SAMPLING_NOTE]
+    assert row['warnings']==(['Skipped an unreadable frame at 00:03:00.'] if unreadable else [])
+    assert row['chunks']==before and row['original_retained'] is False
+    assert k.procedures.list(source_id=source['id'])
+    k.rebuild_procedures(source['id'])
+    assert k.get_source(source['id'])['extraction_notes']==[MEDIA_SAMPLING_NOTE]
+
+
+def test_sampling_note_does_not_mark_successful_ingestion_partial(setup,monkeypatch):
+    from bughunter.knowledge import MEDIA_SAMPLING_NOTE
+    k=setup
+    source=k.import_source(filename='lesson.md',content_base64='U2VsZWN0IHRoZSBtZW51IGFuZCBjbGljayBTYXZlLg==')
+    monkeypatch.setattr(k,'_extract',lambda *_args:([{'text':'Select the menu and click Save.','locator':'Frame at 00:00:00','modality':'vision'}],[MEDIA_SAMPLING_NOTE]))
+    result=k.process_source(source['id'])
+    assert result['status']=='ready' and result['warnings']==[]
+    assert result['extraction_notes']==[MEDIA_SAMPLING_NOTE]
+
+
+@pytest.mark.parametrize('stream_duration,expected_end', [('6',6),('N/A',12),(None,12),('nan',12)])
+def test_frames_stop_at_video_duration_and_keep_audio_tail(setup,tmp_path,monkeypatch,stream_duration,expected_end):
+    from types import SimpleNamespace
+    from bughunter.knowledge import MEDIA_AUDIO_TAIL_NOTE, extraction_messages
+    from bughunter.local_media import LocalMediaRuntime
+    k=setup
+    source=k.store.put('source',{'id':'video_tail','title':'Audio tail','status':'processing'})
+    runtime=LocalMediaRuntime(k.store)
+    runtime.configure({'frame_interval':2,'max_frames':0})
+    k.media_runtime=runtime
+    artifacts=tmp_path/'frames'
+    artifacts.mkdir()
+    speech=[{'text':'Last spoken instruction.','locator':'00:00:11','modality':'transcript','start':11,'end':12}]
+    (artifacts/'speech_segments.json').write_text(json.dumps(speech))
+    sampled=[]
+    scene_bounds=[]
+    def fake_run(args,timeout=1800):
+        if '-show_streams' in args:
+            return SimpleNamespace(stdout=json.dumps({'format':{'duration':'12'},'streams':[
+                {'codec_type':'video','duration':stream_duration},{'codec_type':'audio','duration':'12'}]}))
+        sampled.append(float(args[args.index('-ss')+1]))
+        assert args[args.index('-map')+1]=='0:v:0'
+        Path(args[-1]).write_bytes(b'frame fixture')
+        return SimpleNamespace(stdout='')
+    def cuts(_ffmpeg,_path,duration,**_kwargs):
+        scene_bounds.append(duration)
+        return [1,7,11]
+    monkeypatch.setattr(k,'_run',fake_run)
+    monkeypatch.setattr('bughunter.local_media.binary',lambda name:name)
+    monkeypatch.setattr('bughunter.media_sampling.scene_cuts',cuts)
+    monkeypatch.setattr(runtime,'checkpoint',lambda *_args:None)
+    monkeypatch.setattr(runtime,'vision',lambda _path,stamp:f'Frame at {stamp}')
+    segments,notes=k._extract_media(tmp_path/'lesson.mp4',artifacts,source)
+    assert scene_bounds==[expected_end]
+    assert sampled and all(t<expected_end for t in sampled)
+    assert max(s['end'] for s in segments if s['modality']=='vision')==expected_end
+    assert speech[0] in segments
+    assert json.loads((artifacts/'speech_segments.json').read_text())==speech
+    row=k.store.get('source',source['id'])
+    assert row['duration']==12 and row['video_duration']==expected_end
+    assert row['media_progress']['analyzed']==row['media_progress']['total']==len(sampled)
+    warnings,informational=extraction_messages(notes)
+    assert warnings==[]
+    assert (MEDIA_AUDIO_TAIL_NOTE in informational)==(expected_end<12)

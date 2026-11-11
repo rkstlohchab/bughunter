@@ -52,3 +52,17 @@ for (const [message, expected] of [
     assert.equal(wantsMacControl(message), expected);
   });
 }
+
+const { wantsMappingResearch } = moduleContext.exports;
+for (const [message, expected] of [
+  ['Research memory mappings for the score in my program', true],
+  ['Find candidate mappings using my references', true],
+  ['Find mappings for the score in my program', true],
+  ['Research mappings for my program', true],
+  ['Research references and propose mappings', true],
+  ['Explain how memory mappings work', false],
+  ['Research my documents', false],
+  ['Check my website', false],
+]) {
+  test(`cited mapping workflow: ${message}`, () => assert.equal(wantsMappingResearch(message), expected));
+}

@@ -1,0 +1,22 @@
+.mapping-research { display: grid; gap: 16px; padding: 24px 20px; border-top: 1px solid var(--line); }
+.mapping-inputs { display: grid; grid-template-columns: 1fr 1.4fr; gap: 16px; }
+.mapping-research input:not([type=checkbox]), .mapping-research select, .mapping-research textarea { width: 100%; min-width: 0; }
+.mapping-research .button, .mapping-research summary { min-height: 44px; }
+.mapping-research summary { display: flex; align-items: center; cursor: pointer; font-weight: 600; }
+.mapping-checkbox { display: flex; gap: 10px; align-items: center; padding: 12px 0; }
+.mapping-checkbox input { width: 18px; height: 18px; }
+.mapping-results, .mapping-candidates { display: grid; gap: 20px; }
+.mapping-steps { display: flex; flex-wrap: wrap; gap: 12px; padding: 0; list-style: none; }
+.mapping-steps li { border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; }
+.mapping-steps strong { margin-left: 8px; }
+.mapping-check-bar { border-block: 1px solid var(--line); padding: 16px 0; }
+.mapping-check-bar .field { max-width: 500px; }
+.mapping-candidate { border: 1px solid var(--line); border-radius: 12px; padding: 20px; overflow-wrap: anywhere; min-width: 0; }
+.mapping-candidate h3 { margin: 0; }
+.mapping-candidate blockquote { margin: 16px 0 8px; padding: 12px 16px; border-left: 3px solid var(--line); white-space: pre-wrap; }
+.mapping-citation small, .mapping-candidate li small { display: block; overflow-wrap: anywhere; }
+.mapping-research p { line-height: 1.6; }
+.mapping-research .section-title { flex-wrap: wrap; gap: 12px; padding: 0; }
+.mapping-verdict { font-size: 13px; }
+.mapping-research .conversation-error { overflow-wrap: anywhere; }
+@media (max-width: 640px) { .mapping-inputs { grid-template-columns: 1fr; } .mapping-candidate { padding: 16px; } .mapping-steps li { flex: 1 1 40%; } }

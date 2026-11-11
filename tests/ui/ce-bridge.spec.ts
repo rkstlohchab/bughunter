@@ -1,3 +1,4 @@
+import {openTool} from './navigation';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
@@ -13,8 +14,7 @@ async function rpcStub(page: Page) {
 
 async function openCe(page: Page) {
   await page.goto('/');
-  await page.locator('.nav-details > summary').click();
-  await page.getByRole('button', { name: 'Cheat Engine', exact: true }).click();
+  await openTool(page, 'Cheat Engine');
 }
 
 test('browser dev UI explains the bridge is desktop-only', async ({ page }) => {
@@ -32,7 +32,7 @@ test('state-changing agent call waits for approval and shows the exact Lua', asy
       transformCallback: () => 0,
       invoke: async (cmd: string, args: any) => {
         calls.push(cmd + (cmd === 'ce_resolve_approval' ? ':' + args.approve : ''));
-        if (cmd === 'rpc') return args.method.endsWith('.list') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
+        if (cmd === 'rpc') return args.method === 'settings.memory_bridge' ? {supported:true,base_url:'http://127.0.0.1:11434/v1',model:'fixture',api_key:'',system_prompt:''} : (args.method.endsWith('.list') || args.method === 'training.workspaces') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
         if (cmd === 'ce_get_config') return cfg;
         if (cmd === 'ce_connect_mcp') return [{ name: 'read_memory', description: 'r', inputSchema: {} }, { name: 'evaluate_lua', description: 'l', inputSchema: {} }];
         if (cmd === 'ce_run_agent_prompt') return { status: 'awaiting_approval', trace: [{ kind: 'tool_result', name: 'read_memory', payload: 'ok:read' }, { kind: 'approval_required', name: 'evaluate_lua', payload: 'needs approval' }], approval: { call_id: 'c1', name: 'evaluate_lua', arguments: { code: 'return 42' }, reason: '`evaluate_lua` can change CE or target state' } };
@@ -43,9 +43,9 @@ test('state-changing agent call waits for approval and shows the exact Lua', asy
   });
   await rpcStub(page);
   await openCe(page);
-  await page.getByRole('button', { name: 'Connect MCP' }).click();
+  await page.getByRole('button', { name: 'Start memory helper' }).click();
   await expect(page.getByText('online, 2 tools')).toBeVisible();
-  await page.getByPlaceholder(/attach to target/).fill('read then run lua');
+  await page.getByPlaceholder(/offline test program stores its score/).fill('read then run lua');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const dialog = page.getByRole('alertdialog', { name: 'Approval required' });
   await expect(dialog).toBeVisible();
@@ -58,13 +58,13 @@ test('state-changing agent call waits for approval and shows the exact Lua', asy
   expect(await page.evaluate(() => (window as any).__ceCalls)).toContain('ce_resolve_approval:true');
 });
 
-test('macOS backend hides the Lua tab and shows the privilege note', async ({ page }) => {
+test('macOS backend identifies the built-in reader and hides Lua', async ({ page }) => {
   await page.addInitScript(() => {
     const cfg = { backend: 'mac_native', mac_script_path: '', python_bin: 'python3', mcp_script_path: '', ce_host: '127.0.0.1', ce_port: '17171', ce_auth_token: '', llm_base_url: 'http://127.0.0.1:11434/v1', llm_api_key: 'ollama', llm_model: 'm', system_prompt: '', auto_approve_readonly: true };
     (window as any).__TAURI_INTERNALS__ = {
       transformCallback: () => 0,
       invoke: async (cmd: string, args: any) => {
-        if (cmd === 'rpc') return args.method.endsWith('.list') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
+        if (cmd === 'rpc') return args.method === 'settings.memory_bridge' ? {supported:true,base_url:'http://127.0.0.1:11434/v1',model:'fixture',api_key:'',system_prompt:''} : (args.method.endsWith('.list') || args.method === 'training.workspaces') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
         if (cmd === 'ce_get_config') return cfg;
         if (cmd === 'ce_preflight') return [{ id: 'root', label: 'Root privileges', status: 'warn', detail: 'not root', fix: 'Start the app with sudo.' }, { id: 'python', label: 'Python', status: 'ok', detail: 'Python 3.12', fix: null }];
         return {};
@@ -73,13 +73,12 @@ test('macOS backend hides the Lua tab and shows the privilege note', async ({ pa
   });
   await rpcStub(page);
   await openCe(page);
-  await expect(page.getByRole('heading', { name: 'macOS memory bridge' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Memory helper' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Lua', exact: true })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Config', exact: true }).click();
-  await expect(page.getByText(/refuses SIP-protected/)).toBeVisible();
-  await page.getByRole('button', { name: 'Check environment' }).click();
-  await expect(page.getByText('Start the app with sudo.')).toBeVisible();
-  await expect(page.getByText('Python 3.12')).toBeVisible();
+  await expect(page.getByText(/Uses the built-in Mac memory reader/)).toBeVisible();
+  await expect(page.getByText(/Before opening or changing another process, you approve it/)).toBeVisible();
+  await page.getByText('Advanced memory options (optional)', {exact:true}).click();
+  await expect(page.getByRole('button', {name:'Lua',exact:true})).toHaveCount(0);
 });
 
 test('recoverable model failure retains agent context and exposes retry', async ({ page }) => {
@@ -91,7 +90,7 @@ test('recoverable model failure retains agent context and exposes retry', async 
       transformCallback: () => 0,
       invoke: async (cmd: string, args: any) => {
         calls.push(cmd);
-        if (cmd === 'rpc') return args.method.endsWith('.list') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
+        if (cmd === 'rpc') return args.method === 'settings.memory_bridge' ? {supported:true,base_url:'http://127.0.0.1:11434/v1',model:'fixture',api_key:'',system_prompt:''} : (args.method.endsWith('.list') || args.method === 'training.workspaces') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
         if (cmd === 'ce_get_config') return cfg;
         if (cmd === 'ce_connect_mcp') return [];
         if (cmd === 'ce_run_agent_prompt') return { status: 'awaiting_retry', trace: [{ kind: 'notice', name: 'model_error', payload: 'model request failed: timeout' }], approval: null };
@@ -102,8 +101,8 @@ test('recoverable model failure retains agent context and exposes retry', async 
   });
   await rpcStub(page);
   await openCe(page);
-  await page.getByRole('button', { name: 'Connect MCP' }).click();
-  await page.getByPlaceholder(/attach to target/).fill('read state');
+  await page.getByRole('button', { name: 'Start memory helper' }).click();
+  await page.getByPlaceholder(/offline test program stores its score/).fill('read state');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByRole('alert', { name: 'Model request interrupted' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled();
@@ -120,7 +119,7 @@ test('failed approval response does not silently dismiss the approval dialog', a
     (window as any).__TAURI_INTERNALS__ = {
       transformCallback: () => 0,
       invoke: async (cmd: string, args: any) => {
-        if (cmd === 'rpc') return args.method.endsWith('.list') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
+        if (cmd === 'rpc') return args.method === 'settings.memory_bridge' ? {supported:true,base_url:'http://127.0.0.1:11434/v1',model:'fixture',api_key:'',system_prompt:''} : (args.method.endsWith('.list') || args.method === 'training.workspaces') ? [] : args.method === 'system.status' ? { version: '0.1.0', emergency_stop: false } : {};
         if (cmd === 'ce_get_config') return cfg;
         if (cmd === 'ce_connect_mcp') return [];
         if (cmd === 'ce_run_agent_prompt') return { status: 'awaiting_approval', trace: [], approval: { call_id: 'c1', name: 'write_memory', arguments: { address: '0x10' }, reason: 'state-changing tool' } };
@@ -131,8 +130,8 @@ test('failed approval response does not silently dismiss the approval dialog', a
   });
   await rpcStub(page);
   await openCe(page);
-  await page.getByRole('button', { name: 'Connect MCP' }).click();
-  await page.getByPlaceholder(/attach to target/).fill('read state');
+  await page.getByRole('button', { name: 'Start memory helper' }).click();
+  await page.getByPlaceholder(/offline test program stores its score/).fill('read state');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   const dialog = page.getByRole('alertdialog', { name: 'Approval required' });
   await expect(dialog).toBeVisible();

@@ -23,7 +23,7 @@ def main():
         command += ['--add-data', f'{corpus}:bughunter/assets/prompt_corpus']
     for package in ("sqlite_vec","mitmproxy","mitmproxy_rs","yt_dlp","playwright","selenium","keyring","certifi","pymupdf","ddgs"):
         command += ["--collect-all",package]
-    command += ["--hidden-import","keyring.backends.macOS",str(ROOT/"scripts/sidecar_entry.py")]
+    command += ["--hidden-import","keyring.backends.macOS","--hidden-import","bughunter.mac_memory",str(ROOT/"scripts/sidecar_entry.py")]
     subprocess.run(command,cwd=ROOT,check=True)
     extension = ".exe" if platform.system()=="Windows" else ""
     source = ROOT/f"build/sidecar/bughunter-backend{extension}"

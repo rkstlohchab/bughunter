@@ -37,6 +37,16 @@ SUPPORTED_EXTENSIONS = TEXT_EXTENSIONS | MEDIA_EXTENSIONS | IMAGE_EXTENSIONS | {
 MAX_FILE_BYTES = 32 * 1024 * 1024 * 1024
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 MAX_EXTRACTED_CHARS = 10_000_000
+MEDIA_SAMPLING_NOTE = "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+MEDIA_AUDIO_TAIL_NOTE = "Audio continues after the video stream ends; images are sampled only while the video stream exists."
+
+
+def extraction_messages(messages):
+    """Separate configured sampling limits from failed extraction steps."""
+    messages = list(dict.fromkeys(messages))
+    notes = {MEDIA_SAMPLING_NOTE, MEDIA_AUDIO_TAIL_NOTE}
+    return ([m for m in messages if m not in notes],
+            [m for m in messages if m in notes])
 
 # Transparent lexical links bootstrap navigation. They are explicitly inferred;
 # model-backed assertions use enrich() and require a real source quotation.
@@ -324,7 +334,7 @@ class KnowledgeService:
             "knowledge.examples.save": lambda: self.portability().save_example(**p),
             "knowledge.examples.list": lambda: self.store.list("learning_example"),
             "knowledge.search": lambda: self.search(p.get("query", ""), p.get("limit", 10), project_id=p.get("project_id", "*")),
-            "knowledge.graph": lambda: self.graph(p.get("limit", 250)),
+            "knowledge.graph": lambda: self.graph(p.get("limit", 250), p.get("project_id", "*"), p.get("query", "")),
             "knowledge.learnings": lambda: self.learnings(p.get("limit", 300)),
             "knowledge.correct": lambda: self.correct(p["id"], p["text"]),
             "knowledge.enrich": lambda: self.enrich(p["source_id"], p["assertions"]),
@@ -337,7 +347,7 @@ class KnowledgeService:
             "courses.resume": lambda: self.courses.resume(p["id"]),
             "knowledge.procedures": lambda: self.procedures.list(p.get("source_id"),p.get("project_id","*"),p.get("limit",150)),
             "knowledge.procedures.get": lambda: self.procedures.get(p["id"]),
-            "knowledge.procedures.rebuild": lambda: self.procedures.build(p["source_id"]),
+            "knowledge.procedures.rebuild": lambda: self.rebuild_procedures(p["source_id"]),
             "experiments.check_source": lambda: self.experiments.check_source(p["source_id"],p.get("limit",30)),
             "experiments.insights": lambda: self.experiments.insights(p.get("project_id","*")),
             "experiments.available": lambda: self.experiments.available(p["procedure_id"]),
@@ -628,9 +638,9 @@ class KnowledgeService:
 
     def resume_pending(self):
         for source in self.list_sources():
-            if source["status"] == "queued":
+            if source.get("status") == "queued":
                 self._schedule(source["id"])
-            elif source["status"] == "processing" and not self._pid_alive(source.get("worker_pid")):
+            elif source.get("status") == "processing" and not self._pid_alive(source.get("worker_pid")):
                 self._update(source["id"], status="queued", resumed=True)
                 self._schedule(source["id"])
 
@@ -709,7 +719,9 @@ class KnowledgeService:
                     semantic_status = self._index_vectors(id)
                 except Exception as exc:  # noqa: BLE001 - optional model failures must preserve keyword search
                     semantic_error = str(exc)[:350]
+            warnings, notes = extraction_messages(warnings)
             result = self._update(id, status="partial" if warnings else "ready", stage="complete",
+                                 extraction_notes=notes,
                                  warnings=list(dict.fromkeys(warnings)), chunk_count=count,
                                  semantic_index=semantic_status, semantic_error=semantic_error, worker_pid=None)
             self.store.event("source.indexed", {"source_id": id, "chunk_count": count,
@@ -724,6 +736,27 @@ class KnowledgeService:
             # not leave late-created frames/checkpoints behind or recreate it.
             if self.store.get("source", id) is None:
                 shutil.rmtree(self.store.root / "artifacts" / id, ignore_errors=True)
+
+    def rebuild_procedures(self, id: str) -> dict:
+        """Repair derived procedures without rereading or re-extracting originals."""
+        source = self.store.get('source', id)
+        if not source or source.get('status') not in {'ready', 'partial'}:
+            raise ValueError('Wait for source extraction to finish before rebuilding procedures.')
+        result = self.procedures.build(id)
+        with self.store.connection(immediate=True) as db:
+            raw = db.execute("SELECT data FROM entities WHERE kind='source' AND id=?", (id,)).fetchone()
+            current = json.loads(raw[0]) if raw else None
+            if current and current.get('status') in {'ready', 'partial'}:
+                warnings, notes = extraction_messages([w for w in current.get('warnings', [])
+                    if not w.startswith('Procedure extraction unavailable:')])
+                if not current.get('chunk_count'):
+                    warnings.append('No searchable text was extracted. Check extractor/model availability and retry.')
+                current.update(warnings=list(dict.fromkeys(warnings)),
+                    extraction_notes=list(dict.fromkeys([*current.get('extraction_notes', []), *notes])),
+                    status='partial' if warnings else 'ready', updated_at=now())
+                db.execute("UPDATE entities SET data=?,updated_at=? WHERE kind='source' AND id=?",
+                    (json.dumps(current), current['updated_at'], id))
+        return {**result, 'source_status': current.get('status') if current else 'deleted'}
 
     def retry_source(self, id: str) -> dict:
         with self.store.connection(immediate=True) as db:
@@ -996,6 +1029,12 @@ class KnowledgeService:
         duration = float(probe.get("format", {}).get("duration") or 0)
         has_audio = any(item.get("codec_type") == "audio" for item in probe.get("streams", []))
         has_video = any(item.get("codec_type") == "video" for item in probe.get("streams", []))
+        video_stream = next((item for item in probe.get('streams', []) if item.get('codec_type') == 'video'), {})
+        try:
+            video_duration = float(video_stream.get('duration'))
+            if not math.isfinite(video_duration) or video_duration <= 0: video_duration = duration
+        except (TypeError, ValueError):
+            video_duration = duration
         segments, warnings = list(transcript or []), []
         artifacts.mkdir(parents=True, exist_ok=True)
         sid = source["id"]
@@ -1029,16 +1068,18 @@ class KnowledgeService:
                 else:
                     warnings.append("Local Whisper is not ready. In Video AI, install whisper.cpp and the speech model, then reprocess.")
         if has_video:
+            if has_audio and video_duration + 1 < duration:
+                warnings.append(MEDIA_AUDIO_TAIL_NOTE)
             interval = float(settings.get("frame_interval", 30))
             cap = int(settings.get("max_frames", 0))
             from .media_sampling import scene_cuts, plan_frames
             # Sample every configured interval plus moments where the visible UI
             # changes sharply. A scene cut is NOT proof a button was clicked.
             extra_times = []
-            if settings.get("adaptive_frames", True) and settings.get("vision_enabled",True) and duration:
-                extra_times = scene_cuts(ffmpeg, str(path), duration,
+            if settings.get("adaptive_frames", True) and settings.get("vision_enabled",True) and video_duration:
+                extra_times = scene_cuts(ffmpeg, str(path), video_duration,
                     threshold=float(settings.get("scene_threshold",0.30)))
-            stamps = plan_frames(duration, interval, cap, extra_times)
+            stamps = plan_frames(video_duration, interval, cap, extra_times)
             total_frames = len(stamps)
             step = interval
             frames = []
@@ -1051,8 +1092,13 @@ class KnowledgeService:
                 # when the interval or frame cap changes between reprocesses.
                 frame = artifacts / f"frame-{int(round(stamp * 1000)):012d}.jpg"
                 if not frame.exists():
-                    self._run([ffmpeg, "-nostdin", "-y", "-ss", str(stamp), "-i", str(path), "-frames:v", "1",
-                               "-vf", "scale='min(1000,iw)':-2", "-q:v", "5", str(frame)], 90)
+                    try:
+                        self._run([ffmpeg, "-nostdin", "-y", "-ss", str(stamp), "-i", str(path), "-map", "0:v:0", "-frames:v", "1",
+                                   "-vf", "scale='min(1000,iw)':-2", "-q:v", "5", str(frame)], 90)
+                    except (ValueError, OSError, subprocess.SubprocessError):
+                        # A single unseekable/corrupt frame must not discard the whole transcript.
+                        warnings.append(f"Skipped an unreadable frame at {_seconds_label(stamp)}.")
+                        continue
                 if not frame.exists():
                     continue
                 frames.append({"artifact_id":frame.name,"path":str(frame),"time":stamp,
@@ -1063,7 +1109,7 @@ class KnowledgeService:
                         description = runtime.vision(frame, stamp)
                         if description:
                             visual = {"text":description,"locator":f"Frame at {_seconds_label(stamp)}",
-                                      "modality":"vision","start":stamp,"end":min(duration,stamp+step),
+                                      "modality":"vision","start":stamp,"end":min(video_duration,stamp+step),
                                       "frame_path":str(frame),"model":settings.get("vision_model")}
                             timeline.append(visual)
                             existing[round(stamp, 2)] = visual
@@ -1091,11 +1137,11 @@ class KnowledgeService:
                 if index % 5 == 0:
                     self._update(sid, frame_count=len(frames), media_progress={"analyzed":index+1,"total":total_frames,"timestamp":stamp}, duration=duration)
             (artifacts / "frames.json").write_text(json.dumps(frames))
-            self._update(sid, frame_count=len(frames), frames=frames, duration=duration,
-                         media_progress={"analyzed":len(frames),"total":total_frames,"timestamp":duration})
+            self._update(sid, frame_count=len(frames), frames=frames, duration=duration, video_duration=video_duration,
+                         media_progress={"analyzed":len(frames),"total":total_frames,"timestamp":video_duration})
             if not vision_usable and not existing:
                 warnings.append("Only sampled frames and available OCR were indexed. Enable Qwen3-VL for frame descriptions.")
-            warnings.append("Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples.")
+            warnings.append(MEDIA_SAMPLING_NOTE)
         elif not has_audio:
             warnings.append("No audio or video stream was detected.")
         if segments:
@@ -1358,15 +1404,35 @@ class KnowledgeService:
         """Opt-in scoped retrieval: shared material plus this project's sources only."""
         return self.search(query, limit, project_id=project_id)
 
-    def graph(self, limit: int = 250) -> dict:
+    def graph(self, limit: int = 250, project_id="*", query: str = "") -> dict:
         limit = max(10, min(int(limit), 1000))
+        scope_sql = "" if project_id == "*" else " AND (json_extract(data, '$.project_id') IS NULL OR json_extract(data, '$.project_id')=?)"
+        scope_params = () if project_id == "*" else (project_id,)
+        # Filter provenance before limiting so another project's corpus cannot
+        # leak through shared concept nodes or displace the selected evidence.
+        eligible = """WITH allowed_sources AS (
+            SELECT id FROM entities WHERE kind='source'""" + scope_sql + """
+        ), allowed_edges AS (
+            SELECT * FROM knowledge_edges WHERE source_id IN (SELECT id FROM allowed_sources)
+        ), eligible AS (
+            SELECT * FROM knowledge_nodes n WHERE (
+                n.id IN (SELECT id FROM allowed_sources)
+                OR json_extract(n.data, '$.source_id') IN (SELECT id FROM allowed_sources)
+                OR (json_extract(n.data, '$.source_id') IS NULL AND (
+                    n.id IN (SELECT source FROM allowed_edges)
+                    OR n.id IN (SELECT target FROM allowed_edges)))
+            ) AND instr(lower(n.label), lower(?)) > 0
+        ) """
+        params = (*scope_params, _text(query)[:300])
         with self.store.connection() as db:
-            count = db.execute("SELECT count(*) FROM knowledge_nodes").fetchone()[0]
-            rows = db.execute("SELECT * FROM knowledge_nodes ORDER BY CASE kind WHEN 'source' THEN 0 WHEN 'example' THEN 2 ELSE 1 END,label LIMIT ?", (limit,)).fetchall()
+            count = db.execute(eligible + "SELECT count(*) FROM eligible", params).fetchone()[0]
+            rows = db.execute(eligible + """SELECT * FROM eligible ORDER BY CASE kind
+                WHEN 'observation' THEN 0 WHEN 'source' THEN 1 WHEN 'example' THEN 3 ELSE 2 END,
+                label, id LIMIT ?""", (*params, limit)).fetchall()
             nodes = [{"id": r["id"], "kind": r["kind"], "type": r["kind"], "label": r["label"], **json.loads(r["data"])} for r in rows]
             ids = {n["id"] for n in nodes}
             edges = [{"id": r["id"], "source": r["source"], "target": r["target"], "relation": r["relation"], "label": r["relation"], "source_id": r["source_id"], "chunk_id": r["chunk_id"], **json.loads(r["data"])}
-                     for r in db.execute("SELECT * FROM knowledge_edges") if r["source"] in ids and r["target"] in ids]
+                     for r in db.execute(eligible + "SELECT * FROM allowed_edges", params) if r["source"] in ids and r["target"] in ids]
         return {"nodes": nodes, "edges": edges, "total_nodes": count, "truncated": count > limit,
                 "description": "Imported examples and source-backed relationships. Lexical and model-inferred links are labeled; they are not confirmed vulnerabilities."}
 

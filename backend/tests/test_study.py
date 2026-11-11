@@ -44,11 +44,14 @@ def test_study_mode_allows_library_tools(app):
     assert model.call("search_knowledge", {"query": "idor access control"}) == []
 
 
-def test_investigation_mode_is_unaffected(app):
+def test_investigation_mode_is_unaffected(app, monkeypatch):
     # Without study=True the same tool reaches its normal (non-"library tools") path.
     r = study_run(app, kind="investigate", project_id="p")
     app.policy.save_project({"id": "p", "name": "x", "scope": ["https://example.test"], "authorization": "ok"})
     model = ModelTools(app, r["id"], study=False)
+    def unavailable(*args, **kwargs):
+        raise ValueError('Discovery fixture unavailable')
+    monkeypatch.setattr(app.tools, 'discover', unavailable)
     with pytest.raises(ValueError) as exc:
         model.call("passive_discovery", {"domain": "example.test"})
     assert "library tools" not in str(exc.value)

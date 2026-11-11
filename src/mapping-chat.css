@@ -1,0 +1,10 @@
+.mapping-chat { overflow-wrap: anywhere; }
+.mapping-chat-selection { display: grid; gap: 12px; }
+.mapping-chat-selection label { display: grid; gap: 6px; }
+.mapping-chat-selection input, .mapping-chat-selection select { width: 100%; min-width: 0; }
+.mapping-chat-approval pre { max-height: 220px; overflow: auto; white-space: pre-wrap; }
+.mapping-chat .button { min-height: 44px; }
+.mapping-chat details { margin-block: 12px; }
+.mapping-chat summary { cursor: pointer; }
+.mapping-chat a, .conversation-citations a { text-decoration: underline; }
+.conversation-citations { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }

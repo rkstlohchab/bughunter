@@ -1,42 +1,42 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowUp, BookOpen, Check, FileText, Hammer, LoaderCircle, MessageSquareText, Paperclip, Plus, Search, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUp, Check, ChevronDown, Download, History, LoaderCircle, MessageSquarePlus, Paperclip, Plus, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { fileBase64, rpc } from './api';
+import { wantsMappingResearch } from './taskIntent';
+import { mappingActive, useMappingChat } from './useMappingChat';
+import MappingChatActivity from './MappingChatActivity';
 import type { RecordData as Row } from './api';
 type RecordData = Row;
-import { Button, Modal } from './components';
 
-type ChatProps = { navigate: (page: 'Settings') => void; projectId?: string; projectName?: string };
-type Message = { role: 'user' | 'assistant'; content: string; run_id?: string; pending?: boolean };
-type Session = RecordData & { id: string; title: string; messages: Message[]; source_ids?: string[] };
-type Activity = { type: string; text: string };
-const MAX_ATTACHMENTS = 6;
+type ChatProps = { navigate: (page: 'Settings' | 'Team') => void; projectId?: string; projectName?: string };
+type Message = { role: 'user' | 'assistant'; content: string; run_id?: string; task_id?: string; pending?: boolean; citations?:{title:string;url?:string;source_id?:string}[] };
+type Session = RecordData & { id: string; title: string; messages: Message[] };
+type ProviderInfo = { provider: string; label: string; kind: string; ready: boolean; needs: string; models: string[]; active: boolean };
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
-const ready = (source: RecordData) => (source.chunk_count > 0 && !['queued', 'failed', 'error'].includes(source.status)) || (/\.(?:exe|dll|apk|ipa|so|dylib|bin|jar)$/i.test(source.filename || '') && source.original_retained !== false && !!source.path);
-const displayName = (source: RecordData) => source.title || source.filename || 'Resource';
 
 export default function Chat({ navigate, projectId, projectName }: ChatProps) {
   const [history, setHistory] = useState<RecordData[]>([]);
   const [session, setSession] = useState<Session | null>(null);
+  const mapping = useMappingChat(session, setSession);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
-  const [provider, setProvider] = useState<RecordData>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('');
-  const [sourceFilter, setSourceFilter] = useState('');
-  const [sources, setSources] = useState<RecordData[]>([]);
-  const [selectedSourceIds, setSelectedSourceIds] = useState<string[]>([]);
-  const [showSources, setShowSources] = useState(false);
+  const [activeTask, setActiveTask] = useState<RecordData | null>(null);
+  const [taskId, setTaskId] = useState('');
+  const [trackingError, setTrackingError] = useState('');
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [webSearch, setWebSearch] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
-  const [activity, setActivity] = useState<Activity[]>([]);
+  const [attached, setAttached] = useState<RecordData[]>([]);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [activeModel, setActiveModel] = useState<{ provider: string; model: string }>({ provider: '', model: '' });
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const scopeVersion = useRef(0);
-  const loadedScopeKey = useRef<string | null>(null);
   const selectionVersion = useRef(0);
-  const polling = useRef(false);
+  const sendGuard = useRef(false);
   const scopeKey = `bughunter.chat.${projectId || 'library'}`;
 
   const refreshHistory = async () => {
@@ -44,200 +44,260 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
     const rows = await rpc<RecordData[]>('chat.list', { project_id: projectId || null });
     if (version === scopeVersion.current) setHistory(rows);
   };
-  const refreshSources = async () => {
-    const version = scopeVersion.current;
-    const rows = await rpc<RecordData[]>('sources.list', { project_id: projectId || null });
-    if (version === scopeVersion.current) setSources(rows);
+  const refreshModels = async () => {
+    try {
+      const r = await rpc<{ providers: ProviderInfo[]; active: { provider: string; model: string } }>('models.available');
+      setProviders(r.providers || []); setActiveModel(r.active || { provider: '', model: '' });
+    } catch { /* settings not ready */ }
   };
   useEffect(() => {
     const version = ++scopeVersion.current;
-    loadedScopeKey.current = null;
-    polling.current = false;
-    let alive = true;
     selectionVersion.current++;
-    setSession(null); setHistory([]); setSources([]); setText(''); setActivity([]);
-    setSelectedSourceIds([]); setWebSearch(false); setLoading(true); setError('');
-    setSending(false); setImporting(false); setShowSources(false);
+    sendGuard.current = false;
+    let alive = true;
+    setSession(null); setHistory([]); setText(''); setActiveTask(null); setTaskId(''); setAttached([]);
+    setWebSearch(false); setLoading(true); setError(''); setSending(false); setImporting(false);
     const load = async () => {
       try {
-        const [list, settings, library] = await Promise.all([
-          rpc<RecordData[]>('chat.list', { project_id: projectId || null }), rpc<RecordData>('settings.get'),
-          rpc<RecordData[]>('sources.list', { project_id: projectId || null }),
-        ]);
+        const list = await rpc<RecordData[]>('chat.list', { project_id: projectId || null });
         if (!alive || version !== scopeVersion.current) return;
-        setHistory(list); setProvider(settings); setSources(library);
+        setHistory(list);
+        void refreshModels();
         const saved = localStorage.getItem(scopeKey);
         if (saved && list.some(item => item.id === saved)) {
           const loaded = await rpc<Session>('chat.get', { id: saved });
           if (!alive || version !== scopeVersion.current) return;
-          setSession(loaded); setSelectedSourceIds(loaded.source_ids || []);
+          setSession(loaded);
         }
       } catch (err) {
         if (alive && version === scopeVersion.current) setError(err instanceof Error ? err.message : String(err));
       } finally {
-        if (alive && version === scopeVersion.current) { loadedScopeKey.current = scopeKey; setLoading(false); }
+        if (alive && version === scopeVersion.current) setLoading(false);
       }
     };
     void load();
-    return () => { alive = false; polling.current = false; scopeVersion.current++; };
+    return () => { alive = false; scopeVersion.current++; };
   }, [projectId]);
+  useEffect(() => { if (!loading) { if (session?.id) localStorage.setItem(scopeKey, session.id); else localStorage.removeItem(scopeKey); } }, [session?.id, loading, scopeKey]);
+  useEffect(() => { bottom.current?.scrollIntoView({ block: 'end', behavior: 'auto' }); }, [session?.messages?.length, sending]);
+  useEffect(() => { setTaskId(session?.task_id || session?.run_id || ''); }, [session?.id, session?.task_id, session?.run_id]);
+  const pendingRun = session?.messages.find(message => message.pending)?.run_id;
   useEffect(() => {
-    if (!loading && loadedScopeKey.current === scopeKey) {
-      if (session?.id) localStorage.setItem(scopeKey, session.id);
-      else localStorage.removeItem(scopeKey);
-    }
-  }, [session?.id, loading, scopeKey]);
-  useEffect(() => { bottom.current?.scrollIntoView({ block: 'end', behavior: 'auto' }); }, [session?.messages?.length, activity.length, sending]);
+    if (!pendingRun || !session?.id) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const sessionId = session.id;
+    setSending(true);
+    const poll = async () => {
+      try {
+        const final = await rpc<{ terminal: boolean; session: Session }>('chat.finalize', { id: sessionId, run_id: pendingRun });
+        if (!alive) return;
+        setTrackingError('');
+        if (final.terminal) {
+          setSession(final.session); setSending(false); void refreshHistory(); return;
+        }
+      } catch (err) {
+        if (alive) setTrackingError(`Progress connection interrupted. Retrying… ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (alive) timer = setTimeout(() => void poll(), 1500);
+    };
+    void poll();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [pendingRun, session?.id]);
   useEffect(() => {
-    if (!selectedSourceIds.some(id => !ready(sources.find(s => s.id === id) || {}))) return;
-    const timer = setInterval(() => { void refreshSources().catch(() => {}); }, 3500);
-    return () => clearInterval(timer);
-  }, [selectedSourceIds, sources]);
+    setActiveTask(null);
+    if (!taskId) return;
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try {
+        const task = await rpc<RecordData>('tasks.get', { id: taskId });
+        if (!alive) return;
+        setActiveTask(task); setTrackingError('');
+        if (['completed', 'failed', 'cancelled', 'interrupted', 'blocked', 'limited'].includes(task.status)) return;
+      } catch (err) {
+        if (alive) setTrackingError(`Could not load task progress. Retrying… ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (alive) timer = setTimeout(() => void poll(), 1500);
+    };
+    void poll();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [taskId]);
 
-  const selectedSources = useMemo(() => selectedSourceIds.map(id => sources.find(s => s.id === id) || { id, title: 'Unavailable resource', status: 'error' }), [sources, selectedSourceIds]);
-  const notIndexed = selectedSources.some(source => !ready(source));
   const filteredHistory = history.filter(chat => String(chat.title || 'Chat').toLowerCase().includes(filter.toLowerCase()));
-  const canSend = !loading && !sending && !importing && !notIndexed && !!text.trim();
+  const canSend = !loading && !sending && !importing && !mapping.busy && !(session?.mapping_id && !mapping.data) && !!text.trim();
+  const activeLabel = providers.find(p => p.provider === activeModel.provider)?.label || 'No model';
 
   function newChat() {
     if (sending) return;
-    selectionVersion.current++; setSession(null); setSelectedSourceIds([]); setText(''); setError(''); setActivity([]); setShowHistory(false);
+    selectionVersion.current++;
+    setSession(null); setText(''); setError(''); setActiveTask(null); setTaskId(''); setAttached([]); setHistoryOpen(false);
   }
   async function selectChat(id: string) {
     if (sending) return;
     const version = scopeVersion.current;
     const selection = ++selectionVersion.current;
-    setError(''); setActivity([]);
+    setError(''); setActiveTask(null); setAttached([]);
     try {
       const loaded = await rpc<Session>('chat.get', { id });
       if (version !== scopeVersion.current || selection !== selectionVersion.current) return;
-      setSession(loaded); setSelectedSourceIds(loaded.source_ids || []); setShowHistory(false);
-      void refreshSources().catch(() => {});
-    } catch (e) { if (version === scopeVersion.current && selection === selectionVersion.current) setError(String(e instanceof Error ? e.message : e)); }
+      setSession(loaded); setHistoryOpen(false);
+    } catch (e) { if (version === scopeVersion.current) setError(String(e instanceof Error ? e.message : e)); }
+  }
+  async function pickModel(provider: string, model: string) {
+    try { await rpc('models.select', { provider, model }); setPickerOpen(false); await refreshModels(); }
+    catch (e) { setError(String(e instanceof Error ? e.message : e)); }
   }
 
-  // One message -> one autonomous agent run. Stream its tool calls and answer live.
   async function send() {
-    if (!canSend) return;
+    if (!canSend || sendGuard.current) return;
+    sendGuard.current = true;
     const version = scopeVersion.current;
     const message = text.trim();
-    setSending(true); setError(''); setActivity([]);
+    setSending(true); setError(''); setActiveTask(null);
     try {
+      if (session?.mapping_id && mappingActive(mapping.data?.workflow.status)) {
+        const accepted = await mapping.reply(message, attached.map(a=>a.id));
+        if (version !== scopeVersion.current) return;
+        if (accepted) {setText('');setAttached([]);}
+        setSending(false); await refreshHistory(); return;
+      }
+      if (wantsMappingResearch(message)) {
+        const result = await rpc<{session:Session}>('chat.mapping.start', {id:session?.id,message,
+          project_id:projectId || null,source_ids:attached.map(a=>a.id),search_web:webSearch});
+        if (version !== scopeVersion.current) return;
+        setSession(result.session);setText('');setAttached([]);setSending(false);await refreshHistory();return;
+      }
+      if (/^\s*(?:please\s+)?(?:run|check|audit|verify|test)\b/i.test(message)) {
+        const plan = await rpc<RecordData>('autopilot.plan', { message, project_id: projectId || null, source_ids: attached.map(a => a.id) });
+        if (version !== scopeVersion.current) return;
+        if (['app_checks', 'knowledge_check'].includes(plan.workflow)) {
+          if (plan.missing?.length) throw new Error(plan.missing.join(' '));
+          const saved = await rpc<Session>('chat.autopilot', { id: session?.id, message, project_id: projectId || undefined, source_ids: attached.map(a => a.id) });
+          if (version !== scopeVersion.current) return;
+          setSession(saved); setText(''); setAttached([]); setSending(false); await refreshHistory(); return;
+        }
+      }
       const started = await rpc<{ session: Session; run_id: string; cursor: number }>('chat.agent', {
         id: session?.id, message, project_id: projectId || undefined,
-        source_ids: selectedSourceIds,
+        source_ids: attached.map(a => a.id), web_search: webSearch,
       });
       if (version !== scopeVersion.current) return;
-      setSession(started.session); setText(''); await refreshHistory();
-      await streamRun(started.session.id, started.run_id, started.cursor, version);
+      setSession(started.session); setText(''); setAttached([]); await refreshHistory();
     } catch (e) {
       if (version !== scopeVersion.current) return;
       setError(String(e instanceof Error ? e.message : e)); setSending(false);
-    }
+    } finally { if (version === scopeVersion.current) sendGuard.current = false; }
   }
-
-  async function streamRun(sessionId: string, runId: string, cursor: number, version: number) {
-    polling.current = true;
-    let lastSeq = cursor;
-    let webNoted = webSearch; // web_search context is folded into the agent prompt server-side; flag reset per send
-    void webNoted;
-    const tick = async () => {
-      if (!polling.current || version !== scopeVersion.current) { setSending(false); return; }
-      try {
-        const events = await rpc<RecordData[]>('events.list', { after: lastSeq, limit: 200 });
-        const mine: Activity[] = [];
-        for (const row of events) {
-          if (row.seq > lastSeq) lastSeq = row.seq;
-          if (row.type === 'run.event' && row.data?.run_id === runId && row.data?.text) {
-            mine.push({ type: String(row.data.type || 'info'), text: String(row.data.text) });
-          }
-        }
-        if (mine.length) setActivity(prev => [...prev, ...mine]);
-        const final = await rpc<{ terminal: boolean; session: Session }>('chat.finalize', { id: sessionId, run_id: runId });
-        if (version !== scopeVersion.current) { setSending(false); return; }
-        if (final.terminal) {
-          polling.current = false;
-          setSession(final.session); setActivity([]); setSending(false);
-          await refreshHistory();
-          return;
-        }
-      } catch {
-        // transient poll error; keep trying until the run terminates
+  async function stopTask() {
+    try {
+      if (session?.mapping_id && mappingActive(mapping.data?.workflow.status)) {
+        await mapping.stop(); setSending(false); return;
+      } else if (pendingRun && session) {
+        const final = await rpc<{session: Session}>('chat.stop', {id: session.id, run_id: pendingRun});
+        setSession(final.session); setSending(false);
+      } else if (activeTask) {
+        await rpc('tasks.cancel', {id: activeTask.id});
       }
-      if (polling.current && version === scopeVersion.current) setTimeout(() => void tick(), 1200);
-    };
-    await tick();
+      if (taskId) setActiveTask(await rpc<RecordData>('tasks.get', {id: taskId}));
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
   }
-
+  async function downloadConversation() {
+    if (!session) return;
+    try {
+      const report = await rpc<{filename: string; content: string}>('chat.export', {id: session.id});
+      const url = URL.createObjectURL(new Blob([report.content], {type: 'application/json'}));
+      const link = document.createElement('a'); link.href = url; link.download = report.filename; link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)); }
+  }
   async function deleteChat(id: string) {
     if (sending) return;
-    try {
-      await rpc('chat.delete', { id });
-      if (session?.id === id) newChat();
-      await refreshHistory();
-    } catch (e) { setError(String(e instanceof Error ? e.message : e)); }
-  }
-  function toggleSource(id: string) {
-    setSelectedSourceIds(current => current.includes(id) ? current.filter(v => v !== id) : current.length >= MAX_ATTACHMENTS ? current : [...current, id]);
+    try { await rpc('chat.delete', { id }); if (session?.id === id) newChat(); await refreshHistory(); }
+    catch (e) { setError(String(e instanceof Error ? e.message : e)); }
   }
   async function addFiles(files: FileList | File[]) {
     const version = scopeVersion.current;
     const chosen = Array.from(files);
     if (!chosen.length) return;
-    if (chosen.length + selectedSourceIds.length > MAX_ATTACHMENTS) { setError(`Choose up to ${MAX_ATTACHMENTS} resources per conversation.`); return; }
-    if (chosen.some(f => f.size > MAX_FILE_BYTES)) { setError('Choose files smaller than 64 MB, or import large files in Library.'); return; }
+    if (chosen.length + attached.length > 6) { setError('Attach up to six files per message.'); return; }
+    if (chosen.some(f => f.size > MAX_FILE_BYTES)) { setError('Attach files under 64 MB; add larger courses from Library.'); return; }
     setImporting(true); setError('');
     try {
       const imported: RecordData[] = [];
-      for (const file of chosen) {
-        const resource = await rpc<RecordData>('sources.import', { filename: file.name, content_base64: await fileBase64(file), project_id: projectId || null });
-        imported.push(resource);
-      }
+      for (const file of chosen) imported.push(await rpc<RecordData>('sources.import', { filename: file.name, content_base64: await fileBase64(file), project_id: projectId || null }));
       if (version !== scopeVersion.current) return;
-      setSources(prev => [...imported.filter(row => !prev.some(old => old.id === row.id)), ...prev]);
-      setSelectedSourceIds(prev => [...new Set([...prev, ...imported.map(row => row.id)])].slice(0, MAX_ATTACHMENTS));
+      setAttached(prev => [...prev, ...imported]);
     } catch (e) { if (version !== scopeVersion.current) return; setError(String(e instanceof Error ? e.message : e)); }
     finally { if (version === scopeVersion.current) { setImporting(false); if (fileInput.current) fileInput.current.value = ''; } }
   }
 
   const messages = session?.messages || [];
-  return <section className="conversation">
-    <div className="conversation-bar">
-      <button type="button" className="conversation-new" onClick={newChat} disabled={sending}><Plus size={17}/> New chat</button>
-      <div className="conversation-bar-meta">{projectName ? <span className="conversation-project" title="Active project">{projectName}</span> : <span className="conversation-project muted">All knowledge</span>}<button type="button" className="conversation-history-toggle" onClick={() => setShowHistory(v => !v)}>{showHistory ? 'Hide' : 'History'}</button></div>
-    </div>
-    {showHistory && <div className="conversation-history">
-      <label className="conversation-search"><Search size={16}/><input placeholder="Search chats…" value={filter} onChange={e => setFilter(e.target.value)}/></label>
-      {!filteredHistory.length ? <p className="muted">No conversations yet.</p> : filteredHistory.map(chat => <div key={chat.id} className={`conversation-history-row ${session?.id === chat.id ? 'active' : ''}`}><button onClick={() => selectChat(chat.id)}>{chat.title || 'Chat'}</button><button className="icon-button" aria-label="Delete chat" onClick={() => deleteChat(chat.id)}><Trash2 size={14}/></button></div>)}
-    </div>}
+  const taskIds: string[] = [...new Set<string>([...(session?.task_ids || []), ...(session?.task_id ? [session.task_id] : []), ...(session?.run_id ? [session.run_id] : [])])];
+  const working = activeTask && ['starting','running','queued','cancelling','awaiting_approval'].includes(activeTask.status);
+  return <div className={`chat-shell ${historyOpen ? 'show-chat-history' : ''}`}>
+    <aside className="chat-side" aria-label="Saved conversations">
+      <button type="button" className="chat-new" onClick={newChat} disabled={sending}><MessageSquarePlus size={17}/> New chat</button>
+      <label className="chat-side-search"><Search size={15}/><input placeholder="Search chats" value={filter} onChange={e => setFilter(e.target.value)}/></label>
+      <div className="chat-side-list">
+        {!filteredHistory.length ? <p className="chat-side-empty">No chats yet</p> : filteredHistory.map(chat => <div key={chat.id} className={`chat-side-row ${session?.id === chat.id ? 'active' : ''}`}><button onClick={() => selectChat(chat.id)} title={chat.title || 'Chat'}>{chat.title || 'Chat'}</button><button className="chat-side-del" aria-label="Delete chat" onClick={() => deleteChat(chat.id)}><Trash2 size={13}/></button></div>)}
+      </div>
+    </aside>
 
-    <div className="conversation-scroll">
-      {!messages.length && !sending ? <div className="conversation-welcome"><div className="conversation-welcome-icon"><MessageSquareText size={30}/></div><h2>What should I do?</h2><p>Describe the task. The agent picks the tools, gathers real evidence, acts autonomously, and reports back — you watch it work live.</p><div className="conversation-starters">
-        {['Analyze my uploaded game file and draft a trainer', 'Audit my authorized website for business-logic flaws', 'Study my uploaded course and record the techniques', 'Search my knowledge for SSRF testing methods'].map(prompt => <button key={prompt} onClick={() => setText(prompt)}>{prompt}</button>)}
-      </div></div> : <div className="conversation-transcript">
-        {messages.map((entry, i) => entry.pending ? null : <article className={`conversation-message ${entry.role}`} key={i}><div className="conversation-avatar">{entry.role === 'user' ? 'You' : 'AI'}</div><div className="conversation-content"><span className="conversation-author">{entry.role === 'user' ? 'You' : provider.model || 'Agent'}</span><div className="conversation-text">{entry.content}</div></div></article>)}
-      </div>}
-      {sending && <div className="agent-live"><div className="agent-live-head"><LoaderCircle className="spin" size={16}/> <strong>Agent working…</strong></div>
-        {!activity.length ? <p className="muted">Starting up — reading the request and checking available tools.</p> : <ol className="agent-live-steps">{activity.map((step, i) => <li key={i} className={`agent-step ${step.type}`}>{step.type === 'tool' ? <><Hammer size={13}/> <span className="agent-step-tool">{step.text}</span></> : <span className="agent-step-text">{step.text}</span>}</li>)}</ol>}
-      </div>}
-      <div ref={bottom}/>
-    </div>
+    <section className="chat-main">
+      <div className="chat-head">
+        <button className="chat-tool-btn chat-history-toggle" aria-label="Chat history" aria-expanded={historyOpen} onClick={() => setHistoryOpen(v => !v)}><History size={18}/></button>
+        <div className="model-picker">
+          <button type="button" className="model-picker-btn" onClick={() => setPickerOpen(v => !v)} aria-haspopup="listbox" aria-expanded={pickerOpen}>
+            <Sparkles size={15}/><span>{activeLabel}{activeModel.model ? <em>{activeModel.model}</em> : null}</span><ChevronDown size={15}/>
+          </button>
+          {pickerOpen && <><div className="model-picker-backdrop" onClick={() => setPickerOpen(false)}/><div className="model-picker-menu" role="listbox">
+            {providers.map(p => <div key={p.provider} className={`model-group ${p.ready ? '' : 'disabled'}`}>
+              <div className="model-group-head">{p.label}{!p.ready && <span className="model-group-add" onClick={() => { setPickerOpen(false); navigate('Settings'); }}>Add</span>}</div>
+              {p.ready ? (p.models.length ? p.models : ['default']).map(m => { const on = activeModel.provider === p.provider && activeModel.model === m; return <button key={m} className={`model-opt ${on ? 'on' : ''}`} onClick={() => pickModel(p.provider, m)}>{m}{on && <Check size={15}/>}</button>; }) : <div className="model-need">{p.needs}</div>}
+            </div>)}
+          </div></>}
+        </div>
+        <span className="chat-scope">{projectName || 'All knowledge'}</span>{session && <button className="chat-tool-btn" aria-label="Download conversation and results" onClick={() => void downloadConversation()}><Download size={17}/></button>}
+      </div>
 
-    <div className="conversation-compose-wrap">
-      {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss error" onClick={() => setError('')}><X size={15}/></button></div>}
-      {selectedSources.length > 0 && <div className="conversation-attachments" aria-label="Attached knowledge resources">{selectedSources.map(source => <div key={source.id} className={`conversation-attachment ${ready(source) ? 'ready' : 'waiting'}`}><FileText size={17}/><span title={displayName(source)}>{displayName(source)}<small>{ready(source) ? 'Indexed' : source.status === 'error' || source.status === 'failed' ? 'Import failed' : 'Indexing…'}</small></span><button type="button" aria-label={`Remove ${displayName(source)}`} onClick={() => toggleSource(source.id)}><X size={14}/></button></div>)}</div>}
-      <form className="conversation-composer" onSubmit={e => { e.preventDefault(); void send(); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }}>
-        <textarea aria-label="Message the agent" rows={3} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Agent is working…' : 'Tell the agent what to do…'} disabled={sending}/>
-        <div className="conversation-actions simple-conversation-actions"><div className="conversation-actions-left">
-          <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Upload documents" onChange={e => void addFiles(e.target.files || [])}/>
-          <button type="button" title="Attach files from your computer" onClick={() => fileInput.current?.click()} disabled={sending || importing}><Paperclip size={18}/> <span>Attach</span></button>
-          <button type="button" title="Choose existing knowledge" onClick={() => { void refreshSources(); setShowSources(true); }} disabled={sending}><BookOpen size={18}/> <span>Knowledge</span></button>
-          <button type="button" className={webSearch ? 'chat-web-active' : ''} aria-pressed={webSearch} title="Let the agent search the public web" onClick={() => setWebSearch(v => !v)} disabled={sending}><Search size={18}/> <span>Web {webSearch ? 'on' : 'off'}</span></button>
-        </div><button className="conversation-send" aria-label="Send" title={notIndexed ? 'Wait for indexing to finish' : 'Send'} type="submit" disabled={!canSend}>{sending || importing ? <LoaderCircle className="spin" size={18}/> : <ArrowUp size={19}/>}</button></div>
-      </form>
-      <div className="conversation-footnote">{notIndexed ? 'Attached resources are still indexing. The agent can read them once ready.' : 'Enter to send · Shift+Enter for a newline · The agent runs tools and acts on its own'}{provider.provider && provider.provider !== 'ollama' && provider.provider !== 'remote_ollama' && provider.provider !== 'crucible' ? ' · Sent to your configured AI provider.' : ''}{!provider.model ? ' · Set a model in Settings first.' : ''}</div>
-    </div>
+      <div className="conversation-scroll">
+        {!messages.length && !sending ? <div className="conversation-welcome"><div className="conversation-welcome-icon"><Sparkles size={28}/></div><h2>What should I do?</h2><p>Describe the task. Follow the investigation here, review proposed changes, and keep the results.</p><div className="conversation-starters">
+          {['Run app checks', 'Check my knowledge base', 'Research mappings for my program', 'Study a course I upload', 'Audit my authorized website'].map(prompt => <button key={prompt} onClick={() => {setText(prompt);if(prompt==='Research mappings for my program') setWebSearch(true);}}>{prompt}</button>)}
+        </div></div> : <div className="conversation-transcript">
+          {messages.map((entry, i) => entry.pending ? null : <article className={`conversation-message ${entry.role}`} key={i}><div className="conversation-avatar">{entry.role === 'user' ? 'You' : 'AI'}</div><div className="conversation-content"><span className="conversation-author">{entry.role === 'user' ? 'You' : activeModel.model || 'Agent'}</span><div className="conversation-text">{entry.content}</div>{!!entry.citations?.length && <div className="conversation-citations">{entry.citations.map((cite,j)=>/^https?:\/\//i.test(cite.url||'')?<a key={j} href={cite.url} target="_blank" rel="noreferrer">[{j+1}] {cite.title}</a>:<span key={j}>[{j+1}] {cite.title}{cite.source_id?` · ${cite.source_id}`:''}</span>)}</div>}</div></article>)}
+        </div>}
+        {session?.mapping_id && <MappingChatActivity controller={mapping}/>}
+        {!session?.mapping_id && (sending || activeTask || trackingError) && <section className="agent-live" aria-label="Task activity">
+          <div className="agent-live-head" role="status">{working || sending ? <LoaderCircle className="spin" size={16}/> : <Check size={16}/>}<strong>{activeTask ? String(activeTask.status).replaceAll('_',' ') : 'Starting…'}</strong>{(working || pendingRun) && <button className="chat-tool-btn" aria-label="Stop task" onClick={() => void stopTask()}><Square size={15}/></button>}</div>
+          {trackingError && <p role="status">{trackingError}</p>}
+          {activeTask?.error && <p role="alert">{activeTask.error}</p>}
+          {activeTask?.summary && <p className="conversation-text">{activeTask.summary}</p>}
+          {activeTask?.status === 'awaiting_approval' && <button type="button" onClick={() => navigate('Team')}>Review pending actions</button>}
+          <details><summary>Activity and results{activeTask?.event_count ? ` (${activeTask.event_count})` : ''}</summary>
+            <ol className="agent-live-steps">{(activeTask?.events || []).map((step: Row, i: number) => <li key={step.id || i}><span className="agent-step-text">{step.agent ? `${step.agent}: ` : ''}{step.text || step.name || step.kind}</span></li>)}</ol>
+            {activeTask?.events_truncated && <p className="muted">Showing recent activity. Download the conversation for the full record.</p>}
+            {activeTask?.result && <pre className="saved-task-result">{typeof activeTask.result === 'string' ? activeTask.result : JSON.stringify(activeTask.result, null, 2)}</pre>}
+          </details>
+        </section>}
+        {taskIds.length > 1 && <div className="saved-task-picker"><label htmlFor="saved-task">Saved work</label><select id="saved-task" value={taskId} onChange={event => setTaskId(event.target.value)}>{taskIds.map((id, index) => <option key={id} value={id}>Task {index + 1}{id === session?.task_id ? ' (latest)' : ''}</option>)}</select></div>}
+        <div ref={bottom}/>
+      </div>
 
-    {showSources && <Modal title="Choose from your knowledge" onClose={() => setShowSources(false)} wide><div className="conversation-source-modal"><p className="muted">Select up to six indexed resources for the agent to reference. They stay in your local library.</p><label className="conversation-search"><Search size={17}/><input placeholder="Search file names…" aria-label="Search knowledge files" value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}/></label><div className="conversation-source-list">{sources.filter(s => displayName(s).toLowerCase().includes(sourceFilter.toLowerCase())).map(s => <label key={s.id} className="conversation-source-row"><input type="checkbox" checked={selectedSourceIds.includes(s.id)} disabled={!ready(s) || (!selectedSourceIds.includes(s.id) && selectedSourceIds.length >= MAX_ATTACHMENTS)} onChange={() => toggleSource(s.id)}/><FileText size={19}/><span><strong>{displayName(s)}</strong><small>{ready(s) ? 'Ready to read' : `${s.status || 'Processing'} · not ready`}</small></span>{selectedSourceIds.includes(s.id) && <Check size={17}/>}</label>)}{!sources.length && <p className="muted">No sources yet. Use Attach to add a document, or add one from Library.</p>}</div><div className="form-actions"><Button onClick={() => { navigate('Settings'); }}>Open Settings</Button><Button variant="primary" onClick={() => setShowSources(false)}>Done ({selectedSourceIds.length}/{MAX_ATTACHMENTS})</Button></div></div></Modal>}
-  </section>;
+      <div className="chat-compose">
+        {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
+        {attached.length > 0 && <div className="conversation-attachments">{attached.map(a => <div key={a.id} className="conversation-attachment ready"><Paperclip size={15}/><span>{a.title || a.filename || 'File'}</span><button type="button" aria-label="Remove" onClick={() => setAttached(prev => prev.filter(x => x.id !== a.id))}><X size={13}/></button></div>)}</div>}
+        <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }}>
+          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : 'Message the agent…'} disabled={sending}/>
+          <div className="chat-composer-actions">
+            <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Attach files" onChange={e => void addFiles(e.target.files || [])}/>
+            <button type="button" className="chat-tool-btn" title="Attach a file to discuss" onClick={() => fileInput.current?.click()} disabled={sending || importing}><Plus size={18}/></button>
+            <button type="button" className={`chat-tool-btn ${webSearch ? 'on' : ''}`} aria-pressed={webSearch} title="Let the agent search the web" onClick={() => setWebSearch(v => !v)} disabled={sending}><Search size={17}/></button>
+            <button className="chat-send" aria-label="Send" type="submit" disabled={!canSend}>{sending || importing ? <LoaderCircle className="spin" size={18}/> : <ArrowUp size={18}/>}</button>
+          </div>
+        </form>
+        <p className="chat-footnote">{!activeModel.model ? 'Pick a model above to begin.' : 'Permitted reads run automatically; changes need review. Enter to send · Shift+Enter for a newline.'}</p>
+      </div>
+    </section>
+  </div>;
 }

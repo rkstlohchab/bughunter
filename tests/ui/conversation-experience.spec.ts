@@ -1,64 +1,58 @@
-import { test, expect, type Page } from '@playwright/test';
+import {test,expect} from '@playwright/test';
+import {chatFixture} from './chat-fixture';
 
-async function mockApp(page: Page) {
-  const calls: { method: string; params: Record<string,unknown> }[] = [];
-  let chats: any[] = [];
-  let lastChat: any = null;
-  const source = {id:'source_guide',title:'Memory guide',status:'ready',chunk_count:3};
-  await page.route('http://127.0.0.1:8765/rpc', async route => {
-    if (route.request().method() === 'OPTIONS') {
-      await route.fulfill({status:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Authorization, Content-Type','Access-Control-Allow-Methods':'POST, OPTIONS'}});
-      return;
-    }
-    const {id, method, params = {}} = route.request().postDataJSON();
-    calls.push({method,params});
-    let result: any = {};
-    if (method.endsWith('.list')) result = [];
-    if (method === 'sources.list') result = [source];
-    if (method === 'chat.list') result = chats;
-    if (method === 'chat.get') result = lastChat;
-    if (method === 'system.status') result = {emergency_stop:false};
-    if (method === 'settings.get') result = {provider:'openai_compatible',model:'bughunter-moe'};
-    if (method === 'chat.send') {
-      lastChat = {id:'chat_test',title:'First question',source_ids:params.source_ids,messages:[
-        {role:'user',content:params.message},{role:'assistant',content:'The guide explains the technique.'}]};
-      chats = [{id:lastChat.id,title:lastChat.title}]; result = lastChat;
-    }
-    if (method === 'chat.delete') {chats = [];lastChat = null;result = {deleted:true};}
-    await route.fulfill({json:{id,result},headers:{'Access-Control-Allow-Origin':'*'}});
-  });
-  return calls;
-}
-
-test('chat selects an indexed resource and sends its source ID to the backend', async ({page}) => {
-  const calls = await mockApp(page);
-  await page.goto('/');
-  await expect(page.getByRole('heading',{name:'What should I help you do?'})).toBeVisible();
-  await page.locator('.conversation-actions-left').getByRole('button',{name:'Knowledge'}).click();
-  await page.getByRole('dialog',{name:'Choose from your Knowledge Library'}).getByRole('checkbox').check();
-  await page.getByRole('button',{name:'Done (1/6)'}).click();
-  await page.getByRole('textbox',{name:'Message AI'}).fill('What does this say?');
-  await page.getByRole('button',{name:'Send or review task'}).click();
-  await expect(page.getByText('The guide explains the technique.')).toBeVisible();
-  expect(calls.find(call=>call.method==='chat.send')?.params.source_ids).toEqual(['source_guide']);
+test('chat retries progress errors and keeps the final result with recorded activity',async({page})=>{
+  const state=await chatFixture(page,{failOnce:true}); await page.goto('/');
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain the saved evidence');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
+  await page.getByText('Activity and results (1)',{exact:true}).click();
+  await expect(page.getByText('Retrieved 3 cited passages.',{exact:true})).toBeVisible();
+  expect(state.calls.filter(c=>c.method==='chat.agent')).toHaveLength(1);
+  expect(state.failed).toBe(true);
+  const download=page.waitForEvent('download');
+  await page.getByRole('button',{name:'Download conversation and results'}).click();
+  expect((await download).suggestedFilename()).toBe('conversation.json');
 });
 
-test('chat can hand off a memory research task without running it itself', async ({page}) => {
-  const calls = await mockApp(page);
-  await page.goto('/');
-  await page.getByRole('textbox',{name:'Message AI'}).fill('Inspect a pointer in my test process');
-  await page.getByRole('button',{name:'Send or review task'}).click();
-  await expect(page.getByRole('dialog',{name:'Open memory tools'})).toBeVisible();
-  expect(calls.some(call=>call.method.startsWith('ce.'))).toBeFalsy();
-  await page.getByRole('button',{name:'Cancel'}).click();
+test('reopening an active conversation restores polling and supports stopping',async({page})=>{
+  const state=await chatFixture(page,{completeAfter:100});await page.goto('/');
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Review saved references');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Stop task'})).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('button',{name:'Stop task'})).toBeVisible();
+  await page.getByRole('button',{name:'Stop task'}).click();
+  await expect(page.getByText('Task cancelled.',{exact:true})).toBeVisible();
+  expect(state.calls.some(c=>c.method==='chat.stop')).toBe(true);
+  await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeEnabled();
 });
 
-test('Tasks is a clear primary section and advanced workspaces are optional', async ({page}) => {
-  await mockApp(page);
-  await page.goto('/');
-  await page.setViewportSize({width:390,height:844});
-  await expect(page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Tasks'})).toBeVisible();
-  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Tasks'}).click();
-  await expect(page.getByRole('heading',{name:'Your tasks'})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Advanced tools (optional)'})).toBeVisible();
+test('chat passes uploaded source IDs to the agent and rejects more than six files',async({page})=>{
+  const state=await chatFixture(page);await page.goto('/');
+  await page.getByLabel('Attach files',{exact:true}).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Source fixture')});
+  await expect(page.getByText('notes.txt',{exact:true})).toBeVisible();
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain my attachment');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
+  expect(state.calls.find(c=>c.method==='chat.agent')?.params.source_ids).toEqual(['source_attached']);
+  const imports=state.calls.filter(c=>c.method==='sources.import').length;
+  await page.getByLabel('Attach files',{exact:true}).setInputFiles(Array.from({length:7},(_,i)=>({name:`note-${i}.txt`,mimeType:'text/plain',buffer:Buffer.from('text')})));
+  await expect(page.getByRole('alert')).toContainText('up to six');
+  expect(state.calls.filter(c=>c.method==='sources.import')).toHaveLength(imports);
+});
+
+test('mobile history stays accessible without horizontal overflow',async({page})=>{
+  await chatFixture(page,{completeAfter:1});await page.setViewportSize({width:390,height:844});await page.goto('/');
+  await page.getByRole('textbox',{name:'Message',exact:true}).fill('Saved conversation');
+  await page.getByRole('button',{name:'Send',exact:true}).click();
+  await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Chat history'}).click();
+  await expect(page.getByRole('complementary',{name:'Saved conversations'})).toBeVisible();
+  await page.getByRole('button',{name:'New chat',exact:true}).click();
+  await page.getByRole('button',{name:'Chat history'}).click();
+  await page.getByRole('button',{name:'Saved conversation',exact:true}).click();
+  await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:test.info().outputPath('mobile-chat.png'),fullPage:true});
 });

@@ -1,3 +1,4 @@
+import {openWeb} from './navigation';
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
@@ -17,7 +18,7 @@ async function backend(page: Page, seed: Record<string, any[]> = {}, pause?: {me
     if (method === 'system.stop') { stopped = true; result = {stopped:true}; }
     if (method === 'system.resume') { stopped = false; result = {resumed:true}; }
     if (method === 'projects.delete') { data.projects = data.projects.filter(p => p.id !== params.id); for (const kind of ['actions','traffic','tests','findings','runs']) data[kind] = data[kind].filter(r => r.project_id !== params.id); result = {deleted:true}; }
-    if (method === 'runs.start') {result = {id:'run_ui',project_id:params.project_id,status:'running',prompt:params.prompt,events:[{time:Date.now()/1000,type:'progress',text:'Searching cited learning material.'}]}; data.runs.unshift(result);}
+    if (method === 'tasks.start') {result = {id:'run_ui',project_id:params.project_id,status:'running',prompt:params.prompt,events:[{time:Date.now()/1000,type:'progress',text:'Searching cited learning material.'}]}; data.runs.unshift(result);}
     if (method === 'sources.import') {result = {id:'import_ui',title:params.filename || params.url,status:'queued'}; data.sources.push(result);}
     if (method === 'projects.save') { result = { ...params, id: 'project_ui' }; data.projects.push(result); }
     if (method === 'actions.approve') { const item = data.actions.find(a => a.id === params.id); item.status = 'approved'; result = item; }
@@ -33,8 +34,7 @@ async function backend(page: Page, seed: Record<string, any[]> = {}, pause?: {me
 test('project creation retains explicit target scope and authorization', async ({ page }) => {
   const calls = await backend(page);
   await page.goto('/');
-  await page.locator('.nav-details > summary').click();
-  await page.getByRole('button', { name: 'Projects', exact: true }).click();
+  await openWeb(page, 'Targets & scope');
   await page.getByRole('button', { name: 'New project' }).click();
   await page.getByLabel('Project name').fill('Controlled shop');
   await page.getByLabel('Website or API URLs').fill('https://shop.example.test');
@@ -48,8 +48,7 @@ test('project creation retains explicit target scope and authorization', async (
 test('state-changing request needs explicit approval before a separate send', async ({ page }) => {
   const calls = await backend(page, { projects: [{ id: 'p', name: 'Shop', scope: ['https://shop.example.test'] }], actions: [{ id: 'a', project_id: 'p', status: 'pending_approval', effect: 'state_change', reason: 'Updates cart state', session_id: 'owned-account-a', request_hash: 'immutable-fixture', request: { method: 'POST', url: 'https://shop.example.test/cart', headers: { 'Content-Type': 'application/json' }, body: '{"quantity":2}' } }] });
   await page.goto('/');
-  await page.locator('.nav-details > summary').click();
-  await page.getByRole('button', { name: /Request approvals/i }).click();
+  await openWeb(page, 'Approvals');
   await page.getByRole('button', { name: /POST pending approval/ }).click();
   await expect(page.getByText('immutable-fixture')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send once' })).toHaveCount(0);
@@ -65,10 +64,9 @@ test('state-changing request needs explicit approval before a separate send', as
 test('source excerpts are rendered as data and remain readable on narrow screens', async ({ page }) => {
   await backend(page, { sources: [{ id: 's', title: 'Untrusted lesson', filename: 'lesson.md', status: 'ready', chunk_count: 1 }] });
   await page.goto('/');
-  await page.locator('.nav-details > summary').click();
   await page.getByRole('button', { name: 'Library', exact: true }).click();
   await page.getByRole('button', { name: 'Untrusted lesson', exact: true }).click();
-  await expect(page.getByText('<img src=x onerror="window.wasInjected=true">')).toBeVisible();
+  await expect(page.locator('.knowledge-reader-text').getByText('<img src=x onerror="window.wasInjected=true">')).toBeVisible();
   expect(await page.evaluate(() => (window as any).wasInjected)).toBeUndefined();
   await page.getByRole('button', { name: 'Close dialog' }).click();
   await page.setViewportSize({ width: 390, height: 844 });
@@ -76,35 +74,21 @@ test('source excerpts are rendered as data and remain readable on narrow screens
   await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
 });
 
-test('approval and emergency stop remain usable while a browser workflow is waiting', async ({ page }) => {
-  let release!: () => void;
-  const promise = new Promise<void>(resolve => { release = resolve; });
-  const calls = await backend(page, {projects:[{id:'p',name:'Owned shop',scope:['https://shop.example.test']}],actions:[{id:'held',project_id:'p',status:'pending_approval',effect:'state_changing',gateway_held:true,session_id:'browser:alice',request:{method:'POST',url:'https://shop.example.test/cart',headers:{},body:'{}'}}]}, {method:'tools.browser',promise});
-  try {
-    await page.goto('/');
-  await page.locator('.nav-details > summary').click();
-    await page.getByRole('button',{name:'Settings',exact:true}).click();
-    await page.getByText('Advanced tools: Burp, browser, and discovery', {exact:true}).click();
-    await page.getByLabel('Project for these tools').selectOption('p');
-    await page.getByLabel('URL or domain').fill('https://shop.example.test');
-    await page.getByRole('button',{name:'Open browser',exact:true}).click();
-    await expect.poll(() => calls.some(c => c.method === 'tools.browser')).toBe(true);
-    await page.getByRole('button',{name:'Request approvals',exact:true}).click();
-    await page.locator('.test-row').click();
-    await expect(page.getByRole('button',{name:'Approve exact request'})).toBeEnabled();
-    await page.getByRole('button',{name:'Approve exact request'}).click();
-    await expect.poll(() => calls.some(c => c.method === 'actions.approve')).toBe(true);
-    await page.getByRole('button',{name:'Stop all',exact:true}).click();
-    await expect.poll(() => calls.some(c => c.method === 'system.stop')).toBe(true);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-  } finally {
-    release();
-  }
+test('pending approvals remain reachable while a task is running', async ({page}) => {
+  const calls = await backend(page, {projects:[{id:'p',name:'Shop',scope:['https://shop.example.test']}],runs:[{id:'r',status:'running'}],actions:[{id:'a',project_id:'p',status:'pending_approval',request:{method:'POST',url:'https://shop.example.test/cart',body:'{}'}}]});
+  await page.goto('/'); await openWeb(page, 'Approvals');
+  await page.locator('.test-row').click();
+  await page.getByRole('button',{name:'Approve exact request'}).click();
+  expect(calls.some(c => c.method === 'actions.approve')).toBe(true);
+  expect(calls.some(c => c.method === 'actions.execute')).toBe(false);
+  await page.getByRole('button',{name:'Stop all',exact:true}).click();
+  await expect.poll(() => calls.some(c => c.method === 'system.stop')).toBe(true);
 });
 
 test('Stop all switches to Resume, survives refresh, and does not restart a run', async ({page}) => {
   const calls = await backend(page,{projects:[{id:'p',name:'Owned shop',scope:['https://example.test']}]});
   await page.goto('/');
+  await openWeb(page);
   await page.getByRole('button',{name:'Stop all',exact:true}).click();
   await expect(page.getByRole('button',{name:'Resume requests',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toHaveCount(0);
@@ -112,6 +96,7 @@ test('Stop all switches to Resume, survives refresh, and does not restart a run'
   await page.getByRole('button',{name:'Refresh workspace'}).click();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toHaveCount(0);
   await page.reload();
+  await openWeb(page);
   await expect(page.getByRole('button',{name:'Resume requests',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Resume requests',exact:true}).click();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toBeVisible();
@@ -123,11 +108,12 @@ test('simple investigation creates a scoped target and shows activity without op
   const calls = await backend(page);
   await page.goto('/');
   await expect(page.getByRole('button',{name:'Captured requests',exact:true})).toBeHidden();
+  await openWeb(page);
   await page.getByLabel('Target URL').fill('https://shop.example.test');
   await page.getByLabel('Permission and program rules').fill('Owned test shop; no payment processing.');
   await page.getByRole('button',{name:'Start investigation',exact:true}).click();
   await expect(page.getByText('Searching cited learning material.',{exact:true})).toBeVisible();
-  expect(calls.filter(c => c.method==='runs.start')).toHaveLength(1);
+  expect(calls.filter(c => c.method==='tasks.start')).toHaveLength(1);
   expect(calls.find(c => c.method==='projects.save')?.params.read_only_paths).toEqual([]);
   await page.screenshot({path:test.info().outputPath('simple-investigation.png'),fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -138,7 +124,8 @@ test('simple investigation creates a scoped target and shows activity without op
 test('deleting a project needs confirmation and keeps the other project and shared library', async ({page}) => {
   const calls = await backend(page,{projects:[{id:'p',name:'Delete me',scope:['https://example.test']},{id:'keep',name:'Keep me',scope:['https://keep.test']}],sources:[{id:'s',title:'Shared lesson',status:'ready'}]});
   await page.goto('/');
-  await page.getByRole('button',{name:'Manage or delete projects',exact:true}).click();
+  await openWeb(page, 'Targets & scope');
+  await page.getByLabel('Project', {exact:true}).selectOption('p');
   const row = page.locator('.project-row').filter({hasText:'Delete me'});
   await row.getByRole('button',{name:'Delete project',exact:true}).click();
   await page.getByRole('button',{name:'Keep project',exact:true}).click();
@@ -147,7 +134,7 @@ test('deleting a project needs confirmation and keeps the other project and shar
   await page.getByRole('dialog').getByRole('button',{name:'Delete project',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Delete me',exact:true})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:'Keep me',exact:true})).toBeVisible();
-  await expect(page.getByLabel('Current project')).toHaveValue('keep');
+  await expect(page.getByLabel('Project', {exact:true})).toHaveValue('keep');
   await page.getByRole('button',{name:'Library',exact:true}).click();
   await expect(page.getByRole('button',{name:'Shared lesson',exact:true})).toBeVisible();
 });
@@ -156,14 +143,14 @@ test('library accepts website links and multiple files including ZIP', async ({p
   const calls = await backend(page);
   await page.goto('/');
   await page.getByRole('button',{name:'Library',exact:true}).click();
-  await page.getByRole('button',{name:'Import resource',exact:true}).click();
-  await page.getByRole('button',{name:'Website link',exact:true}).click();
-  await page.getByLabel('Website or video URL').fill('https://example.com/course.zip');
+  await page.getByRole('button',{name:'Upload / add link',exact:true}).click();
+  await page.getByRole('button',{name:'Paste a link',exact:true}).click();
+  await page.getByLabel('Public link').fill('https://example.com/course.zip');
   await page.getByRole('dialog').getByRole('button',{name:'Import resource',exact:true}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   expect(calls.find(c => c.method==='sources.import')?.params.url).toBe('https://example.com/course.zip');
-  await page.getByRole('button',{name:'Import resource',exact:true}).click();
-  await page.getByRole('button',{name:'Files or ZIP',exact:true}).click();
+  await page.getByRole('button',{name:'Upload / add link',exact:true}).click();
+  await page.getByRole('button',{name:'Upload files',exact:true}).click();
   await page.locator('input[type=file]').setInputFiles([{name:'notes.zip',mimeType:'application/zip',buffer:Buffer.from('ZIP intake fixture')},{name:'code.py',mimeType:'text/plain',buffer:Buffer.from('print("only text")')}]);
   await page.getByRole('dialog').getByRole('button',{name:'Import resource',exact:true}).click();
   await expect.poll(() => calls.filter(c => c.method==='sources.import').length).toBe(3);
@@ -173,32 +160,27 @@ test('library accepts website links and multiple files including ZIP', async ({p
 test('custom system prompt saves with other settings and never replaces the base prompt client-side', async ({ page }) => {
   const calls = await backend(page);
   await page.goto('/');
-  await page.locator('.nav-details > summary').click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const box = page.getByLabel('Custom system prompt');
+  const box = page.getByLabel('Your AI instructions (optional)');
   await expect(box).toHaveValue('');
   await box.fill('Always write findings in formal British English.');
-  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect.poll(() => calls.filter(c => c.method === 'settings.save').length).toBe(1);
   const saved = calls.find(c => c.method === 'settings.save')!;
   expect(saved.params.custom_system_prompt).toBe('Always write findings in formal British English.');
   // reloading re-fetches settings.get, which this fixture does not echo the custom prompt back from -
   // confirming the field is driven by the server value, not left stuck with stale local-only text.
   await page.reload();
-  await page.locator('.nav-details > summary').click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  await expect(page.getByLabel('Custom system prompt')).toHaveValue('');
+  await expect(page.getByLabel('Your AI instructions (optional)')).toHaveValue('');
 });
 
-test('agent can keep going after a sent request without a separate Resume click, unless turned off', async ({ page }) => {
-  const calls = await backend(page);
-  await page.goto('/');
-  await page.locator('.nav-details > summary').click();
-  await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const toggle = page.getByText('let the agent read the result and keep going on its own').locator('xpath=ancestor::label//input');
-  await expect(toggle).toBeChecked();
-  await toggle.uncheck();
-  await page.getByRole('button', { name: 'Save settings', exact: true }).click();
-  await expect.poll(() => calls.filter(c => c.method === 'settings.save').length).toBe(1);
-  expect(calls[calls.length - 1].params.auto_resume_after_execute).toBe(false);
+test('settings can pause outbound work without starting a run', async ({page}) => {
+  const calls = await backend(page); await page.goto('/');
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByText('Task controls',{exact:true}).click();
+  await page.getByRole('button',{name:'Pause outbound requests',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Resume outbound requests',exact:true})).toBeVisible();
+  expect(calls.some(c => c.method === 'system.stop')).toBe(true);
+  expect(calls.some(c => c.method === 'runs.start')).toBe(false);
 });

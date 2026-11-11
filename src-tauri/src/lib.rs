@@ -1,6 +1,7 @@
 pub mod ce_core;
 pub mod ce_mcp;
 pub mod ce_policy;
+mod mapping_receipt;
 pub mod mac_permissions;
 pub mod mac_tool_control;
 pub mod mac_desktop;
@@ -174,14 +175,49 @@ async fn rpc(method: String, params: Option<Value>, state: tauri::State<'_, Back
         .await.map_err(|e| e.to_string())?
 }
 
+#[tauri::command]
+async fn ce_check_mapping(check_id: String, state: tauri::State<'_, BackendState>,
+                          memory: tauri::State<'_, ce_mcp::CeMcpState>,
+                          automatic: Option<bool>, execution: tauri::State<'_, mapping_receipt::Execution>) -> Reply {
+    let _serial = execution.0.lock().await;
+    mapping_receipt::validate_id(&check_id)?;
+    let backend = state.0.clone();
+    let id = check_id.clone();
+    let pending = tauri::async_runtime::spawn_blocking(move ||
+        backend.request("memory.mappings.pending".into(), json!({"check_id": id})))
+        .await.map_err(|e| e.to_string())??;
+    let request = pending.get("request").filter(|v| v.is_object()).ok_or("Missing mapping request")?.clone();
+    let path = PathBuf::from(pending["receipt_path"].as_str().ok_or("Missing receipt path")?);
+    if path.exists() { return Ok(json!({"check_id": check_id, "saved": true})); }
+    let mut arguments = request.clone();
+    arguments["check_id"] = json!(check_id);
+    if automatic.unwrap_or(false) {
+        let auto = memory.config.lock().await.auto_approve_readonly;
+        match ce_policy::classify("verify_mapping", &arguments, auto) {
+            ce_policy::Verdict::Auto => {},
+            ce_policy::Verdict::NeedsApproval(reason) => return Ok(json!({"check_id":check_id,"approval_required":true,"request":request,"reason":reason})),
+            ce_policy::Verdict::Blocked(reason) => return Err(reason),
+        }
+    }
+    let outcome = ce_core::check_mapping(&memory, arguments).await;
+    let receipt = match outcome {
+        Ok(result) => json!({"schema":"bughunter.mapping-receipt/v1", "check_id":check_id, "request":request, "result":result}),
+        Err(error) => json!({"schema":"bughunter.mapping-receipt/v1", "check_id":check_id, "request":request, "error":error}),
+    };
+    mapping_receipt::save(&path, &check_id, &receipt)?;
+    Ok(json!({"check_id":check_id, "saved":true}))
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState::default())
         .manage(ce_mcp::CeMcpState::default())
+        .manage(mapping_receipt::Execution::default())
         .manage(mac_desktop::DesktopControl::default())
         .invoke_handler(tauri::generate_handler![
             rpc,
+            ce_check_mapping,
             mac_permissions::mac_permission_status,
             mac_permissions::mac_permission_action,
             mac_tool_control::mac_tool_live_status,
@@ -196,6 +232,8 @@ pub fn run() {
             ce_mcp::ce_save_config,
             ce_mcp::ce_sync_ai,
             ce_mcp::ce_connect_mcp,
+            ce_mcp::ce_prepare_mapping_chat,
+            ce_mcp::ce_select_mapping_program,
             ce_mcp::ce_disconnect_mcp,
             ce_mcp::ce_call_mcp_tool,
             ce_mcp::ce_eval_lua,

@@ -1,3 +1,4 @@
+import {openTool, openWeb} from './navigation';
 import { test, expect } from '@playwright/test';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -32,11 +33,11 @@ test('real backend: lesson to approved shop test to evidence report and reusable
       await route.fulfill({status:response.status,body:await response.text(),headers:{...headers,'Content-Type':'application/json'}});
     });
     await page.goto('/');
-  await page.locator('.nav-details > summary').click();
+  await openWeb(page);
     await page.getByRole('button',{name:'Try the disposable test shop'}).click();
     await expect(page.getByText('Disposable test-shop project created.',{exact:false})).toBeVisible();
     await page.getByRole('button',{name:'Library',exact:true}).click();
-    await page.getByRole('button',{name:'Import resource',exact:true}).click();
+    await page.getByRole('button',{name:'Upload / add link',exact:true}).click();
     await page.getByRole('button',{name:'Large course / folder',exact:true}).click();
     await page.getByLabel('Absolute file path').fill(fixture);
     await page.getByRole('dialog').getByRole('button',{name:'Import resource',exact:true}).click();
@@ -44,7 +45,7 @@ test('real backend: lesson to approved shop test to evidence report and reusable
     await page.getByLabel('Search knowledge').fill('coupon eligibility');
     await page.getByRole('button',{name:'Search',exact:true}).click();
     await expect(page.getByText('Excluded products must keep',{exact:false})).toBeVisible();
-    await page.getByRole('button',{name:'Captured requests',exact:true}).click();
+    await openWeb(page, 'Captured requests');
     await page.locator('.traffic-row').filter({hasText:'/vulnerable/cart'}).click();
     await page.getByRole('button',{name:'Suggest checks',exact:true}).click();
     await page.getByRole('button',{name:'Suggested checks',exact:true}).click();
@@ -67,9 +68,9 @@ test('real backend: lesson to approved shop test to evidence report and reusable
     await page.getByRole('button',{name:'Done',exact:true}).click();
     await page.getByRole('button',{name:'Save as lesson'}).click();
     await expect(page.getByText('Redacted finding saved to the learning library.')).toBeVisible();
-    await page.getByRole('button',{name:'Learning map',exact:true}).click();
+    await openTool(page, 'Knowledge graph');
     await expect(page.locator('.graph-node.type-observation')).toHaveCount(1);
-    await page.getByRole('button',{name:'Projects',exact:true}).click();
+    await openWeb(page, 'Targets & scope');
     await page.getByRole('button',{name:'Delete project',exact:true}).click();
     await expect(page.getByRole('dialog')).toContainText('Your learning library');
     await page.getByRole('dialog').getByRole('button',{name:'Delete project',exact:true}).click();
@@ -89,29 +90,12 @@ test('real backend: lesson to approved shop test to evidence report and reusable
     await example.getByRole('button',{name:'Save example',exact:true}).click();
     await expect(example).toHaveCount(0);
     await page.getByRole('button',{name:'Close dialog',exact:true}).click();
+    await page.getByText('Export and storage',{exact:true}).click();
     await page.getByText('How learning and storage work',{exact:true}).click();
     await page.getByRole('button',{name:'Export portable knowledge',exact:true}).click();
     await page.getByRole('button',{name:'Create knowledge export',exact:true}).click();
     await expect(page.getByLabel('Saved ZIP path')).toHaveValue(/knowledge_.+\.zip$/);
     await page.getByRole('button',{name:'Close dialog',exact:true}).click();
-    await page.getByRole('button',{name:'AI team',exact:true}).click();
-    await page.getByRole('button',{name:'New shared workspace',exact:true}).click();
-    await page.getByLabel('Repository folder').fill(root);
-    await page.getByRole('button',{name:'Create shared workspace',exact:true}).click();
-    await expect(page.getByRole('dialog')).toHaveCount(0);
-    await page.getByRole('button',{name:'Add task',exact:true}).click();
-    await page.getByLabel('Task title').fill('Improve the shared application');
-    await page.getByLabel('Files or directories').fill('src');
-    await page.getByRole('button',{name:'Save task',exact:true}).click();
-    await expect(page.getByRole('heading',{name:'Improve the shared application',exact:true})).toBeVisible();
-    await page.getByLabel('Handoff or decision').fill('Verified the local shop workflow. Keep the shared library intact.');
-    await page.getByRole('button',{name:'Save shared note',exact:true}).click();
-    await expect(page.getByText('Verified the local shop workflow. Keep the shared library intact.',{exact:true})).toBeVisible();
-    await page.getByRole('button',{name:'Connect Codex',exact:true}).click();
-    await expect(page.getByRole('dialog')).toContainText('[mcp_servers.bughunter_team]');
-    await expect(page.getByRole('dialog')).toContainText('--team-mcp');
-
-
   } finally {
     process?.kill('SIGTERM');
     if (process?.exitCode === null) await new Promise(r => { process!.once('exit',r); setTimeout(r,3000); });
