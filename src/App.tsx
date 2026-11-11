@@ -11,15 +11,16 @@ import CeMcpPanel from './CeMcpPanel';
 import RedTeam from './RedTeam';
 import TrainingLab from './TrainingLab';
 import TorResearch from './TorResearch';
+import MacAutopilotPanel from './MacAutopilotPanel';
 import { KnowledgeTransfer, SourceLearning } from './Learning';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
+import { AppWindow, Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
 
-type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research' | 'Prompt editor';
+type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'AI red team' | 'Training lab' | 'Tor research' | 'Prompt editor' | 'Mac control';
 const WEB_PAGES: Page[] = ['Overview','Targets','Traffic','Tests','Approvals','Findings'];
 // Chat is home. Everything else is reachable from the top-bar quick menu or lives
 // as a background capability the AI can invoke directly.
@@ -28,12 +29,21 @@ const MAIN_PAGES: {label: 'Chat'|'Library'|'Settings'; page: Page; icon: LucideI
  {label:'Library',page:'Library',icon:BookOpen},
  {label:'Settings',page:'Settings',icon:Settings2},
 ];
-const TOOL_PAGES: {label: string; page: Page}[] = [
-  {label:'Tasks',page:'Team'}, {label:'Web testing',page:'Overview'},
-  {label:'Cheat Engine',page:'CE bridge'}, {label:'AI testing',page:'AI red team'},
-  {label:'Tor browser',page:'Tor research'}, {label:'Training lab',page:'Training lab'},
-  {label:'Methods',page:'Methods'}, {label:'Knowledge graph',page:'Knowledge graph'},
-  {label:'Prompt editor',page:'Prompt editor'},
+// Reachable again from the sidebar "Advanced tools" group. Chat is still home and the
+// agent can open the right workspace on its own, but every page has a manual entry so
+// the app is one unified surface rather than orphaned routes.
+const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon}[] = [
+ {label:'Tasks',page:'Team',icon:ListChecks},
+ {label:'Web testing',page:'Overview',icon:Target},
+ {label:'Approvals',page:'Approvals',icon:ShieldCheck},
+ {label:'Methods',page:'Methods',icon:FileText},
+ {label:'Knowledge graph',page:'Knowledge graph',icon:GitFork},
+ {label:'Cheat Engine',page:'CE bridge',icon:Cpu},
+ {label:'AI testing',page:'AI red team',icon:FlaskConical},
+ {label:'Training lab',page:'Training lab',icon:Activity},
+ {label:'Tor browser',page:'Tor research',icon:Network},
+ {label:'Mac control',page:'Mac control',icon:AppWindow},
+ {label:'Prompt editor',page:'Prompt editor',icon:Code2},
 ];
 function pageTitle(page: Page): string {
  if (page==='Chat') return 'Chat';
@@ -105,6 +115,9 @@ export default function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Hexagon size={30} /><Network size={15} /></div><div><strong>BugHunter<span>Claudex</span></strong><small>Research workbench</small></div></div>
       <nav aria-label="Main navigation" className="simple-nav">
         {MAIN_PAGES.map(({label,page:destination,icon:Icon}) => { const selected = sidebarSelection(page) === label; return <button key={label} aria-label={label} className={`nav-item ${selected ? 'selected' : ''}`} aria-current={selected ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={19}/><span>{label}</span></button>; })}
+        <details className="nav-advanced" open={sidebarSelection(page)===null}><summary>Advanced tools{approvals>0 && <b className="tab-count">{approvals}</b>}</summary>
+          <div className="nav-advanced-list">{TOOL_PAGES.map(({label,page:destination,icon:Icon}) => <button key={label} type="button" aria-label={label} className={`nav-item nav-sub ${page===destination ? 'selected' : ''}`} aria-current={page===destination ? 'page' : undefined} onClick={() => setPage(destination)}><Icon size={17}/><span>{label}</span>{label==='Approvals' && approvals>0 && <b className="tab-count">{approvals}</b>}</button>)}</div>
+        </details>
       </nav>
       <div className="sidebar-bottom"><div className="local-note"><span className={`connection-dot ${connectionError ? 'offline' : ''}`} /><div><strong>{connectionError ? 'Backend disconnected' : 'Local workspace'}</strong><small>{connectionError ? 'Check the backend connection' : 'Sources and evidence stay here'}</small></div></div><div className="sidebar-footer"><span>v0.1.0</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={`Switch to ${dark ? 'light' : 'dark'} theme`}>{dark ? <Sun size={17}/> : <Moon size={17}/>}</button></div></div>
     </aside>
@@ -125,6 +138,7 @@ export default function App() {
           {page === 'Training lab' && <TrainingLab perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Prompt editor' && <PromptEditor/>}
           {page === 'Tor research' && <TorResearch perform={perform} revision={revision} projectId={projectId}/>}
+          {page === 'Mac control' && <MacAutopilotPanel initialTask="" projectId={projectId} onClose={()=>setPage('Chat')}/>}
           {page === 'Library' && <><Library {...shared}/><details className="surface history-details"><summary>Export and storage</summary><KnowledgeTransfer perform={perform} busy={busy}/></details></>}
           {page === 'Knowledge graph' && <KnowledgeGraph perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Methods' && <SkillsView projectId={projectId}/>}
