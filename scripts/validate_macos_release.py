@@ -31,7 +31,9 @@ def main():
     architecture=platform.machine()
     if architecture not in run('lipo','-archs',str(main_binary)).split():
         raise ValueError('Bundle lacks host CPU architecture')
-    sidecars=[p for p in (bundle/'Contents').rglob('bughunter-backend-*') if p.is_file()]
+    # Tauri removes the build-time target triple when bundling externalBin.
+    sidecars=[p for p in (bundle/'Contents/MacOS').iterdir()
+              if p.is_file() and (p.name=='bughunter-backend' or p.name.startswith('bughunter-backend-'))]
     if not sidecars:
         raise FileNotFoundError('Packaged Python backend sidecar missing')
     compatible=[p for p in sidecars if architecture in run('lipo','-archs',str(p)).split()]

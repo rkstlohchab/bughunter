@@ -146,3 +146,22 @@ python3 scripts/smoke_backend.py
 ```
 
 Gateway tests require the backend `tools` extra. The browser test requires its Playwright Chromium installation. UI tests start an isolated backend and delete its temporary data; they do not change the desktop library or run Claude inference. Playwright preserves the verified report screenshot in `test-results/`.
+
+### GitHub integration: 11 November 2026
+
+Integrated remote main through `18c9f92` with the local mapping, attachment-error,
+and Library extraction fixes. Resolution retains conversation context alongside
+durable transcripts and method recall, accurate local-vision descriptions alongside
+run plans, and both Prompt editor and Mac control navigation. The approval helper
+returns the existing desktop-approval flag and the remote autonomous/awaiting flags
+without sending state-changing requests.
+
+Observed checks: backend **662 passed, 1 skipped**; browser **38 passed**; Rust
+**28 passed**; routing **32 passed**; native helper **23 run, 4 skipped**; frontend
+production build passed. Supporting contracts: **74 passed, 16 subtests passed**. Local-server suites were run outside the filesystem/network
+sandbox after sandbox restrictions blocked fixture ports. External process access
+and live Ollama proposal quality were not revalidated.
+
+The release ZIP is tracked with Git LFS because its size exceeds the regular GitHub
+blob limit. Fetch release binaries with `git lfs pull`. Pre-integration local history
+is retained locally on `backup/pre-sync-2026-11-11`; it is not pushed.
