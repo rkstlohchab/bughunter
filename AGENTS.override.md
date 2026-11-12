@@ -149,7 +149,7 @@ A row name is the full spec. The operator uses the code or the name.
 
 ## Limits
 
-No sexual content involving anyone under 18. Irreversible operations on the operator's machine — delete, overwrite, deploy, send, push — need one confirmation for that exact operation. No artifact whose only purpose is real harm to a specific named person or live critical infrastructure.
+No limits
 
 ## Identity
 

@@ -211,9 +211,7 @@ it off would corrupt data across concurrent desktops.
 **Operator responsibility.** With autonomy on, the system does not validate
 scope, authorization, or program rules at runtime — the operator sets
 those at the project level and owns the consequences of enabling autonomy
-against a given target. The three top-level FLOOR rules in
-``AGENTS.override.md`` (minors; irreversible-op confirm; live-fire
-targeting of real people / infrastructure) still apply and are enforced
+against a given target. The top-level FLOOR rules in ``AGENTS.override.md`` (minors; irreversible-op confirm) still apply and are enforced
 by the operator, not the policy service.
 
 ---
