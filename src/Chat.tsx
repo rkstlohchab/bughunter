@@ -173,28 +173,52 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
     const message = text.trim();
     setSending(true); setError(''); setActiveTask(null);
     try {
-      // GameLab mode — route to the guide (OperatorAgent with game-cheat-ops prompt).
-      // Entered by a /gamelab, /cheat, /esp, /aim, /bgmi, /dma, /valorant, /cs2
-      // slash prefix on any message, or any message once a thread is open
-      // (gamelabRunId in session storage). /exit leaves.
-      const gamelabPrefixes = ['/gamelab', '/cheat', '/esp', '/aim', '/bgmi',
-                                '/dma', '/valorant', '/cs2', '/apex', '/rust',
-                                '/fortnite', '/pubg', '/codm'];
+      // GameLab routing — silent. One chat, one textbox. If the message is a
+      // game-cheat / anticheat / mobile-cheat question, route to the GameLab
+      // guide (OperatorAgent with game-cheat-ops prompt). Otherwise keep the
+      // existing investigation flow. No slashes needed; dj just types.
+      //
+      // Routing signals (any one triggers):
+      //   - an open thread in sessionStorage (follow-up stays routed)
+      //   - a keyword in the message
+      //   - an explicit slash prefix (back-compat override)
+      //   - '/exit' or '/leave' drops out of a thread
       const activeGamelab = sessionStorage.getItem('gamelab.run_id');
-      const matchedPrefix = gamelabPrefixes.find(p =>
-        message.toLowerCase().startsWith(p + ' ') || message.toLowerCase() === p);
-      const isExit = message.toLowerCase() === '/exit' ||
-                     message.toLowerCase() === '/leave';
+      const lower = message.toLowerCase();
+      const isExit = lower === '/exit' || lower === '/leave';
       if (isExit && activeGamelab) {
         sessionStorage.removeItem('gamelab.run_id');
-        setError('left GameLab guide thread');
         setText(''); setSending(false);
         sendGuard.current = false;
         return;
       }
-      if (matchedPrefix || activeGamelab) {
-        const body = matchedPrefix
-          ? message.slice(matchedPrefix.length).trim() || 'help me set up a cheat for this game'
+      const explicitPrefix = ['/gamelab', '/cheat', '/esp', '/aim', '/bgmi',
+                               '/dma', '/valorant', '/cs2', '/apex', '/rust',
+                               '/fortnite', '/pubg', '/codm'].find(p =>
+        lower.startsWith(p + ' ') || lower === p);
+      const gamelabKeywords = [
+        // games
+        'valorant', 'cs2', 'cs:go', 'counter-strike', 'bgmi', 'pubg',
+        'pubgm', 'fortnite', 'apex', 'apex legends', 'rust', 'r6 ', 'siege',
+        'tarkov', 'cod ', 'warzone', 'modern warfare', 'free fire', 'dayz',
+        'fivem', 'cod mobile', 'cod-m', 'cod m', 'call of duty',
+        // cheat terms
+        'aimbot', ' esp', 'wallhack', 'wall hack', 'no-recoil', 'no recoil',
+        ' trigger bot', 'triggerbot', 'radar hack', 'hwid spoof', 'byovd',
+        ' dma ', 'kmbox', 'pcileech', 'memprocfs', 'kernel driver',
+        'manual map', 'hypervisor cheat', 'bypass anticheat', 'bypass ac',
+        'cheat for', 'cheat in', ' cheat ', ' hack ', 'mod menu',
+        // anticheats
+        'vanguard', 'battleye', 'easy anti-cheat', 'easyanticheat', ' eac ',
+        'vac ', 'trust factor', 'anogs', 'ace anticheat', 'ricochet',
+        // mobile tooling
+        'zygisk', 'magisk', 'scrcpy', 'shamiko', 'adb forward',
+        'rooted phone', 'rooted android', 'jailbreak',
+      ];
+      const keywordHit = !!gamelabKeywords.find(k => lower.includes(k));
+      if (explicitPrefix || keywordHit || activeGamelab) {
+        const body = explicitPrefix
+          ? message.slice(explicitPrefix.length).trim() || 'help me set up a cheat for this game'
           : message;
         try {
           let runId = activeGamelab;
@@ -366,7 +390,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
         {attached.length > 0 && <div className="conversation-attachments">{attached.map(a => <div key={a.id} className="conversation-attachment ready"><Paperclip size={15}/><span>{a.title || a.filename || 'File'}</span><button type="button" aria-label="Remove" onClick={() => setAttached(prev => prev.filter(x => x.id !== a.id))}><X size={13}/></button></div>)}</div>}
         <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }}>
-          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : (sessionStorage.getItem('gamelab.run_id') ? 'In GameLab guide — type /exit to leave…' : 'Message the agent… (/gamelab <question> for game-cheat guide)')} disabled={sending || stopped}/>
+          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : 'Message the agent…'} disabled={sending || stopped}/>
           <div className="chat-composer-actions">
             <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Attach files" onChange={e => void addFiles(e.target.files || [])}/>
             <button type="button" className="chat-tool-btn" aria-label="Attach a file" title="Attach a file to discuss" onClick={() => fileInput.current?.click()} disabled={sending || importing || stopped}><Plus size={18}/></button>
