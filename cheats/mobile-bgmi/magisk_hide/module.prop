@@ -1,0 +1,7 @@
+id=gamelab_hide
+name=GameLab Hide
+version=v1.0
+versionCode=1
+author=GameLab
+description=Hides Magisk/Zygisk/root from BGMI + COD-M + Free Fire. Forwards to Zygisk DenyList + MagiskHide Props Config. Install Shamiko or Zygisk-Assistant alongside.
+updateJson=

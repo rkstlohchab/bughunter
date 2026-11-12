@@ -47,20 +47,31 @@ class OperatorTools:
         from .op_adapters import frida_adapter, radare2_adapter, ghidra_adapter
         from .op_adapters import impacket_adapter, bloodhound_adapter, adb_adapter
         from .op_adapters import subfinder_adapter
+        # GameLab adapters (operator-stack, no cross-plumbing to investigation)
+        from .op_adapters import vision_esp, dma_memread, arduino_hid, kmbox
+        from .op_adapters import bgmi_mobile, game_offsets, hwid_spoof
         self._adapter_registry.update({
-            "nmap":       nmap_adapter.run,
-            "httpx":      httpx_adapter.run,
-            "ffuf":       ffuf_adapter.run,
-            "nuclei":     nuclei_adapter.run,
-            "hashcat":    hashcat_adapter.run,
-            "hydra":      hydra_adapter.run,
-            "frida":      frida_adapter.run,
-            "radare2":    radare2_adapter.run,
-            "ghidra":     ghidra_adapter.run,
-            "impacket":   impacket_adapter.run,
-            "bloodhound": bloodhound_adapter.run,
-            "adb":        adb_adapter.run,
-            "subfinder":  subfinder_adapter.run,
+            "nmap":         nmap_adapter.run,
+            "httpx":        httpx_adapter.run,
+            "ffuf":         ffuf_adapter.run,
+            "nuclei":       nuclei_adapter.run,
+            "hashcat":      hashcat_adapter.run,
+            "hydra":        hydra_adapter.run,
+            "frida":        frida_adapter.run,
+            "radare2":      radare2_adapter.run,
+            "ghidra":       ghidra_adapter.run,
+            "impacket":     impacket_adapter.run,
+            "bloodhound":   bloodhound_adapter.run,
+            "adb":          adb_adapter.run,
+            "subfinder":    subfinder_adapter.run,
+            # GameLab adapters
+            "vision_esp":   vision_esp.run,
+            "dma_memread":  dma_memread.run,
+            "arduino_hid":  arduino_hid.run,
+            "kmbox":        kmbox.run,
+            "bgmi_mobile":  bgmi_mobile.run,
+            "game_offsets": game_offsets.run,
+            "hwid_spoof":   hwid_spoof.run,
         })
 
     def invoke_adapter(self, name: str, **kwargs) -> dict:

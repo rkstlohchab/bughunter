@@ -62,6 +62,7 @@ from .workflow import WorkflowEngine
 from .transport.socks_chain import SocksChain
 from .transport.tcp_relay import TcpRelay
 from .local_inference import LocalInference
+from .game_lab import GameLabService
 
 
 class Application:
@@ -136,6 +137,8 @@ class Application:
         self.tcp_relay = TcpRelay(self)
         self.inference = LocalInference(self)
         self.operator = OperatorAgent(self)
+        # GameLab (operator-stack parallel; no cross-plumbing to investigation)
+        self.gamelab = GameLabService(self)
         self.memory = None
         try:
             import platform as _plat
@@ -192,6 +195,8 @@ class Application:
             return self.tcp_relay.dispatch(method, p)
         if method.startswith("inference."):
             return self.inference.dispatch(method, p)
+        if method.startswith("gamelab."):
+            return self.gamelab.dispatch(method, p)
         if method.startswith("capabilities."):
             return self.capabilities.dispatch(method,p)
         if method.startswith("investigation.p10."):

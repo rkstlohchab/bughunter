@@ -18,6 +18,7 @@ import TorResearch from './TorResearch';
 import MacAutopilotPanel from './MacAutopilotPanel';
 import { KnowledgeTransfer, SourceLearning } from './Learning';
 import SourceProgress from './SourceProgress';
+import GameLab from './GameLab';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { AppWindow, Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, Wrench, X } from 'lucide-react';
@@ -25,7 +26,7 @@ import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
 
-type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'Training lab' | 'Tor research' | 'Prompt editor' | 'Mac control' | 'Forge' | 'Operator' | 'Timeline' | 'Assets' | 'Vault';
+type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'Training lab' | 'Tor research' | 'Prompt editor' | 'Mac control' | 'Forge' | 'Operator' | 'Timeline' | 'Assets' | 'Vault' | 'GameLab';
 const WEB_PAGES: Page[] = ['Overview','Targets','Traffic','Tests','Approvals','Findings'];
 // Chat is home. Everything else is reachable from the top-bar quick menu or lives
 // as a background capability the AI can invoke directly.
@@ -45,6 +46,7 @@ const TOOL_PAGES: {label: string; page: Page; icon: LucideIcon}[] = [
  {label:'Training lab',page:'Training lab',icon:Activity},
  {label:'Tor browser',page:'Tor research',icon:Network},
  {label:'Mac control',page:'Mac control',icon:AppWindow},
+ {label:'GameLab',page:'GameLab',icon:Target},
  {label:'Prompt editor',page:'Prompt editor',icon:Code2},
 ];
 function pageTitle(page: Page): string {
@@ -158,6 +160,7 @@ export default function App() {
           {page === 'Timeline' && <OpTimeline/>}
           {page === 'Assets' && <AssetBrowser/>}
           {page === 'Vault' && <VaultPanel/>}
+          {page === 'GameLab' && <GameLab/>}
           {page === 'Library' && <><Library {...shared}/><details className="surface history-details"><summary>Export and storage</summary><KnowledgeTransfer perform={perform} busy={busy}/></details></>}
           {page === 'Knowledge graph' && <KnowledgeGraph perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Methods' && <SkillsView projectId={projectId}/>}
