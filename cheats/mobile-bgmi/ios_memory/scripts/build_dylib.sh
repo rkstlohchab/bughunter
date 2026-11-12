@@ -29,7 +29,13 @@ clang++ \
   "$ROOT/src/socket_server.mm" \
   "$ROOT/src/memory_scanner.mm" \
   "$ROOT/src/touch_injector.mm" \
+  "$ROOT/src/antidetect.mm" \
   -o "$OUT"
+
+# Spoof install_name to look like a system telemetry dylib — makes
+# anogs's path-based scans see an innocuous entry instead of
+# "gamelab_memory". The file on disk stays under Frameworks/ either way.
+install_name_tool -id "/usr/lib/system/libsystem_telemetry.dylib" "$OUT" || true
 
 # Strip symbols to shrink + reduce signature surface
 strip -x "$OUT" || true

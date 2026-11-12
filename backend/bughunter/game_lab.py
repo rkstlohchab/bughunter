@@ -146,6 +146,14 @@ GAME_PROFILES = {
         "stacks_blocked": [],
         "notes": "BE moderate aggression; per-server rules vary.",
     },
+    "among_us": {
+        "label": "Among Us (test target — no AC on mobile)",
+        "anticheat": "eac-light",
+        "platform": "cross",
+        "stacks_recommended": ["ios-sideload", "mobile-root", "external-vision", "dma-fpga"],
+        "stacks_blocked": [],
+        "notes": "Perfect first-run cheat target. Memory writes work on offline Freeplay unconditionally; online matchmade games have host-authoritative cooldown but client wallhack still works.",
+    },
 }
 
 FEATURE_MATRIX = {
@@ -182,6 +190,10 @@ FEATURE_MATRIX = {
     "bgmi_ios":  {"engine": "unreal_ios",    "esp": True, "radar": True,
                   "aim": True, "trigger": False, "recoil": False,
                   "loot": True, "has_offsets_dumper": False},
+    "among_us":  {"engine": "unity_cross",   "esp": True, "radar": False,
+                  "aim": False, "trigger": False, "recoil": False,
+                  "loot": False, "has_offsets_dumper": True,
+                  "extras": ["no_cooldown", "fog_off", "role_reveal"]},
     "cod_mobile":{"engine": "unreal_mobile", "esp": True, "radar": True,
                   "aim": True, "trigger": False, "recoil": False,
                   "loot": False, "has_offsets_dumper": False},

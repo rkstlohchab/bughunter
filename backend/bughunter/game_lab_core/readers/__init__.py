@@ -15,6 +15,7 @@ from .tarkov import TarkovWalker
 from .cod_mw import CodMwWalker
 from .pubg_pc import PubgPcWalker
 from .bgmi import BgmiWalker
+from .among_us import AmongUsWalker
 
 
 WALKER_BY_GAME = {
@@ -31,4 +32,5 @@ WALKER_BY_GAME = {
     "cod_mobile": BgmiWalker,     # same Android bridge, different offsets
     "free_fire":  BgmiWalker,
     "bgmi_ios":   BgmiWalker,     # iOS dylib speaks the same wire protocol
+    "among_us":   AmongUsWalker,  # offline test target — no AC on mobile builds
 }

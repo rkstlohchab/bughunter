@@ -218,6 +218,9 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         'iphone', 'ipad', ' ios ', 'ios bgmi', 'altstore', 'sideload',
         'sideloadly', 'altserver', 'patched ipa', ' ipa ', 'iproxy',
         'usbmuxd', 'bgmi ios', 'bgmi on my iphone',
+        // test targets + cheat terms
+        'among us', 'amongus', 'innersloth', 'no cooldown', 'no-cooldown',
+        'wallhack among', 'role reveal', 'fog off', 'see impostor',
       ];
       const keywordHit = !!gamelabKeywords.find(k => lower.includes(k));
       if (explicitPrefix || keywordHit || activeGamelab) {

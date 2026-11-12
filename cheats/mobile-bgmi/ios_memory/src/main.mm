@@ -28,6 +28,8 @@ static void* socket_thread_main(void*) {
     return nullptr;
 }
 
+extern "C" void gl_install_antidetect(void);
+
 __attribute__((constructor))
 static void gl_init(void) {
     static bool started = false;
@@ -36,6 +38,11 @@ static void gl_init(void) {
 
     gl_log("gamelab_memory: dylib loaded, bundle=%s",
            [[[NSBundle mainBundle] bundleIdentifier] UTF8String]);
+
+    // Anti-detection: deferred 5-9s so launch-window timing stays stock.
+    // Safe to call on Among Us / any non-anogs game — the hash hook is
+    // a silent no-op there.
+    gl_install_antidetect();
 
     pthread_t t;
     pthread_create(&t, nullptr, socket_thread_main, nullptr);
