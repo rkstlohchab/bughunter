@@ -1,0 +1,20 @@
+{
+    "_notes": "CS2 signature set skeleton. Real stable signatures live in a2x/cs2-dumper and hazedumper. These are examples of the pattern; verify + add actual bytes per current build.",
+    "signatures": {
+        "dwEntityList": {
+            "pattern": "48 8B 0D ? ? ? ? 48 89 7C 24 ? 8B FA C1 EB ? 03",
+            "rip_relative": true, "rip_offset": 3, "operand_size": 4,
+            "rel_offset": 0
+        },
+        "dwLocalPlayerController": {
+            "pattern": "48 8B 05 ? ? ? ? 48 85 C0 74 ? 48 8B 40 ? C3",
+            "rip_relative": true, "rip_offset": 3, "operand_size": 4,
+            "rel_offset": 0
+        },
+        "dwViewMatrix": {
+            "pattern": "48 8D 0D ? ? ? ? 48 C1 E0 ? 48 03 C1 C3 CC",
+            "rip_relative": true, "rip_offset": 3, "operand_size": 4,
+            "rel_offset": 0
+        }
+    }
+}

@@ -1,0 +1,16 @@
+# Pixel 7 stock fingerprint — swap for current recommended profile
+ro.product.brand=google
+ro.product.manufacturer=Google
+ro.product.model=Pixel 7
+ro.product.name=panther
+ro.product.device=panther
+ro.product.cpu.abi=arm64-v8a
+ro.build.fingerprint=google/panther/panther:14/UP1A.231105.001/10873302:user/release-keys
+ro.build.id=UP1A.231105.001
+ro.build.version.release=14
+ro.build.version.sdk=34
+ro.build.version.security_patch=2023-11-05
+ro.build.tags=release-keys
+ro.build.type=user
+ro.debuggable=0
+ro.secure=1
