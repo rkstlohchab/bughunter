@@ -51,12 +51,20 @@ GAME_PROFILES = {
         "notes": "Trust Factor is the silent killer. Behavioral opsec > tech.",
     },
     "bgmi": {
-        "label": "BGMI / PUBG Mobile",
+        "label": "BGMI / PUBG Mobile (Android)",
         "anticheat": "bgmi-ace",
         "platform": "android",
         "stacks_recommended": ["external-vision", "mobile-root"],
         "stacks_blocked": ["internal"],
-        "notes": "scrcpy + PC YOLO is the invisible path.",
+        "notes": "scrcpy + PC YOLO is the invisible path. On rooted phone, Zygisk memory ESP.",
+    },
+    "bgmi_ios": {
+        "label": "BGMI / PUBGM (iOS, non-jailbroken)",
+        "anticheat": "bgmi-ace",
+        "platform": "ios",
+        "stacks_recommended": ["ios-sideload"],
+        "stacks_blocked": ["internal", "external-vision"],
+        "notes": "Patched-IPA + dylib + AltStore sign. Memory ESP + in-process touch aim.",
     },
     "fortnite": {
         "label": "Fortnite",
@@ -171,6 +179,9 @@ FEATURE_MATRIX = {
     "bgmi":      {"engine": "unreal_mobile", "esp": True, "radar": True,
                   "aim": True, "trigger": False, "recoil": False,
                   "loot": True, "has_offsets_dumper": False},
+    "bgmi_ios":  {"engine": "unreal_ios",    "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
     "cod_mobile":{"engine": "unreal_mobile", "esp": True, "radar": True,
                   "aim": True, "trigger": False, "recoil": False,
                   "loot": False, "has_offsets_dumper": False},
@@ -226,6 +237,14 @@ STACKS = {
         "hardware": ["unlockable_phone"],
         "docs": "stacks/mobile-root.md",
         "setup_doc": "docs/game-lab/setup-bgmi.md",
+    },
+    "ios-sideload": {
+        "label": "iOS non-jailbroken — patched IPA + AltStore (memory ESP + in-proc aim)",
+        "lifespan_class": "days",
+        "cost_floor_usd": 0,
+        "hardware": ["iphone", "mac"],
+        "docs": "ios_memory/README.md",
+        "setup_doc": "docs/game-lab/setup-ios-bgmi.md",
     },
 }
 
@@ -638,27 +657,53 @@ class GameLabService:
         if not feat.get("esp"):
             raise ValueError(f"game {game} has no supported engine walker yet")
         engine = feat.get("engine", "")
-        is_mobile = engine.endswith("_mobile")
+        is_mobile_android = engine == "unreal_mobile" or engine == "unity_mobile"
+        is_mobile_ios = engine == "unreal_ios"
         results: dict = {"project_id": project_id, "game": game,
                          "steps": []}
 
-        # Pipeline 1: memory_esp (always on if asked)
+        # Pipeline 1: memory_esp (always on if asked). Route by platform:
+        # Android → mobile_memory_esp (adb forward + Zygisk)
+        # iOS     → ios_memory_esp     (iproxy forward + patched-IPA dylib)
+        # PC      → memory_esp         (DMA / RPM)
         if features.get("memory_esp", True):
+            if is_mobile_ios:
+                adapter = "ios_memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "udid": hid.get("ios_udid"),
+                    "port": int(hid.get("ios_port", 65510)),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
+            elif is_mobile_android:
+                adapter = "mobile_memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "serial": hid.get("adb_serial"),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
+            else:
+                adapter = "memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "reader_backend": _pick_reader_backend(game),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
             recipe = self.start_recipe(project_id=project_id,
-                                        adapter=("mobile_memory_esp"
-                                                 if is_mobile else "memory_esp"),
-                                        config={
-                                            "mode": "start",
-                                            "game": game,
-                                            "project_id": project_id,
-                                            "reader_backend": _pick_reader_backend(game),
-                                            "chams_mode": features.get("chams_mode", "team"),
-                                            "features": {
-                                                k: v for k, v in features.items()
-                                                if k.startswith("draw_")
-                                            },
-                                            "serial": hid.get("adb_serial"),
-                                        })
+                                        adapter=adapter,
+                                        config=adapter_cfg)
             results["steps"].append({"step": "memory_esp", "recipe": recipe})
             shared_file = (recipe.get("last_result") or {}).get("shared_file")
         else:
@@ -943,9 +988,13 @@ def _tail(d: dict) -> dict:
 
 
 def _pick_reader_backend(game: str) -> str:
-    """Default to DMA on PC, android bridge on mobile."""
+    """Default to DMA on PC, android bridge on mobile. iOS uses its own
+    adapter that still runs the ``android`` wire protocol under the hood
+    because the iOS dylib speaks the same JSON."""
     if game in ("bgmi", "cod_mobile", "free_fire", "pubg_mobile"):
         return "android"
+    if game in ("bgmi_ios",):
+        return "android"    # dylib speaks the same protocol
     return "dma"
 
 

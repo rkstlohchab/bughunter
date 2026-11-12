@@ -51,6 +51,7 @@ class OperatorTools:
         from .op_adapters import vision_esp, dma_memread, arduino_hid, kmbox
         from .op_adapters import bgmi_mobile, game_offsets, hwid_spoof
         from .op_adapters import memory_esp, radar, combat, mobile_memory_esp
+        from .op_adapters import ios_memory_esp
         self._adapter_registry.update({
             "nmap":         nmap_adapter.run,
             "httpx":        httpx_adapter.run,
@@ -78,6 +79,7 @@ class OperatorTools:
             "radar":               radar.run,
             "combat":              combat.run,
             "mobile_memory_esp":   mobile_memory_esp.run,
+            "ios_memory_esp":      ios_memory_esp.run,
         })
 
     def invoke_adapter(self, name: str, **kwargs) -> dict:

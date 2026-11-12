@@ -214,6 +214,10 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         // mobile tooling
         'zygisk', 'magisk', 'scrcpy', 'shamiko', 'adb forward',
         'rooted phone', 'rooted android', 'jailbreak',
+        // ios cheat tooling
+        'iphone', 'ipad', ' ios ', 'ios bgmi', 'altstore', 'sideload',
+        'sideloadly', 'altserver', 'patched ipa', ' ipa ', 'iproxy',
+        'usbmuxd', 'bgmi ios', 'bgmi on my iphone',
       ];
       const keywordHit = !!gamelabKeywords.find(k => lower.includes(k));
       if (explicitPrefix || keywordHit || activeGamelab) {

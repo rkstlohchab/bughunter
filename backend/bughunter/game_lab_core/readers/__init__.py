@@ -30,4 +30,5 @@ WALKER_BY_GAME = {
     "bgmi":       BgmiWalker,
     "cod_mobile": BgmiWalker,     # same Android bridge, different offsets
     "free_fire":  BgmiWalker,
+    "bgmi_ios":   BgmiWalker,     # iOS dylib speaks the same wire protocol
 }
