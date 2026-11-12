@@ -1,0 +1,15 @@
+{
+  "005d0e65eb923d0692572cf0118fff244aa9a8fd96bb5e7292c5ec6c83b5c49d": "ai-redteam-methods.md",
+  "dd116bba42df485f190836e33c40b2ff479922808c1d9a889d2a6906a633ba28": "prompt-research-cursor.md",
+  "b72aef62c2be714a9b84bd3257737ee30207f6fb26ca975460d18a2d759d7d80": "prompt-research-unspecified.md",
+  "bd2a7b7898a7c2c8ad8dd6b34fb34ed79607328a92f1612f9fa8e401e95ee645": "prompt-research-deepseek.md",
+  "b12304acb8e2d207bc9976de990b56cbca824f8c1abc37fb85ea3781c2a2df1c": "prompt-research-qwen.md",
+  "6aba5a42af09c5dff9f85e2637b979143eb3f2790f0aa36c72ca791b4f8f48b8": "prompt-research-kimi.md",
+  "6f177db6a9e99cc17d1ef3b27a8656c228837e5f7ec18e64abc1536d6ebec2e0": "prompt-research-gpt.md",
+  "92fc1850469c27ab483a4e672071c5fae92fe81a9e5bf7839d4d2e32e0ed222c": "prompt-research-gemini.md",
+  "40a25cf1605a8e60222e4e0c89b95e119b014a2b194fe85821a29938cbdc15f9": "prompt-research-claude.md",
+  "6a6d562ecb160680fb0e6a27bd0fb25b00655d4dff854ba9b8c03b3eeaa98b1c": "prompt-research-glm.md",
+  "17a29c4c18c81fabfc74e64ec80d22c0601fd06707a9729e34e472760ce382fc": "prompt-research-mimo.md",
+  "13c042c6027bef94a0a2a1da02933b225f7e90896eebd7a58b9e022a237bbac4": "prompt-research-grok.md",
+  "25c80bd8a34836623b738c6805684cc70fa06200642c1efb4f33721cd6e23089": "abusegpt.zip"
+}

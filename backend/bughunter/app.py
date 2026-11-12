@@ -18,16 +18,15 @@ from .lab import LabService
 from .reports import ReportService
 from .script_drafts import ScriptDraftService
 from .providers import ProviderSettings, RunManager, claude_status, probe_provider, PROVIDERS
+from .provider_models import ProviderModels
 from .team import TeamService
 from .agent_jobs import AgentJobService
-from .redteam import RedTeamService
 from .training import TrainingService
 from .tor_research import TorResearchService
 from .chat import ChatService
 from .tasks import TaskService
 from .orchestrator import Orchestrator
 from .skills import SkillService
-from .prompt_corpus import PromptCorpusService
 from .model_routing import ModelRoutes
 from .research import WebResearch
 from .commerce_audit import CommerceAudit
@@ -64,7 +63,11 @@ class Application:
                 owner.close()
                 raise ValueError("This data directory is already open in another desktop/backend instance.")
             self._owner_file = owner
+        if primary:
+            from .retired_prompts import retire_prompt_workflow
+            retire_prompt_workflow(self.store)
         self.settings = ProviderSettings(self.store)
+        self.provider_models = ProviderModels(self.store)
         self.model_routes = ModelRoutes(self.store)
         self.media = LocalMediaRuntime(self.store)
         self.knowledge = KnowledgeService(self.store,start_worker=primary)
@@ -80,7 +83,6 @@ class Application:
         self.tasks = TaskService(self)
         self.orchestrator = Orchestrator(self)
         self.skills = SkillService(self.store)
-        self.corpus = PromptCorpusService(self.store)
         self.research = WebResearch(self.store, self.knowledge)
         self.research_p2 = ResearchP2(self.store, self.knowledge, start_worker=primary)
         self.datasets_p2 = DatasetsP2(self.store)
@@ -103,7 +105,6 @@ class Application:
         self.chat = ChatService(self.store, self.settings, self.knowledge, self.agent_jobs, self.tasks, self.model_routes, self.research)
         self.mapping_chat = MappingChat(self)
         self.team = TeamService(self.store)
-        self.redteam = RedTeamService(self.store,self.settings,self.knowledge)
         self.training = TrainingService(self.store)
         self.tor = TorResearchService(self.store, self.knowledge)
         self.tor.task_service = self.tasks
@@ -120,26 +121,9 @@ class Application:
         self._lock = threading.RLock()
         self._claude_cache = None
         self._claude_cache_time = 0
-        if primary and not self.store.setting('curated_seeded', False):
-            # Seed the bundled reference library once. Gating on a flag means a
-            # deliberate knowledge-base wipe is not undone on the next launch.
-            # A versioned, review-oriented reference is indexed as library data.
-            # It contains no executable prompts and is duplicate-safe by hash.
-            from .prompt_archive import CURATED_GUIDE
-            self.knowledge.import_source(
-                filename='ai-redteam-methods.md',
-                content_base64=base64.b64encode(CURATED_GUIDE.encode('utf-8')).decode('ascii'),
-            )
-            # The bundled corpus is kept out of the main chat context. Index only
-            # descriptive model-specific research summaries; raw prompt samples
-            # require an explicit operator open/review action in AI Testing.
-            for summary in sorted((self.corpus.asset_dir / 'summaries').glob('*.md')):
-                self.knowledge.import_source(
-                    filename=summary.name,
-                    content_base64=base64.b64encode(summary.read_bytes()).decode('ascii'),
-                )
-            self.store.set_setting('curated_seeded', True)
         if primary:
+            from .reference_pack import seed_pack
+            seed_pack(self.knowledge)
             self.policy.recover()
             self.runs.recover()
             self.store.set_setting("lab_runtime",{})
@@ -190,6 +174,11 @@ class Application:
             return self.media.dispatch(method, p)
         if method == "models.available":
             return self.available_models()
+        if method == "models.discover":
+            return self.provider_models.discover(**p)
+        if method == "settings.connections":
+            settings = self.settings.get()
+            return {**self.store.setting('provider_connections', {}), settings['provider']: settings}
         if method == "models.select":
             return self.select_model(str(p.get("provider","")), str(p.get("model","")))
         if method.startswith('models.routes'):
@@ -220,8 +209,6 @@ class Application:
             # Do not persist code, output or local absolute paths in the event ledger.
             self.store.event('sandbox.execution',{'sandbox':result['sandbox'],'exit_code':result['exit_code']})
             return result
-        if method.startswith("corpus."):
-            return self.corpus.dispatch(method,p)
         if method.startswith("plans."):
             return self.orchestrator.dispatch(method,p)
         if method.startswith("skills."):
@@ -238,8 +225,6 @@ class Application:
             return self.tor.dispatch(method,p)
         if method.startswith("training."):
             return self.training.dispatch(method,p)
-        if method.startswith("redteam."):
-            return self.redteam.dispatch(method,p)
         if method.startswith("team."):
             return self.team.dispatch(method,p)
         if method == "projects.delete":
@@ -331,28 +316,10 @@ class Application:
         if method == "runs.resume":
             return self.runs.resume(p["id"])
         if method == "system.stop":
-            for task in self.store.list('mapping_chat'):
-                if task['status'] in {'needs_program','researching','needs_value','checking','blocked'}:
-                    with self.chat._turn_locks[hash(task['chat_id']) % len(self.chat._turn_locks)]:
-                        session = self.store.get('chat',task['chat_id'])
-                        if session and session.get('mapping_id') == task['id']:
-                            self.mapping_chat.stop(task['chat_id'])
-                        else:
-                            if task.get('research_id'): self.memory_mappings.stop(task['research_id'])
-                            self.store.put('mapping_chat',{**task,'status':'cancelled'},id=task['id'])
-            self.memory_mappings.stop_all()
-            self.readiness_p7.cancel_all()
-            for job in self.agent_jobs.dispatch("agents.list", {}):
-                if job.get("status") in {"starting", "running"}:
-                    self.agent_jobs.cancel(job["id"])
-            self.policy.stop()
-            for run in self.store.list("run"):
-                if run.get("status") in {"running","starting","awaiting_approval"}:
-                    self.runs.stop(run["id"])
-            return {"stopped":True,"message":"No new requests will be sent. Already transmitted requests may have taken effect."}
+            return self.stop_all()
         if method == "system.resume":
             self.store.set_setting("emergency_stop",False)
-            return {"resumed":True,"message":"New requests are enabled. Cancelled actions remain cancelled."}
+            return {"resumed":True,"message":"New tasks are enabled. Stopped work is not restarted."}
         if method == "events.list":
             return self.store.events(**p)
         if method == "system.backup.create":
@@ -416,9 +383,10 @@ class Application:
     PROVIDER_CATALOG = {
         "claude_code": {"label": "Claude subscription", "kind": "subscription",
                         "models": ["opus", "sonnet", "haiku"]},
+        "codex": {"label": "ChatGPT subscription", "kind": "subscription", "models": []},
         "anthropic": {"label": "Anthropic API", "kind": "api",
                       "models": ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"]},
-        "openai": {"label": "OpenAI (ChatGPT API)", "kind": "api",
+        "openai": {"label": "OpenAI API", "kind": "api",
                    "models": ["gpt-4.1", "gpt-4.1-mini", "gpt-4o"]},
         "deepseek": {"label": "DeepSeek", "kind": "api",
                      "models": ["deepseek-chat", "deepseek-reasoner"]},
@@ -435,6 +403,8 @@ class Application:
         creds = self.settings.credentials()
         active_provider = settings.get("provider")
         active_model = settings.get("model")
+        connections = {**self.store.setting('provider_connections', {}), active_provider: settings}
+        catalogs = self.store.setting('provider_model_catalogs', {})
         if self._claude_cache is None or time.monotonic() - self._claude_cache_time > 30:
             self._claude_cache = claude_status()
             self._claude_cache_time = time.monotonic()
@@ -450,6 +420,11 @@ class Application:
             if provider == "claude_code":
                 ready = bool(self._claude_cache.get("subscription_ready"))
                 needs = "" if ready else "Sign in: run  claude auth login  in Terminal."
+            elif provider == "codex":
+                status = self.provider_models.discover('codex')
+                ready = bool(status.get('ok'))
+                models = [m['id'] for m in status.get('models', [])]
+                needs = '' if ready else status['detail']
             elif provider == "ollama":
                 models = ollama_models or meta["models"]
                 ready = ollama_running and bool(models)
@@ -460,8 +435,18 @@ class Application:
                 if provider == "openai_compatible" and settings.get("api_base_url"):
                     models = models or [settings.get("model") or "custom"]
             elif provider == "crucible":
-                ready = bool(settings.get("api_base_url")) and active_provider == "crucible"
+                ready = bool(connections.get(provider, {}).get("api_base_url"))
                 needs = "" if ready else "Set your device address in Settings."
+            profile = connections.get(provider, {})
+            catalog = catalogs.get(provider, {})
+            from .provider_models import DEFAULT_URLS
+            endpoint = (profile.get('api_base_url') or DEFAULT_URLS.get(provider, '')).rstrip('/')
+            if provider not in {'codex', 'claude_code'} and catalog.get('api_base_url') == endpoint:
+                models = [m['id'] for m in catalog.get('models', [])]
+            if provider in {'openai_compatible', 'remote_ollama'} and not profile.get('api_base_url'):
+                ready, needs = False, 'Set your server address and connection key in Settings.'
+            if profile.get('model') and profile['model'] not in models:
+                models = [profile['model'], *models]
             out.append({"provider": provider, "label": meta["label"], "kind": meta["kind"],
                         "ready": ready, "needs": needs, "models": models,
                         "active": provider == active_provider})
@@ -473,36 +458,88 @@ class Application:
         if provider not in PROVIDERS:
             raise ValueError("Unknown provider.")
         settings = self.settings.get()
-        patch = {"provider": provider, "model": model or settings.get("model")}
+        profile = self.store.setting('provider_connections', {}).get(provider, {})
+        patch = {**profile, "provider": provider, "model": model}
+        if not str(model or '').strip():
+            raise ValueError('Choose a model.')
         if provider != settings.get('provider'):
-            if provider in {'remote_ollama', 'openai_compatible', 'crucible'}:
+            if provider in {'remote_ollama', 'openai_compatible', 'crucible'} and not profile.get('api_base_url'):
                 raise ValueError('Configure this provider and its endpoint in Settings before selecting it.')
             # A provider credential must never follow a custom endpoint from the
             # previously selected provider.
-            patch['api_base_url'] = ''
+            patch['api_base_url'] = profile.get('api_base_url', '')
             if provider in {'anthropic', 'openai', 'deepseek'}:
-                patch['pricing_confirmed'] = False
+                patch['pricing_confirmed'] = bool(profile.get('pricing_confirmed')) and profile.get('model') == model
         from .providers import LOCAL_PROVIDERS as _LOCAL, SELF_HOSTED_PROVIDERS as _SELF
-        if provider == "claude_code" or provider in _LOCAL or provider in _SELF:
+        patch['local_only'] = provider in _LOCAL
+        if provider in {'anthropic', 'openai', 'deepseek'} and model != settings.get('model'):
+            patch['pricing_confirmed'] = bool(profile.get('pricing_confirmed')) and profile.get('model') == model
+        if provider in {"claude_code", "codex"} or provider in _LOCAL or provider in _SELF:
             patch["pricing_confirmed"] = True
         return self.settings.save({**settings, **patch})
 
-    def _full_disk_access(self) -> bool:
-        """Probe whether this process has macOS Full Disk Access by reading a
+    def stop_all(self):
+        # Latch first: slow cancellation/OS calls must never leave new work enabled.
+        self.store.set_setting('emergency_stop', True)
+        self.store.set_setting('stop_generation', self.store.setting('stop_generation',0)+1)
+        from .codex_subscription import cancel_all
+        cancel_all()
+        errors = []
+        def attempt(label, operation):
+            try: operation()
+            except Exception as exc: errors.append({'task': label, 'error': str(exc)[:220]})
+        attempt('requests', self.policy.stop)
+        if self.store.setting('burp_audit_active',False):
+            attempt('Burp audit', lambda: self.burp_history.dispatch('burp.audit.stop', {'approved':True}))
+        attempt('mapping research', self.memory_mappings.stop_all)
+        attempt('app checks', self.readiness_p7.cancel_all)
+        for row in self.store.list('mapping_chat'):
+            if row.get('status') in {'needs_program','researching','needs_value','checking','blocked'}:
+                self.store.put('mapping_chat', {**row, 'status':'cancelled'}, id=row['id'])
+        for run in self.store.list('run'):
+            if run.get('status') in {'running','starting','queued','awaiting_approval','awaiting_retry'}:
+                attempt(run['id'], lambda row=run: self.runs.stop(row['id']))
+        for job in self.store.list('agent_job'):
+            if job.get('status') in {'starting','running','queued'}:
+                attempt(job['id'], lambda row=job: self.agent_jobs.cancel(row['id']))
+        for task in self.store.list('work_task'):
+            if task.get('status') not in {'starting','running','queued','awaiting_approval','awaiting_retry','cancelling'}: continue
+            if task.get('kind') in {'memory_session','desktop_control'}:
+                self.tasks.external_finish(task['id'], status='interrupted', error='Global stop requested. Native sessions are cancelled by the desktop.')
+            elif task.get('kind') != 'tor_browser':
+                attempt(task['id'], lambda row=task: self.tasks.cancel(row['id']))
+        for experiment in self.store.list('experiment_run'):
+            if experiment.get('status') in {'queued','running','stopping'}:
+                attempt(experiment['id'], lambda row=experiment: self.knowledge.experiments.stop(row['id']))
+        attempt('course imports', self.knowledge.courses.cancel_all)
+        attempt('tool installation', self.tool_installer.cancel_all)
+        attempt('media setup', self.media.cancel_setup)
+        attempt('source processing', self.knowledge.cancel_pending)
+        if self.memory:
+            attempt('memory sessions', self.memory.shutdown)
+        # Closing a browser can wait on its current OS call; do it after latching.
+        if self.tor.browser.status().get('running'):
+            threading.Thread(target=lambda: attempt('Tor browser', lambda: self.tor.dispatch('tor.browser.close', {})), daemon=True).start()
+        self.store.event('system.stop_all', {'errors': errors})
+        return {'stopped': True, 'cancellation_errors': errors,
+                'message':'Stop requested for all tasks. In-flight calls may finish; no new work will start. Resume enables new tasks without replaying stopped work.'}
+
+    def _full_disk_access(self) -> bool | None:
+        """Probe whether this process has macOS Full Disk Access by opening a
         TCC-protected path. macOS gates FDA behind a manual toggle; we can only
         detect it and deep-link the user to the pane, never grant it."""
         if platform.system() != "Darwin":
             return True
         from pathlib import Path
-        probe = Path.home() / "Library/Application Support/com.apple.TCC/TCC.db"
-        try:
-            with open(probe, "rb") as handle:
-                handle.read(1)
-            return True
-        except PermissionError:
-            return False
-        except (FileNotFoundError, OSError):
-            return False
+        for probe in (Path.home() / "Library/Application Support/com.apple.TCC/TCC.db",
+                      Path("/Library/Application Support/com.apple.TCC/TCC.db")):
+            try:
+                with open(probe, "rb"):
+                    pass  # Access check only; never read the permissions database.
+                return True
+            except OSError:
+                continue
+        return None  # A failed probe is not a definitive Full Disk Access denial.
 
     def open_privacy(self, pane: str) -> dict:
         """Open a specific macOS Privacy & Security pane so the user can grant a
@@ -522,6 +559,28 @@ class Application:
         subprocess.Popen(["open", url])
         return {"opened": True, "pane": pane}
 
+    def setup_status(self):
+        """Passive setup check: opening Settings must not start tools or change settings."""
+        from .tool_readiness import inventory
+        import time
+        steps = []
+        def add(key, label, ready, detail):
+            steps.append({'key': key, 'label': label, 'status': 'done' if ready else 'optional', 'detail': detail})
+        available = inventory(self.store.setting('tool_locations', {}))
+        found = [t['name'] for t in available if t.get('installed')]
+        add('tools', 'Installed tools', bool(found), ', '.join(found) or 'No optional tools detected.')
+        media = self.media.status()
+        add('ollama', 'Local models', bool(media.get('ollama_running')),
+            'Ollama is running.' if media.get('ollama_running') else 'Optional: start Ollama when you want local models.')
+        add('ffmpeg', 'Audio and video', bool(media.get('ffmpeg')),
+            'FFmpeg is available.' if media.get('ffmpeg') else 'Optional: install FFmpeg for audio/video sources.')
+        gateway = self.store.setting('gateway', {})
+        ready = bool(gateway.get('verified_at') and time.time() - gateway['verified_at'] < 300)
+        add('gateway', 'Website connection', ready,
+            'Gateway verified.' if ready else 'Chat connects the gateway when you start a website review.')
+        return {'steps': steps, 'summary': 'Status checked. No tools were started or settings changed.',
+                'backend_full_disk': self._full_disk_access() if platform.system() == 'Darwin' else None}
+
     def autosetup(self, install_missing: bool = False) -> dict:
         """Autonomously bring the local environment up: detect tools, start the
         local model server, start and verify the policy gateway, enable sensible
@@ -532,8 +591,10 @@ class Application:
         that macOS does not allow software to perform."""
         from .tool_readiness import inventory
         self.store.require_desktop_owner()
+        if not install_missing:
+            return self.setup_status()
         if self.store.setting('emergency_stop', False):
-            raise ValueError('Resume tasks before starting automatic setup.')
+            raise ValueError('Use Resume tasks in the top bar before starting automatic setup.')
         steps = []
         def record(key, label, status, detail, action=None):
             steps.append({"key": key, "label": label, "status": status, "detail": detail, "action": action})
@@ -548,6 +609,7 @@ class Application:
         except Exception as exc:
             record("tools", "Detect local tools", "error", str(exc))
 
+        if self.store.setting("emergency_stop",False):raise ValueError("Automatic setup stopped.")
         # 2. Local model server + video/vision tools.
         try:
             media = self.media.status()
@@ -589,6 +651,7 @@ class Application:
         except Exception as exc:
             record("ollama", "Local model server", "error", str(exc))
 
+        if self.store.setting("emergency_stop",False):raise ValueError("Automatic setup stopped.")
         # 3. Local semantic search (embeddings) when the server + model are present.
         try:
             media = self.media.status()
@@ -607,6 +670,7 @@ class Application:
         except Exception as exc:
             record("embeddings", "Semantic search", "error", str(exc))
 
+        if self.store.setting("emergency_stop",False):raise ValueError("Automatic setup stopped.")
         # 4. Policy gateway (needed for live web testing).
         try:
             import time as _t
@@ -621,22 +685,12 @@ class Application:
             record("gateway", "Connect web-testing gateway", "optional",
                    "Could not auto-connect the gateway. It is only needed to send live web requests; everything else works without it.")
 
-        # 5. macOS permissions that only a human can grant.
-        if platform.system() == "Darwin":
-            if self._full_disk_access():
-                record("full_disk", "Full Disk Access", "done", "Granted. The app can read your files for analysis.")
-            else:
-                record("full_disk", "Full Disk Access", "needs_you",
-                       "macOS only lets you grant this by hand. Click Open to jump to the exact pane, enable BugHunterClaudex, then recheck.", "open:full_disk")
-            record("ax", "Screen Recording & Accessibility", "needs_you",
-                   "Needed only for desktop control and inspecting other apps. Grant in the same Privacy pane when you want those.", "open:accessibility")
-
         done = sum(1 for s in steps if s["status"] == "done")
         blocking = [s for s in steps if s["status"] == "needs_you"]
         return {"steps": steps, "done": done, "total": len(steps),
                 "needs_you": len(blocking),
                 "summary": f"Set up {done} of {len(steps)} automatically." +
-                           (f" {len(blocking)} item(s) need a one-time macOS permission you must toggle yourself." if blocking else " Everything the app can do on its own is ready.")}
+                           (f" {len(blocking)} item(s) need another setup step." if blocking else " Everything the app can do on its own is ready.")}
 
     @staticmethod
     def _addr(value):
@@ -736,6 +790,10 @@ class Application:
         return {"id":id,"deleted":True,"removed":counts,"library_preserved":True,"exported_files_preserved":True}
 
     def shutdown(self):
+        if self.primary:
+            from .codex_subscription import cancel_all
+            cancel_all()
+        self.tool_installer.cancel_all()
         self.memory_mappings.stop_all()
         self.readiness_p7.shutdown()
         try: self.capabilities.shutdown()

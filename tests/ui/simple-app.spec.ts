@@ -2,10 +2,11 @@ import {test,expect} from '@playwright/test';
 import {chatFixture} from './chat-fixture';
 import {openTool} from './navigation';
 
-test('chat has three primary destinations and tools open only when requested',async({page})=>{
+test('chat has three primary destinations and one top-bar tools menu',async({page})=>{
   await chatFixture(page);await page.goto('/');
   const nav=page.getByRole('navigation',{name:'Main navigation'});
   await expect(nav.getByRole('button')).toHaveCount(3);
+  await expect(page.getByRole('button',{name:'Tools',exact:true})).toHaveCount(1);
   for(const name of ['Chat','Library','Settings']) await expect(nav.getByRole('button',{name,exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'What should I do?'})).toBeVisible();
   await page.screenshot({path:test.info().outputPath('chat-home.png'),fullPage:true});

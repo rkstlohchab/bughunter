@@ -43,7 +43,7 @@ def test_workspace_and_review_isolation(training):
 
 def test_edits_force_review_and_no_cross_workspace_move(training):
     w1 = training.create_workspace('burp_suite', 'A')
-    w2 = training.create_workspace('ai_redteam', 'B')
+    w2 = training.create_workspace('tor_research', 'B')
     e = add(training, w1, 'one')
     with pytest.raises(ValueError, match='transferred'):
         training.save_example(w2['id'], 'foo', 'bar', id=e['id'])
@@ -57,7 +57,7 @@ def test_edits_force_review_and_no_cross_workspace_move(training):
 
 
 def test_dataset_export_splits_holdout_group_and_excludes_drafts(training):
-    w = training.create_workspace('ai_redteam', 'Prompt robustness', instructions='Respect source fidelity.')
+    w = training.create_workspace('tor_research', 'Research notes', instructions='Respect source fidelity.')
     for i in range(13):
         add(training, w, f'case-{i}', group=f'family-{i}')
     add(training, w, 'variant', group='family-1')
@@ -112,26 +112,6 @@ def test_training_rpc_roundtrip(tmp_path, monkeypatch):
     app.dispatch('training.review', {'id':ex['id'],'approved':True})
     assert app.dispatch('training.search', {'domain':'burp_suite','query':'cookie'})[0]['id'] == ex['id']
     assert app.dispatch('training.export', {'workspace_id':w['id']})['manifest']['split_counts']['train'] == 1
-
-
-def test_import_reviewed_redteam_trial_requires_review_and_does_not_train_on_jailbreak_response(training):
-    workspace = training.create_workspace('ai_redteam', 'Analysis')
-    other = training.create_workspace('cheat_engine', 'Unrelated')
-    trial = training.store.put('redteam_trial', {
-        'case_id': 'family-a', 'prompt': 'A simulated hierarchy-conflict test',
-        'response': 'Raw provider text', 'lesson': 'The instruction hierarchy held.',
-        'verdict': 'resisted', 'technique': 'instruction hierarchy',
-    })
-    with pytest.raises(ValueError, match='only'):
-        training.import_redteam_trial(other['id'], trial['id'])
-    draft = training.import_redteam_trial(workspace['id'], trial['id'])
-    assert draft['status'] == 'draft'
-    assert 'Raw provider text' not in draft['response']
-    assert 'The instruction hierarchy held' in draft['response']
-    with pytest.raises(ValueError, match='Review'):
-        training.export(workspace['id'])
-    training.review(draft['id'], True)
-    assert training.export(workspace['id'])['manifest']['reviewed_examples'] == 1
 
 
 def test_investigation_tool_retrieves_only_reviewed_burp_examples(tmp_path, monkeypatch):

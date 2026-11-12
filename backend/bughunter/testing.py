@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -44,10 +45,10 @@ class TestingService:
     def __init__(self, store: Store, policy: PolicyService, knowledge=None):
         self.store, self.policy, self.knowledge = store, policy, knowledge
 
-    def _citations(self, query: str):
+    def _citations(self, query: str, project_id: str):
         if not self.knowledge: return []
         try:
-            results = self.knowledge.search(query=query, limit=3)
+            results = self.knowledge.search(query=query, limit=3, project_id=project_id)
             if isinstance(results, dict): results = results.get("results", results.get("items", []))
             return [{k: item.get(k) for k in ("source_id", "title", "locator", "text")} for item in results[:3]]
         except Exception: return []
@@ -67,7 +68,7 @@ class TestingService:
                 "location": field["location"] if field else "request", "proposed_change": f"Set {field['name']} to {value!r}" if field else "Compare the baseline with the required account or workflow context",
                 "proposed_request": proposed, "rationale": rationale, "prerequisites": prerequisite or [],
                 "expected_secure_behavior": expected, "confirmation_criteria": criteria, "status": "proposed",
-                "citations": self._citations(f"{category} {title}"), "requires_input": bool(prerequisite),
+                "citations": self._citations(f"{category} {title}", traffic["project_id"]), "requires_input": bool(prerequisite),
             }))
         for field in traffic.get("inventory", {}).get("fields", []):
             name, value = field["name"].lower(), field["value"]
@@ -160,10 +161,31 @@ class TestingService:
         if not action or action["status"] != "completed": raise ValueError("Complete the action before assessing evidence")
         project = self.policy.project(action["project_id"])
         response = action.get("response") or {}
+        if not isinstance(response, dict): response = {}
         try: outcome = json.loads(response.get("body", ""))
-        except ValueError: outcome = {}
-        # Automatic confirmation is deliberately restricted to our instrumented lab oracle.
-        verified_lab = project.get("lab_project") and action.get("lab_verified") and outcome.get("lab_evidence") is True
+        except (ValueError, TypeError): outcome = {}
+        if not isinstance(outcome, dict): outcome = {}
+        # A lab marker establishes neither a complete oracle result nor a negative
+        # finding. Rejections, truncated responses and absent checks remain unknown.
+        violations = outcome.get("violations")
+        totals = [outcome.get(key) for key in ("accepted_total", "canonical_total")]
+        valid_oracle = (isinstance(violations, list)
+            and all(isinstance(v, str) and v.strip() for v in violations)
+            and all(type(v) is int or (type(v) is float and math.isfinite(v)) for v in totals)
+            and (bool(violations) or totals[0] == totals[1]))
+        status_code = response.get("status")
+        receipts = [self.store.get("traffic", eid) for eid in action.get("evidence_ids", [])]
+        linked_receipt = any(r and r.get("project_id") == project["id"]
+            and r.get("action_id") == action_id and r.get("trusted_observation") is True
+            and r.get('origin') == 'gateway'
+            and isinstance(action.get('request'), dict)
+            and r.get('request') == action['request']
+            and r.get('session_id') == action.get('session_id')
+            and r.get("response") == response for r in receipts)
+        verified_lab = (project.get("lab_project") and action.get("lab_verified")
+            and outcome.get("lab_evidence") is True and valid_oracle and linked_receipt
+            and type(status_code) is int and 200 <= status_code < 300
+            and not response.get("truncated") and 'error' not in outcome)
         violations = outcome.get("violations", []) if verified_lab else []
         status = "confirmed" if violations else "false_positive" if verified_lab else "inconclusive"
         plan = self.store.get("test",action.get("test_id","")) or {}

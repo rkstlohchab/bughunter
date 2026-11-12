@@ -258,18 +258,26 @@ class ToolService:
                                id="asset_"+hashlib.sha256(f"{project_id}:{host}".encode()).hexdigest()[:24])
         return {"hosts": sorted(set(hosts)), "message": "Discovered hosts do not expand authorized scope automatically."}
 
-    def browser(self, project_id: str, url: str, steps: list | None = None, session_id: str = "browser", run_id: str | None = None):
+    def browser(self, project_id: str, url: str, steps: list | None = None, session_id: str = "browser", run_id: str | None = None, public_only: bool = False, cancel_event=None):
+        if type(public_only) is not bool: raise ValueError("public_only must be boolean")
         config = self._require_transport()
         project = self.policy.project(project_id)
         validate_scope(project, url)
         if not _installed("playwright"): raise ValueError("Install Playwright and its Chromium browser")
         if len(steps or []) > 20: raise ValueError("At most 20 explicit browser steps are supported per call")
-        session_id = "browser:"+session_id.removeprefix("browser:")
+        if public_only and steps: raise ValueError("Public-page rendering does not accept interaction steps")
+        session_id = ("public-review:" if public_only else "browser:")+session_id.removeprefix("browser:")
         ticket = self._adapter_ticket(project_id, session_id, run_id)
-        try: return asyncio.run(self._browser(project_id, url, steps or [], session_id, config, ticket))
-        finally: self._revoke_ticket(ticket)
+        try: return asyncio.run(self._browser(project_id, url, steps or [], session_id, config, ticket, public_only, cancel_event))
+        finally:
+            self._revoke_ticket(ticket)
+            if public_only:
+                for action in self.store.list('action', project_id=project_id):
+                    if action.get('session_id') == session_id and action.get('status') in {'pending_approval', 'executing'}:
+                        try: self.policy.cancel(action['id'])
+                        except ValueError: pass  # Gateway may have completed it concurrently.
 
-    async def _browser(self, project_id, url, steps, session_id, config, ticket):
+    async def _browser(self, project_id, url, steps, session_id, config, ticket, public_only=False, cancel_event=None):
         from playwright.async_api import async_playwright
         from cryptography import x509
         from cryptography.hazmat.primitives import serialization
@@ -283,7 +291,7 @@ class ToolService:
                 state_name = hashlib.sha256(f"{project_id}:{session_id}".encode()).hexdigest()
                 state_path = self.store.root / "workspaces" / f"browser-{state_name}.json"
                 context = await browser.new_context(service_workers="block", extra_http_headers={"X-BugHunter-Adapter": ticket}, accept_downloads=False,
-                    storage_state=str(state_path) if state_path.exists() else None)
+                    storage_state=str(state_path) if state_path.exists() and not public_only else None)
                 await context.route_web_socket("**/*", lambda route: route.close())
                 page = await context.new_page()
                 # Prove this specific browser transport also reaches the gateway.
@@ -291,7 +299,58 @@ class ToolService:
                 probe = await page.goto("https://bughunter-gateway.invalid/__probe",timeout=10000)
                 if not probe or probe.status != 200 or (await probe.json()).get("nonce") != config["probe_nonce"]: raise ValueError("Browser routing probe failed")
                 await page.set_extra_http_headers({"X-BugHunter-Adapter":ticket})
-                await page.goto(url, wait_until="domcontentloaded", timeout=165000)
+                blocked = []
+                attempted = 0
+                if public_only:
+                    from .website_audit import public_resource_allowed
+                    slots = asyncio.Lock()
+                    last_sent = 0.0
+                    transport_failed = False
+                    route_errors = []
+                    async def public_route(route):
+                        nonlocal attempted, last_sent, transport_failed
+                        req = route.request
+                        async with slots:
+                            project = self.policy.project(project_id)
+                            interval = 1 / max(.1, float(project.get('requests_per_second', 1)))
+                            await asyncio.sleep(max(0, last_sent + interval - time.monotonic()))
+                            allowed = (not transport_failed and attempted < 30 and not self.store.setting('emergency_stop', False)
+                                       and not (cancel_event and cancel_event.is_set())
+                                       and public_resource_allowed(project, url, req.url, req.method)
+                                       and not req.post_data)
+                            if not allowed:
+                                if len(blocked) < 80:
+                                    part = urlsplit(req.url)
+                                    blocked.append({'method': req.method, 'origin': part.scheme+'://'+part.netloc,
+                                                    'path': part.path[:250], 'type': req.resource_type})
+                                await route.abort()
+                                return
+                            attempted += 1
+                            previous = {a['id'] for a in self.store.list('action', project_id=project_id, session_id=session_id)}
+                            last_sent = time.monotonic()
+                            try:
+                                await route.continue_()
+                                # Module loaders may delay browser requestfinished until
+                                # their dependencies load. Release on the gateway's
+                                # completed response instead, avoiding a dependency deadlock.
+                                deadline = time.monotonic() + 30
+                                while time.monotonic() < deadline:
+                                    actions = [a for a in self.store.list('action', project_id=project_id, session_id=session_id)
+                                               if a['id'] not in previous and a.get('request', {}).get('url') == req.url]
+                                    if any(a['status'] in {'completed','failed','cancelled','unknown','pending_approval'} for a in actions):
+                                        break
+                                    await asyncio.sleep(.05)
+                                else:
+                                    transport_failed = True
+                                    route_errors.append('No terminal gateway receipt within 30 seconds; further requests stopped.')
+                            except Exception as exc:
+                                transport_failed = True
+                                route_errors.append(type(exc).__name__ + ': browser transport interrupted')
+                    await context.route('**/*', public_route)
+                await page.goto(url, wait_until="domcontentloaded", timeout=85000 if public_only else 165000)
+                if public_only:
+                    # Bounded time for JS to render; never click, fill or submit.
+                    await page.wait_for_timeout(2500)
                 for step in steps:
                     if self.store.setting("emergency_stop", False): raise ValueError("Emergency stop is active")
                     kind = step.get("action")
@@ -301,8 +360,9 @@ class ToolService:
                     else: raise ValueError("Supported browser steps are click, fill, and navigate")
                 screenshot = self.store.root / "artifacts" / f"{new_id('browser')}.png"
                 await page.screenshot(path=str(screenshot), full_page=False)
-                await context.storage_state(path=str(state_path))
-                state_path.chmod(0o600)
+                if not public_only:
+                    await context.storage_state(path=str(state_path))
+                    state_path.chmod(0o600)
                 if not self.store.get("project",project_id):
                     state_path.unlink(missing_ok=True)
                     screenshot.unlink(missing_ok=True)
@@ -313,6 +373,24 @@ class ToolService:
                     state_path.unlink(missing_ok=True)
                     screenshot.unlink(missing_ok=True)
                     raise
+                if public_only:
+                    from .website_audit import inspect_page
+                    from .security import redact_text
+                    _, _, rendered = inspect_page(page.url, {'status': 200, 'headers': {'content-type':'text/html'}, 'body': await page.content()})
+                    receipts = [row for row in self.store.list('traffic', project_id=project_id)
+                                if row.get('session_id') == session_id and row.get('trusted_observation')]
+                    failures = [{'status': a['status'], 'path': urlsplit(a.get('request', {}).get('url', '')).path[:250],
+                                 'error': redact_text(str(a.get('error') or 'Request incomplete'))[:200]}
+                                for a in self.store.list('action', project_id=project_id)
+                                if a.get('session_id') == session_id and a.get('status') != 'completed']
+                    failures += [{'status':'incomplete', 'error': error} for error in route_errors]
+                    visible_text = redact_text(await page.locator('body').inner_text())[:8000]
+                    return {'url': page.url, 'title': redact_text(await page.title()), 'screenshot': str(screenshot),
+                            'text': visible_text, 'coverage': 'partial' if blocked or failures or not visible_text.strip() else 'rendered',
+                            'forms': rendered['forms'], 'blocked_requests': blocked, 'attempted_requests': attempted,
+                            'failed_requests': failures,
+                            'evidence_ids': [r['id'] for r in receipts], 'public_only': True,
+                            'message': 'Fresh public session. Only declared same-origin GET paths; no interactions or stored login state. Blocked dependencies may prevent rendering.'}
                 return {"url": page.url, "title": await page.title(), "screenshot": str(screenshot),
                         "pending_approvals": len(self.store.list("action", project_id=project_id, status="pending_approval")),
                         "message": "Browser requests that change state wait for desktop approval and Send once. Account storage is retained per project/session."}

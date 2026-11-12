@@ -13,9 +13,9 @@ silent failure.
 from __future__ import annotations
 
 import ctypes
+from functools import wraps
 import struct
 import threading
-import time
 from ctypes import c_int, c_uint, c_ulonglong, c_void_p, c_size_t, POINTER, byref, create_string_buffer
 
 _libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
@@ -38,7 +38,7 @@ _libc.task_for_pid.argtypes = [c_uint, c_int, POINTER(c_uint)]; _libc.task_for_p
 _libc.mach_vm_read_overwrite.argtypes = [c_uint, c_ulonglong, c_ulonglong, c_ulonglong, POINTER(c_ulonglong)]
 _libc.mach_vm_read_overwrite.restype = c_int
 _libc.mach_vm_write.argtypes = [c_uint, c_ulonglong, c_ulonglong, c_uint]; _libc.mach_vm_write.restype = c_int
-_libc.mach_vm_protect.argtypes = [c_uint, c_ulonglong, c_ulonglong, c_int, c_int]; _libc.mach_vm_protect.restype = c_int
+_libc.mach_port_deallocate.argtypes = [c_uint, c_uint]; _libc.mach_port_deallocate.restype = c_int
 _libc.mach_vm_region.argtypes = [c_uint, POINTER(c_ulonglong), POINTER(c_ulonglong), c_int,
                                  c_void_p, POINTER(c_uint), POINTER(c_uint)]
 _libc.mach_vm_region.restype = c_int
@@ -59,6 +59,14 @@ MAX_SCAN_BYTES = 3 * 1024**3
 
 class MemoryError_(Exception):
     pass
+
+
+def _serialized(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._lock:
+            return method(self, *args, **kwargs)
+    return call
 
 
 class _Session:
@@ -112,7 +120,14 @@ class MacMemory:
                     f"task_for_pid(pid={pid}) failed (kern_return={kr}). macOS blocks cross-process "
                     f"memory unless the backend runs as root (sudo) or is signed with the debugger "
                     f"entitlement and the target is not a hardened-runtime build.")
-            name = next((p["name"] for p in self.list_processes() if p["pid"] == pid), str(pid))
+            try:
+                name = next((p["name"] for p in self.list_processes() if p["pid"] == pid), str(pid))
+            except Exception:
+                _libc.mach_port_deallocate(self._self, task.value)
+                raise
+            previous = self._sessions.pop(pid, None)
+            if previous:
+                self._retire_session(previous)
             self._sessions[pid] = _Session(pid, task.value, name)
             return {"pid": pid, "name": name, "attached": True}
 
@@ -126,9 +141,18 @@ class MacMemory:
         with self._lock:
             s = self._sessions.pop(pid, None)
             if s:
-                for ev in s.freezes.values():
-                    ev.set()
+                self._retire_session(s)
             return {"pid": pid, "attached": False}
+
+    def _retire_session(self, session: _Session):
+        # Called with the engine lock: no operation or freezer can use the port
+        # while its send right is released. Every task_for_pid success owns one.
+        for stop in session.freezes.values():
+            stop.set()
+        session.freezes.clear()
+        task, session.task = session.task, 0
+        if task:
+            _libc.mach_port_deallocate(self._self, task)
 
     # ---------- raw read/write ----------
     def _read(self, task: int, addr: int, size: int) -> bytes | None:
@@ -142,10 +166,7 @@ class MacMemory:
     def _write(self, task: int, addr: int, data: bytes) -> bool:
         buf = create_string_buffer(data, len(data))
         kr = _libc.mach_vm_write(task, addr, ctypes.addressof(buf), len(data))
-        if kr != KERN_SUCCESS:
-            # Region may be read-only: add write protection and retry, then restore.
-            _libc.mach_vm_protect(task, addr, len(data), 0, VM_PROT_READ | VM_PROT_WRITE)
-            kr = _libc.mach_vm_write(task, addr, ctypes.addressof(buf), len(data))
+        # A refused write must not alter the target's page permissions.
         return kr == KERN_SUCCESS
 
     # ---------- regions ----------
@@ -158,6 +179,8 @@ class MacMemory:
             obj = c_uint(0)
             kr = _libc.mach_vm_region(task, byref(address), byref(size), VM_REGION_BASIC_INFO_64,
                                       ctypes.cast(byref(info), c_void_p), byref(count), byref(obj))
+            if obj.value:
+                _libc.mach_port_deallocate(self._self, obj.value)
             if kr != KERN_SUCCESS or size.value == 0:
                 break
             prot = info.protection
@@ -181,6 +204,7 @@ class MacMemory:
             return None
         return struct.unpack(fmt, raw[:size])[0]
 
+    @_serialized
     def read_value(self, pid: int, address: int, vtype: str = "int"):
         s = self._session(pid)
         _, size = TYPES[vtype]
@@ -189,14 +213,16 @@ class MacMemory:
             raise MemoryError_(f"Could not read {size} bytes at {hex(address)}.")
         return {"pid": pid, "address": hex(address), "type": vtype, "value": self._unpack(vtype, raw)}
 
+    @_serialized
     def write_value(self, pid: int, address: int, value, vtype: str = "int") -> dict:
         s = self._session(pid)
         ok = self._write(s.task, address, self._pack(vtype, value))
         if not ok:
-            raise MemoryError_(f"Write to {hex(address)} failed (protected or unmapped).")
+            raise MemoryError_(f"Write to {hex(address)} failed (protected or unmapped). Page permissions were not changed.")
         return {"pid": pid, "address": hex(address), "type": vtype, "written": value}
 
     # ---------- scanning ----------
+    @_serialized
     def scan(self, pid: int, vtype: str = "int", value=None, between=None, unknown: bool = False) -> dict:
         """First scan. exact `value`, `between`=[lo,hi], or `unknown` snapshot."""
         s = self._session(pid)
@@ -248,6 +274,7 @@ class MacMemory:
                 "capped": len(s.results) >= MAX_RESULTS,
                 "sample": [hex(a) for a in s.results[:20]]}
 
+    @_serialized
     def next_scan(self, pid: int, comparison: str = "exact", value=None) -> dict:
         """Narrow previous results. comparison: exact|changed|unchanged|increased|
         decreased|greater|less|between (value=[lo,hi])."""
@@ -285,6 +312,7 @@ class MacMemory:
         return {"pid": pid, "type": s.vtype, "comparison": comparison, "matches": len(keep),
                 "sample": [{"address": hex(a), "value": self._unpack(s.vtype, s.snapshot[a])} for a in keep[:20]]}
 
+    @_serialized
     def results(self, pid: int, limit: int = 100) -> dict:
         s = self._session(pid)
         _, size = TYPES[s.vtype]
@@ -295,6 +323,7 @@ class MacMemory:
         return {"pid": pid, "type": s.vtype, "matches": len(s.results), "results": rows}
 
     # ---------- freeze ----------
+    @_serialized
     def freeze(self, pid: int, address: int, value, vtype: str = "int", enable: bool = True) -> dict:
         s = self._session(pid)
         prev = s.freezes.pop(address, None)
@@ -302,19 +331,28 @@ class MacMemory:
             prev.set()
         if not enable:
             return {"pid": pid, "address": hex(address), "frozen": False}
+        data = self._pack(vtype, value)
+        if not self._write(s.task, address, data):
+            raise MemoryError_(f"Cannot freeze {hex(address)}: the initial write failed. Page permissions were not changed.")
         stop = threading.Event()
         s.freezes[address] = stop
-        data = self._pack(vtype, value)
         task = s.task
 
         def hold():
-            while not stop.is_set():
-                self._write(task, address, data)
-                time.sleep(0.05)
+            while not stop.wait(0.05):
+                with self._lock:
+                    if stop.is_set() or self._sessions.get(pid) is not s:
+                        break
+                    if not self._write(task, address, data):
+                        stop.set()
+                        if s.freezes.get(address) is stop:
+                            s.freezes.pop(address)
+                        break
         threading.Thread(target=hold, daemon=True, name=f"freeze-{pid}-{address:x}").start()
         return {"pid": pid, "address": hex(address), "type": vtype, "value": value, "frozen": True}
 
     # ---------- modules / pointer chain ----------
+    @_serialized
     def modules(self, pid: int, filter: str | None = None) -> dict:
         """Enumerate loaded images (dyld) with their base addresses."""
         s = self._session(pid)
@@ -354,6 +392,7 @@ class MacMemory:
             mods.append({"base": hex(load_addr), "path": name})
         return {"pid": pid, "count": len(mods), "modules": mods}
 
+    @_serialized
     def resolve_chain(self, pid: int, base: int, offsets: list[int], vtype: str = "int") -> dict:
         """Daisy-chain: addr=base; for each offset but last addr=read_ptr(addr+off); final=addr+offsets[-1]."""
         s = self._session(pid)
@@ -370,7 +409,8 @@ class MacMemory:
         return {"pid": pid, "final_address": hex(final), "trail": trail,
                 "type": vtype, "value": self._unpack(vtype, raw) if raw else None}
 
+    @_serialized
     def shutdown(self):
         for s in list(self._sessions.values()):
-            for ev in s.freezes.values():
-                ev.set()
+            self._retire_session(s)
+        self._sessions.clear()

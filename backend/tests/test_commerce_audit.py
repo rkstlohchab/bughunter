@@ -1,4 +1,6 @@
 """Bounded real-HTTP regression tests; never connect to a public host."""
+import copy
+import json
 import time
 from types import SimpleNamespace
 
@@ -61,6 +63,13 @@ def test_cart_audit_uses_real_loopback_actions_and_fixed_controls(fixture):
     assert all(e['passed'] for e in result['cases'])
     assert all(app.store.get('finding', fid)['status'] == 'observed' for fid in result['findings'])
     assert all(action['request']['url'].startswith('http://127.0.0.1:') for action in actions)
+    food_actions = [a for a in actions if a['request']['url'].endswith('/food-cart')]
+    assert len(food_actions) == 14
+    for action in food_actions:
+        data = json.loads(action['response']['body'])
+        if action['response']['status'] == 200:
+            assert data['quote_only'] and not data['order_created'] and not data['payment_initiated']
+            assert type(data['accepted_total_minor']) is int
 
 
 def test_reject_active_emergency_stop(fixture):
@@ -76,3 +85,78 @@ def test_cart_audit_cannot_be_redirected_to_arbitrary_website(fixture):
     with pytest.raises(TypeError):
         runner.start(approved=True, target_url='https://external-shop.example/checkout')
     assert not app.store.list('action')
+
+
+@pytest.mark.parametrize('fault', [
+    'http_500', 'error_json', 'malformed_json', 'array_json', 'missing_contract',
+    'wrong_total', 'wrong_account', 'wrong_action', 'wrong_project',
+    'wrong_receipt_response', 'untrusted_receipt', 'truncated',
+])
+def test_broken_fixed_response_or_receipt_never_passes(fixture, monkeypatch, fault):
+    runner, app = fixture
+    monkeypatch.setattr('bughunter.commerce_audit.CASES', (CASES[0],))
+    execute = app.policy.execute
+
+    def damaged_receipt(action_id):
+        result = execute(action_id)
+        if '/fixed/' not in result['request']['url']:
+            return result
+        result = copy.deepcopy(result)
+        body = json.loads(result['response']['body'])
+        if fault == 'http_500':
+            result['response']['status'] = 500
+        elif fault == 'truncated':
+            result['response']['truncated'] = True
+        elif fault == 'error_json':
+            body['error'] = 'Internal calculation failed'
+        elif fault == 'malformed_json':
+            result['response']['body'] = '{'
+        elif fault == 'array_json':
+            body = []
+        elif fault == 'missing_contract':
+            body.pop('lab_evidence')
+        elif fault == 'wrong_total':
+            body['accepted_total'] = 1
+        elif fault == 'wrong_account':
+            body['account'] = 'bob'
+        if fault != 'malformed_json':
+            result['response']['body'] = json.dumps(body)
+        receipt = app.store.get('traffic', result['evidence_ids'][0])
+        receipt['response'] = copy.deepcopy(result['response'])
+        if fault == 'wrong_action': receipt['action_id'] = 'another_action'
+        elif fault == 'wrong_project': receipt['project_id'] = 'another_project'
+        elif fault == 'wrong_receipt_response': receipt['response']['body'] = '{}'
+        elif fault == 'untrusted_receipt': receipt['trusted_observation'] = False
+        app.store.put('traffic', receipt)
+        app.store.put('action', result)
+        return result
+
+    monkeypatch.setattr(app.policy, 'execute', damaged_receipt)
+    task = runner.start(approved=True)
+    done = await_done(app.store, task['id'])
+    assert done['status'] == 'failed'
+    assert done['result']['passed_controls'] == 0
+
+
+def test_unrelated_400_error_does_not_count_as_quantity_rejection(fixture, monkeypatch):
+    runner, app = fixture
+    monkeypatch.setattr('bughunter.commerce_audit.CASES', (CASES[-1],))
+    execute = app.policy.execute
+
+    def unrelated_error(action_id):
+        result = execute(action_id)
+        if '/fixed/' in result['request']['url']:
+            body = json.loads(result['response']['body'])
+            body.update(error='Temporary dependency failure', error_code='unavailable')
+            result['response']['body'] = json.dumps(body)
+            receipt = app.store.get('traffic', result['evidence_ids'][0])
+            receipt['response'] = result['response']
+            app.store.put('traffic', receipt)
+            app.store.put('action', result)
+        return result
+
+    monkeypatch.setattr(app.policy, 'execute', unrelated_error)
+    task = runner.start(approved=True)
+    done = await_done(app.store, task['id'])
+    assert done['status'] == 'failed'
+    assert done['result']['passed_controls'] == 0

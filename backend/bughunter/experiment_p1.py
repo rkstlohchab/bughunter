@@ -97,6 +97,8 @@ class ExperimentP1:
         return procedure, source
 
     def start(self, procedure_id: str, recipe: str, approve_lab: bool = False) -> dict:
+        if self.store.setting("emergency_stop", False):
+            raise ValueError("Tasks are stopped. Use Resume tasks before starting experiments.")
         procedure, source = self._procedure(procedure_id)
         permitted = {r["id"] for r in self.available(procedure_id)}
         if recipe not in permitted or recipe not in RECIPES:

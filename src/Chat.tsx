@@ -1,23 +1,28 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Check, ChevronDown, Download, History, LoaderCircle, MessageSquarePlus, Paperclip, Plus, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Check, Download, History, LoaderCircle, MessageSquarePlus, Paperclip, Plus, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { fileBase64, rpc } from './api';
-import { wantsMappingResearch } from './taskIntent';
+import { wantsMappingResearch, wantsMacControl } from './taskIntent';
 import { mappingActive, useMappingChat } from './useMappingChat';
 import MappingChatActivity from './MappingChatActivity';
+import MacAutopilotPanel from './MacAutopilotPanel';
+import ChatTaskSetup from './ChatTaskSetup';
+import ChatModelPicker from './ChatModelPicker';
+import type {ProviderInfo} from './ChatModelPicker';
 import type { RecordData as Row } from './api';
 type RecordData = Row;
 
-type ChatProps = { navigate: (page: 'Settings' | 'Team') => void; projectId?: string; projectName?: string };
+type ChatProps = { navigate: (page: 'Settings' | 'Team') => void; projectId?: string; projectName?: string; stopped?:boolean; initialPrompt?:{id:number;text:string}|null; onPromptConsumed?:()=>void; selectProject?:(id:string)=>Promise<void> };
 type Message = { role: 'user' | 'assistant'; content: string; run_id?: string; task_id?: string; pending?: boolean; citations?:{title:string;url?:string;source_id?:string}[] };
 type Session = RecordData & { id: string; title: string; messages: Message[] };
-type ProviderInfo = { provider: string; label: string; kind: string; ready: boolean; needs: string; models: string[]; active: boolean };
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 
-export default function Chat({ navigate, projectId, projectName }: ChatProps) {
+export default function Chat({ navigate, projectId, projectName, stopped=false, initialPrompt, onPromptConsumed, selectProject }: ChatProps) {
   const [history, setHistory] = useState<RecordData[]>([]);
   const [session, setSession] = useState<Session | null>(null);
   const mapping = useMappingChat(session, setSession);
   const [text, setText] = useState('');
+  const [setup,setSetup]=useState<Row|null>(null);
+  const [macTask,setMacTask]=useState('');
   const [sending, setSending] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState('');
@@ -31,13 +36,16 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
   const [attached, setAttached] = useState<RecordData[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [activeModel, setActiveModel] = useState<{ provider: string; model: string }>({ provider: '', model: '' });
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const historyButton = useRef<HTMLButtonElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const bottom = useRef<HTMLDivElement>(null);
   const scopeVersion = useRef(0);
   const selectionVersion = useRef(0);
   const sendGuard = useRef(false);
   const scopeKey = `bughunter.chat.${projectId || 'library'}`;
+
+  useEffect(()=>{const stop=()=>{scopeVersion.current++;sendGuard.current=false;setSending(false);setLoading(false);setSetup(null);};window.addEventListener('bughunter-stop-all',stop);return()=>window.removeEventListener('bughunter-stop-all',stop);},[]);
+  function closeHistory() { setHistoryOpen(false); historyButton.current?.focus(); }
 
   const refreshHistory = async () => {
     const version = scopeVersion.current;
@@ -55,7 +63,7 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
     selectionVersion.current++;
     sendGuard.current = false;
     let alive = true;
-    setSession(null); setHistory([]); setText(''); setActiveTask(null); setTaskId(''); setAttached([]);
+    setSetup(null);setMacTask('');setSession(null); setHistory([]); setText(''); setActiveTask(null); setTaskId(''); setAttached([]);
     setWebSearch(false); setLoading(true); setError(''); setSending(false); setImporting(false);
     const load = async () => {
       try {
@@ -78,6 +86,7 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
     void load();
     return () => { alive = false; scopeVersion.current++; };
   }, [projectId]);
+  useEffect(()=>{if(initialPrompt){setText(initialPrompt.text);onPromptConsumed?.();}},[initialPrompt?.id]);
   useEffect(() => { if (!loading) { if (session?.id) localStorage.setItem(scopeKey, session.id); else localStorage.removeItem(scopeKey); } }, [session?.id, loading, scopeKey]);
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'end', behavior: 'auto' }); }, [session?.messages?.length, sending]);
   useEffect(() => { setTaskId(session?.task_id || session?.run_id || ''); }, [session?.id, session?.task_id, session?.run_id]);
@@ -114,7 +123,16 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
         const task = await rpc<RecordData>('tasks.get', { id: taskId });
         if (!alive) return;
         setActiveTask(task); setTrackingError('');
-        if (['completed', 'failed', 'cancelled', 'interrupted', 'blocked', 'limited'].includes(task.status)) return;
+        if (['completed', 'failed', 'cancelled', 'interrupted', 'blocked', 'limited'].includes(task.status)) {
+          if (session?.id && pendingRun) {
+            const final=await rpc<{terminal:boolean;session:Session}>('chat.finalize',{id:session.id,run_id:pendingRun});
+            if(alive && final.terminal){setSession(final.session);setSending(false);void refreshHistory();}
+          } else if(session?.id) {
+            const saved=await rpc<Session>('chat.task_result',{id:session.id,task_id:taskId});
+            if(alive&&saved?.id)setSession(saved);
+          }
+          return;
+        }
       } catch (err) {
         if (alive) setTrackingError(`Could not load task progress. Retrying… ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -122,22 +140,21 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
     };
     void poll();
     return () => { alive = false; clearTimeout(timer); };
-  }, [taskId]);
+  }, [taskId,session?.id,pendingRun]);
 
   const filteredHistory = history.filter(chat => String(chat.title || 'Chat').toLowerCase().includes(filter.toLowerCase()));
-  const canSend = !loading && !sending && !importing && !mapping.busy && !(session?.mapping_id && !mapping.data) && !!text.trim();
-  const activeLabel = providers.find(p => p.provider === activeModel.provider)?.label || 'No model';
+  const canSend = !stopped && !setup && !loading && !sending && !importing && !mapping.busy && !(session?.mapping_id && !mapping.data) && !!text.trim();
 
   function newChat() {
     if (sending) return;
     selectionVersion.current++;
-    setSession(null); setText(''); setError(''); setActiveTask(null); setTaskId(''); setAttached([]); setHistoryOpen(false);
+    setSetup(null);setMacTask('');setSession(null); setText(''); setError(''); setActiveTask(null); setTaskId(''); setAttached([]); setHistoryOpen(false);
   }
   async function selectChat(id: string) {
     if (sending) return;
     const version = scopeVersion.current;
     const selection = ++selectionVersion.current;
-    setError(''); setActiveTask(null); setAttached([]);
+    setSetup(null);setMacTask('');setError(''); setActiveTask(null); setAttached([]);
     try {
       const loaded = await rpc<Session>('chat.get', { id });
       if (version !== scopeVersion.current || selection !== selectionVersion.current) return;
@@ -145,7 +162,7 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
     } catch (e) { if (version === scopeVersion.current) setError(String(e instanceof Error ? e.message : e)); }
   }
   async function pickModel(provider: string, model: string) {
-    try { await rpc('models.select', { provider, model }); setPickerOpen(false); await refreshModels(); }
+    try { await rpc('models.select', { provider, model }); await refreshModels(); }
     catch (e) { setError(String(e instanceof Error ? e.message : e)); }
   }
 
@@ -168,11 +185,13 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
         if (version !== scopeVersion.current) return;
         setSession(result.session);setText('');setAttached([]);setSending(false);await refreshHistory();return;
       }
-      if (/^\s*(?:please\s+)?(?:run|check|audit|verify|test)\b/i.test(message)) {
+      if(wantsMacControl(message)){setMacTask(message);setText('');setSending(false);return;}
+      {
         const plan = await rpc<RecordData>('autopilot.plan', { message, project_id: projectId || null, source_ids: attached.map(a => a.id) });
         if (version !== scopeVersion.current) return;
-        if (['app_checks', 'knowledge_check'].includes(plan.workflow)) {
-          if (plan.missing?.length) throw new Error(plan.missing.join(' '));
+        if (plan.workflow && plan.workflow !== 'chat') {
+          if(plan.requires_approval || plan.missing?.length){setSetup({...plan,message,source_ids:attached.map(a=>a.id)});setSending(false);return;}
+
           const saved = await rpc<Session>('chat.autopilot', { id: session?.id, message, project_id: projectId || undefined, source_ids: attached.map(a => a.id) });
           if (version !== scopeVersion.current) return;
           setSession(saved); setText(''); setAttached([]); setSending(false); await refreshHistory(); return;
@@ -235,34 +254,25 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
   const messages = session?.messages || [];
   const taskIds: string[] = [...new Set<string>([...(session?.task_ids || []), ...(session?.task_id ? [session.task_id] : []), ...(session?.run_id ? [session.run_id] : [])])];
   const working = activeTask && ['starting','running','queued','cancelling','awaiting_approval'].includes(activeTask.status);
-  return <div className={`chat-shell ${historyOpen ? 'show-chat-history' : ''}`}>
-    <aside className="chat-side" aria-label="Saved conversations">
-      <button type="button" className="chat-new" onClick={newChat} disabled={sending}><MessageSquarePlus size={17}/> New chat</button>
-      <label className="chat-side-search"><Search size={15}/><input placeholder="Search chats" value={filter} onChange={e => setFilter(e.target.value)}/></label>
-      <div className="chat-side-list">
-        {!filteredHistory.length ? <p className="chat-side-empty">No chats yet</p> : filteredHistory.map(chat => <div key={chat.id} className={`chat-side-row ${session?.id === chat.id ? 'active' : ''}`}><button onClick={() => selectChat(chat.id)} title={chat.title || 'Chat'}>{chat.title || 'Chat'}</button><button className="chat-side-del" aria-label="Delete chat" onClick={() => deleteChat(chat.id)}><Trash2 size={13}/></button></div>)}
+  return <div className={`chat-shell ${historyOpen ? 'show-chat-history' : ''}`} onKeyDown={event => { if (event.key === 'Escape' && historyOpen) { event.preventDefault(); closeHistory(); } }}>
+    {historyOpen && <button className="chat-history-backdrop" type="button" aria-label="Close chat history overlay" tabIndex={-1} onClick={closeHistory}/>}
+    <aside id="chat-history" className="chat-side" aria-label="Saved conversations">
+      <div className="chat-history-actions"><button type="button" className="chat-new" onClick={newChat} disabled={sending}><MessageSquarePlus size={17}/> New chat</button><button type="button" className="chat-tool-btn chat-history-close" aria-label="Close chat history" onClick={closeHistory}><X size={18}/></button></div>
+      <label className="chat-side-search"><Search size={15}/><input aria-label="Search chats" placeholder="Search chats" value={filter} onChange={e => setFilter(e.target.value)}/></label>
+      <div className="chat-side-list" aria-busy={loading}>
+        {loading ? <p className="chat-side-empty" role="status">Loading conversations…</p> : !filteredHistory.length ? <div className="chat-side-empty" role="status"><p>{filter ? 'No matching chats' : 'No chats yet'}</p>{filter ? <button type="button" className="chat-clear-search" onClick={() => setFilter('')}>Clear search</button> : <small>Your conversations will appear here.</small>}</div> : filteredHistory.map(chat => <div key={chat.id} className={`chat-side-row ${session?.id === chat.id ? 'active' : ''}`}><button onClick={() => selectChat(chat.id)} title={chat.title || 'Chat'}>{chat.title || 'Chat'}</button><button className="chat-side-del" aria-label="Delete chat" onClick={() => deleteChat(chat.id)}><Trash2 size={13}/></button></div>)}
       </div>
     </aside>
 
     <section className="chat-main">
       <div className="chat-head">
-        <button className="chat-tool-btn chat-history-toggle" aria-label="Chat history" aria-expanded={historyOpen} onClick={() => setHistoryOpen(v => !v)}><History size={18}/></button>
-        <div className="model-picker">
-          <button type="button" className="model-picker-btn" onClick={() => setPickerOpen(v => !v)} aria-haspopup="listbox" aria-expanded={pickerOpen}>
-            <Sparkles size={15}/><span>{activeLabel}{activeModel.model ? <em>{activeModel.model}</em> : null}</span><ChevronDown size={15}/>
-          </button>
-          {pickerOpen && <><div className="model-picker-backdrop" onClick={() => setPickerOpen(false)}/><div className="model-picker-menu" role="listbox">
-            {providers.map(p => <div key={p.provider} className={`model-group ${p.ready ? '' : 'disabled'}`}>
-              <div className="model-group-head">{p.label}{!p.ready && <span className="model-group-add" onClick={() => { setPickerOpen(false); navigate('Settings'); }}>Add</span>}</div>
-              {p.ready ? (p.models.length ? p.models : ['default']).map(m => { const on = activeModel.provider === p.provider && activeModel.model === m; return <button key={m} className={`model-opt ${on ? 'on' : ''}`} onClick={() => pickModel(p.provider, m)}>{m}{on && <Check size={15}/>}</button>; }) : <div className="model-need">{p.needs}</div>}
-            </div>)}
-          </div></>}
-        </div>
+        <button ref={historyButton} className="chat-tool-btn chat-history-toggle" aria-label="Chat history" aria-controls="chat-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen(v => !v)}><History size={18}/></button>
+        <ChatModelPicker providers={providers} active={activeModel} onPick={(provider, model) => void pickModel(provider, model)} onConfigure={() => navigate('Settings')}/>
         <span className="chat-scope">{projectName || 'All knowledge'}</span>{session && <button className="chat-tool-btn" aria-label="Download conversation and results" onClick={() => void downloadConversation()}><Download size={17}/></button>}
       </div>
 
       <div className="conversation-scroll">
-        {!messages.length && !sending ? <div className="conversation-welcome"><div className="conversation-welcome-icon"><Sparkles size={28}/></div><h2>What should I do?</h2><p>Describe the task. Follow the investigation here, review proposed changes, and keep the results.</p><div className="conversation-starters">
+        {!messages.length && !sending ? <div className="conversation-welcome"><div className="conversation-welcome-icon"><Sparkles size={28}/></div><h2>What should I do?</h2><p>Describe your goal. I’ll collect the setup and permissions, run the supported steps, and report back here. You can stop work at any time.</p><div className="conversation-starters">
           {['Run app checks', 'Check my knowledge base', 'Research mappings for my program', 'Study a course I upload', 'Audit my authorized website'].map(prompt => <button key={prompt} onClick={() => {setText(prompt);if(prompt==='Research mappings for my program') setWebSearch(true);}}>{prompt}</button>)}
         </div></div> : <div className="conversation-transcript">
           {messages.map((entry, i) => entry.pending ? null : <article className={`conversation-message ${entry.role}`} key={i}><div className="conversation-avatar">{entry.role === 'user' ? 'You' : 'AI'}</div><div className="conversation-content"><span className="conversation-author">{entry.role === 'user' ? 'You' : activeModel.model || 'Agent'}</span><div className="conversation-text">{entry.content}</div>{!!entry.citations?.length && <div className="conversation-citations">{entry.citations.map((cite,j)=>/^https?:\/\//i.test(cite.url||'')?<a key={j} href={cite.url} target="_blank" rel="noreferrer">[{j+1}] {cite.title}</a>:<span key={j}>[{j+1}] {cite.title}{cite.source_id?` · ${cite.source_id}`:''}</span>)}</div>}</div></article>)}
@@ -273,7 +283,7 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
           {trackingError && <p role="status">{trackingError}</p>}
           {activeTask?.error && <p role="alert">{activeTask.error}</p>}
           {activeTask?.summary && <p className="conversation-text">{activeTask.summary}</p>}
-          {activeTask?.status === 'awaiting_approval' && <button type="button" onClick={() => navigate('Team')}>Review pending actions</button>}
+          {activeTask?.status === 'awaiting_approval' && <p>Additional action approval is needed. <button className="text-button" onClick={()=>navigate('Team')}>Review the task’s exact request</button></p>}
           <details><summary>Activity and results{activeTask?.event_count ? ` (${activeTask.event_count})` : ''}</summary>
             <ol className="agent-live-steps">{(activeTask?.events || []).map((step: Row, i: number) => <li key={step.id || i}><span className="agent-step-text">{step.agent ? `${step.agent}: ` : ''}{step.text || step.name || step.kind}</span></li>)}</ol>
             {activeTask?.events_truncated && <p className="muted">Showing recent activity. Download the conversation for the full record.</p>}
@@ -281,18 +291,21 @@ export default function Chat({ navigate, projectId, projectName }: ChatProps) {
           </details>
         </section>}
         {taskIds.length > 1 && <div className="saved-task-picker"><label htmlFor="saved-task">Saved work</label><select id="saved-task" value={taskId} onChange={event => setTaskId(event.target.value)}>{taskIds.map((id, index) => <option key={id} value={id}>Task {index + 1}{id === session?.task_id ? ' (latest)' : ''}</option>)}</select></div>}
+        {setup&&<ChatTaskSetup plan={setup} projectId={projectId} sessionId={session?.id} stopped={stopped} onCancel={()=>setSetup(null)} onStarted={async saved=>{setSetup(null);setText('');setAttached([]);setSession(saved as Session);await refreshHistory();}} selectProject={selectProject}/>}
+        {macTask&&<MacAutopilotPanel initialTask={macTask} projectId={projectId} onClose={()=>setMacTask('')}/>}
         <div ref={bottom}/>
       </div>
 
       <div className="chat-compose">
+        {stopped&&<p className="chat-stopped" role="status">All tasks are stopped. Use Resume tasks in the top-right corner to start new work.</p>}
         {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
         {attached.length > 0 && <div className="conversation-attachments">{attached.map(a => <div key={a.id} className="conversation-attachment ready"><Paperclip size={15}/><span>{a.title || a.filename || 'File'}</span><button type="button" aria-label="Remove" onClick={() => setAttached(prev => prev.filter(x => x.id !== a.id))}><X size={13}/></button></div>)}</div>}
         <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }}>
-          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : 'Message the agent…'} disabled={sending}/>
+          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : 'Message the agent…'} disabled={sending || stopped}/>
           <div className="chat-composer-actions">
             <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Attach files" onChange={e => void addFiles(e.target.files || [])}/>
-            <button type="button" className="chat-tool-btn" title="Attach a file to discuss" onClick={() => fileInput.current?.click()} disabled={sending || importing}><Plus size={18}/></button>
-            <button type="button" className={`chat-tool-btn ${webSearch ? 'on' : ''}`} aria-pressed={webSearch} title="Let the agent search the web" onClick={() => setWebSearch(v => !v)} disabled={sending}><Search size={17}/></button>
+            <button type="button" className="chat-tool-btn" aria-label="Attach a file" title="Attach a file to discuss" onClick={() => fileInput.current?.click()} disabled={sending || importing || stopped}><Plus size={18}/></button>
+            <button type="button" className={`chat-tool-btn ${webSearch ? 'on' : ''}`} aria-label="Web search" aria-pressed={webSearch} title="Let the agent search the web" onClick={() => setWebSearch(v => !v)} disabled={sending}><Search size={17}/></button>
             <button className="chat-send" aria-label="Send" type="submit" disabled={!canSend}>{sending || importing ? <LoaderCircle className="spin" size={18}/> : <ArrowUp size={18}/>}</button>
           </div>
         </form>

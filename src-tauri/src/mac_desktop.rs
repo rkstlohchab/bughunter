@@ -27,6 +27,15 @@ impl Default for DesktopControl {
     fn default() -> Self {Self(Mutex::new(None),AtomicBool::new(false))}
 }
 
+impl DesktopControl {
+    pub fn stop_now(&self) -> Result<(), String> {
+        if let Some(session) = self.0.lock().map_err(|_|"Session lock unavailable")?.take() {
+            session.cancelled.store(true, Ordering::SeqCst);
+        }
+        Ok(())
+    }
+}
+
 struct ActionBusy<'a>(&'a AtomicBool);
 impl Drop for ActionBusy<'_> {fn drop(&mut self){self.0.store(false,Ordering::SeqCst);}}
 
@@ -499,12 +508,14 @@ pub fn agent_desktop_status()->Result<Value,String>{
 
 #[tauri::command]
 pub fn mac_desktop_begin(path:String, allow_inputs:bool, engine:Option<String>, state:State<'_, DesktopControl>)->Result<Value,String>{
+    crate::execution_control::require_running()?;
     #[cfg(target_os="macos")]
     {
         let chosen=engine.as_deref().unwrap_or("built-in");
         let session=mac::begin(&path,allow_inputs,900,chosen)?;
         let output=json!({"app":session.name,"bundle_id":session.bundle_id,"remaining":session.remaining,"expires_in_seconds":900,"allow_inputs":session.allow_inputs,"engine":session.engine.clone()});
         let mut guard=state.0.lock().map_err(|_|"Session lock unavailable")?;
+        crate::execution_control::require_running()?;
         if let Some(old)=guard.take(){old.cancelled.store(true,Ordering::SeqCst);}
         *guard=Some(session);
         Ok(output)
@@ -515,14 +526,13 @@ pub fn mac_desktop_begin(path:String, allow_inputs:bool, engine:Option<String>, 
 
 #[tauri::command]
 pub fn mac_desktop_stop(state:State<'_,DesktopControl>)->Result<Value,String>{
-    if let Some(session)=state.0.lock().map_err(|_|"Session lock unavailable")?.take() {
-        session.cancelled.store(true,Ordering::SeqCst);
-    }
+    state.stop_now()?;
     Ok(json!({"stopped":true}))
 }
 
 #[tauri::command]
 pub fn mac_desktop_step(action:String, value:String, state:State<'_,DesktopControl>)->Result<Value,String>{
+    crate::execution_control::require_running()?;
     #[cfg(target_os="macos")]
     {
         if state.1.compare_exchange(false,true,Ordering::SeqCst,Ordering::SeqCst).is_err(){

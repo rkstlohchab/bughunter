@@ -64,7 +64,7 @@ def test_media_extract_indexes_visual_timestamps(tmp_path, monkeypatch):
         Path(args[-1]).write_bytes(b"jpeg")
         return Mock(stdout="")
     monkeypatch.setattr(service, "_run", fake_run)
-    monkeypatch.setattr(runtime, "vision", lambda path, t: f"At {t:.1f}s browser Settings menu is visible")
+    monkeypatch.setattr(runtime, "vision", lambda path, t, **kwargs: f"At {t:.1f}s browser Settings menu is visible")
     monkeypatch.setattr(runtime, "checkpoint", lambda sid, service: None)
     result, warnings = service._extract_media(tmp_path/"demo.mp4", tmp_path/"artifacts"/"source_video", source)
     assert len([x for x in result if x["modality"] == "vision"]) == 3

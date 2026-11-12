@@ -77,12 +77,14 @@ pub async fn ce_sync_ai(base_url: String, model: String, api_key: String, system
 
 #[tauri::command]
 pub async fn ce_connect_mcp(app: AppHandle, state: State<'_, CeMcpState>) -> Result<Vec<CeMcpTool>, String> {
+    crate::execution_control::require_running()?;
     ce_core::connect(&state, bundled_mac_script(&app)).await
 }
 
 /// User-requested mapping workflow setup. It does not choose or attach a target.
 #[tauri::command]
 pub async fn ce_prepare_mapping_chat(app: AppHandle, state: State<'_, CeMcpState>) -> Result<Value,String> {
+    crate::execution_control::require_running()?;
     if state.mcp.lock().await.is_none() {
         if let Some(config) = ce_core::read_config_file(&config_file_path(&app)?) {
             *state.config.lock().await = config;
@@ -105,6 +107,7 @@ pub async fn ce_prepare_mapping_chat(app: AppHandle, state: State<'_, CeMcpState
 
 #[tauri::command]
 pub async fn ce_select_mapping_program(pid:u32, process_instance_id:String, state:State<'_,CeMcpState>) -> Result<Value,String> {
+    crate::execution_control::require_running()?;
     ce_core::select_mapping_process(&state,pid,process_instance_id).await
 }
 
@@ -117,29 +120,34 @@ pub async fn ce_disconnect_mcp(state: State<'_, CeMcpState>) -> Result<String, S
 /// Operator-initiated single tool call (the Tools tab). Agent-proposed calls never come through here.
 #[tauri::command]
 pub async fn ce_call_mcp_tool(name: String, arguments: Value, state: State<'_, CeMcpState>) -> Result<String, String> {
+    crate::execution_control::require_running()?;
     ce_core::call_tool(&state, &name, arguments).await
 }
 
 /// Operator-typed Lua (the Lua tab). The human pressing EXECUTE is the approval.
 #[tauri::command]
 pub async fn ce_eval_lua(code: String, state: State<'_, CeMcpState>) -> Result<String, String> {
+    crate::execution_control::require_running()?;
     ce_core::call_tool(&state, "evaluate_lua", json!({ "code": code })).await
 }
 
 /// Starts an agent run. Returns when the run finishes or parks on a call that needs approval.
 #[tauri::command]
 pub async fn ce_run_agent_prompt(prompt: String, state: State<'_, CeMcpState>) -> Result<CeAgentOutcome, String> {
+    crate::execution_control::require_running()?;
     ce_core::agent_start(&state, prompt).await
 }
 
 /// Approve or deny the single call a parked run is waiting on, then continue the run.
 #[tauri::command]
 pub async fn ce_resolve_approval(approve: bool, state: State<'_, CeMcpState>) -> Result<CeAgentOutcome, String> {
+    crate::execution_control::require_running()?;
     ce_core::agent_resolve(&state, approve).await
 }
 
 #[tauri::command]
 pub async fn ce_retry_agent(state: State<'_, CeMcpState>) -> Result<CeAgentOutcome, String> {
+    crate::execution_control::require_running()?;
     ce_core::agent_retry(&state).await
 }
 

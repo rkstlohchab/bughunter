@@ -8,7 +8,7 @@ import json
 import threading
 from functools import wraps
 
-from .providers import custom_prompt_for, effective_system_prompt, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS
+from .providers import custom_prompt_for, effective_system_prompt, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS, SUBSCRIPTION_PROVIDERS
 from .store import new_id
 from .model_routing import request_chat, transient
 from .desktop_capabilities import add_desktop_capabilities
@@ -22,8 +22,7 @@ CHAT_INSTRUCTIONS = (
     "For a task needing tools, the app routes the user's instruction through the Chat task selector "
     "to its Tasks history and the authorized specialist integration. "
     "A website audit can run permitted read-only checks after scope review; memory analysis requires "
-    "the native bridge and relevant process permissions; AI prompt-injection testing requires an "
-    "explicit target model and observable trials. Not all handoffs run unattended. "
+    "the native bridge and relevant process permissions. Not all handoffs run unattended. "
     "Avoid exposing internal terms such as MCP, orchestrator and embeddings unless the user asks."
 )
 
@@ -117,6 +116,8 @@ class ChatService:
                 raise ValueError('This run does not belong to the conversation.')
             self.tasks.app.runs.stop(run_id)
             return self.finalize({'id': session['id'], 'run_id': run_id})
+        if method == 'chat.task_start': return self.task_start(params)
+        if method == 'chat.task_result': return self.task_result(params)
         if method == "chat.autopilot":
             return self.autopilot(params)
         if method == "chat.delegate":
@@ -220,6 +221,68 @@ class ChatService:
                 "summary": run.get("summary"), "error": run.get("error"),
                 "api_cost_usd": run.get("api_cost_usd")}
 
+    def task_start(self, params):
+        """One desktop-reviewed task. Scope is fixed before starting its worker."""
+        app = self.tasks.app
+        if self.store.setting('emergency_stop', False):
+            raise ValueError('Tasks are stopped. Use Resume tasks in the top bar.')
+        if params.get('approved') is not True:
+            raise ValueError('Review the task and approve its scope before starting.')
+        project_id = params.get('project_id')
+        session_id = params.get('id')
+        plan = app.autopilot.plan(message=params.get('message',''), project_id=project_id,
+                                  source_ids=params.get('source_ids') or [])
+        if plan['workflow'] == 'website':
+            from .policy import canonical_url, scope_hash
+            from urllib.parse import urlsplit
+            project = self.store.get('project', project_id) if project_id else None
+            if not project or not project.get('scope'):
+                website = params.get('website') or {}
+                target = canonical_url(website.get('url',''))
+                paths = website.get('read_only_paths')
+                if not isinstance(paths,list) or not paths or len(paths)>30 or any(not isinstance(p,str) or not p.startswith('/') or len(p)>250 for p in paths):
+                    raise ValueError('Specify 1–30 read-only paths, starting with /.')
+                project = app.policy.save_project({'name':urlsplit(target).hostname+' — public review',
+                    'scope':[target], 'authorization':website.get('authorization',''),
+                    'read_only_paths':paths, 'requests_per_second':1, 'max_concurrency':1, 'max_requests':60})
+                project_id = project['id']
+                session_id = None  # Keep an existing conversation's project unchanged.
+            elif params.get('expected_scope') != scope_hash(project):
+                raise ValueError('The website scope changed. Cancel this setup and review the task again.')
+            import time
+            gateway = self.store.setting('gateway', {})
+            if not project.get('lab_project') and time.time()-float(gateway.get('verified_at') or 0)>300:
+                runtime = self.store.setting('gateway_runtime', {})
+                if not runtime.get('port'):
+                    app.tools.gateway_start(port=int(app.settings.get().get('gateway_port') or 8091))
+                app.tools.gateway_verify_direct()
+        return self.autopilot({**params, 'project_id':project_id, 'id':session_id})
+
+    @_serial_turn
+    def task_result(self, params):
+        session = self.store.get('chat', params.get('id',''))
+        task_id = params.get('task_id')
+        if not session or task_id not in _task_ids(session):
+            raise ValueError('This task does not belong to this conversation.')
+        if task_id in session.get('reported_tasks', []): return session
+        task = self.tasks.dispatch('tasks.get', {'id':task_id})
+        if task.get('status') not in {'completed','failed','cancelled','interrupted','blocked','limited'}:
+            return session
+        result = task.get('result') or {}
+        lines = [str(task.get('title') or 'Task') + ': ' + task['status'].replace('_',' ') + '.']
+        if task.get('error'): lines.append(str(task['error']))
+        if task.get('kind') == 'website_audit':
+            lines.append(f"Observed {len(result.get('pages',[]))} pages and {result.get('requests_sent',0)} requests. No vulnerability was automatically confirmed.")
+            for issue in result.get('observations',[])[:10]: lines.append('- Review lead: '+str(issue['title'])+' ('+str(issue['path'])+')')
+            render = result.get('public_render') or {}
+            if render: lines.append('Browser coverage: '+str(render.get('coverage','partial'))+'. '+str(render.get('message','')))
+            if result.get('render_error'): lines.append('Rendering incomplete: '+str(result['render_error']))
+            lines.append('Evidence: '+', '.join(id for page in result.get('pages',[]) for id in page.get('evidence_ids',[])))
+        elif task.get('summary'): lines.append(str(task['summary']))
+        else: lines.append('Saved results are available in Activity and results below.')
+        messages = session.get('messages',[]) + [{'role':'assistant','content':redact_text('\n'.join(lines)), 'task_id':task_id}]
+        return self.store.put('chat',{**session,'messages':messages,'reported_tasks':session.get('reported_tasks',[])+[task_id]},id=session['id'])
+
     @_serial_turn
     def autopilot(self, params: dict):
         """Durable chat turn backed by a real tool record; no invented completion."""
@@ -236,7 +299,7 @@ class ChatService:
             raise ValueError('This conversation belongs to another project.')
         result = self.tasks.app.autopilot.start(message=message,project_id=project_id,
             source_ids=params.get('source_ids') or [],approved=params.get('approved') is True,
-            max_pages=params.get('max_pages',12))
+            max_pages=params.get('max_pages',12),render_public=params.get('render_public',False))
         detail=result.get('result') or {}
         workflow=result.get('workflow') or result.get('kind') or ''
         if workflow == 'app_checks':
@@ -343,12 +406,6 @@ class ChatService:
                 for warning in row.get('warnings',[]):lines.append('- Note: '+warning)
             lines.extend(['','This is verified metadata, **not proof** that an ESP, cheat, or vulnerability works.'])
             answer='\n'.join(lines)
-        elif workflow=='model_test':
-            answer=('I ran one neutral instruction-following test using the configured AI.\n\n'
-                + 'Model: '+str(detail.get('model') or 'unknown')+'\n'
-                + 'Response: '+str(detail.get('response') or '(empty)')[:3000]+'\n'
-                + 'Outcome: **Not yet reviewed.** This is a recorded observation, not a confirmed bypass.\n'
-                + 'Experiment ID: '+str(detail.get('trial_id')))
         elif workflow=='knowledge':
             refs=detail.get('references') or []
             verified=detail.get('verified_file_evidence') or []
@@ -425,7 +482,7 @@ class ChatService:
         }, id=session_id or new_id("chat"))
 
     def _specialist_notes(self, query: str, project_id=None) -> str:
-        """Retrieve compact human-reviewed observations across all four specialties.
+        """Retrieve compact human-reviewed observations from retained specialties.
 
         Records are cited as data, not represented as verified facts or new instructions.
         Drafts, unchecked captures and other unreviewed material stay excluded.
@@ -439,21 +496,10 @@ class ChatService:
             origin_project = row.get("project_id") or (workspace or {}).get("project_id")
             if origin_project not in (None, project_id):
                 continue
-            if row.get("status") != "reviewed":
+            if row.get("domain") == "ai_redteam" or row.get("status") != "reviewed":
                 continue
             detail = str(row.get("instruction") or "")[:450] + "\n" + str(row.get("response") or "")[:450]
             entries.append((row.get("domain") or "Specialist", row["id"], detail))
-        for row in self.store.list("redteam_trial"):
-            case = self.store.get("redteam_case", row.get("case_id", ""))
-            origin_project = row.get("project_id") or (case or {}).get("project_id")
-            if origin_project not in (None, project_id):
-                continue
-            if row.get("verdict") in {None, "untested"} or not row.get("lesson"):
-                continue
-            detail = ("Tested prompt: " + str(row.get("prompt") or "")[:340] +
-                      "\nObserved verdict: " + str(row.get("verdict") or "")[:70] +
-                      "\nReviewed lesson: " + str(row.get("lesson") or "")[:470])
-            entries.append(("AI test",row["id"],detail))
         for row in self.store.list("tor_page"):
             origin_source = self.store.get("tor_source", row.get("source_id", ""))
             origin_project = row.get("project_id") or (origin_source or {}).get("project_id")
@@ -517,10 +563,10 @@ class ChatService:
             raise ValueError("Local-only mode blocks remote inference. Disable it or select local Ollama.")
         if not settings.get("model"):
             raise ValueError("Select a model in Settings first.")
-        if provider != "claude_code" and provider not in SELF_HOSTED_PROVIDERS and not settings.get("pricing_confirmed"):
+        if provider not in SUBSCRIPTION_PROVIDERS and provider not in SELF_HOSTED_PROVIDERS and not settings.get("pricing_confirmed"):
             raise ValueError("Confirm the model pricing in Settings. For your own GPU, set both rates to 0.00.")
         key = None
-        if provider not in LOCAL_PROVIDERS and provider != "claude_code":
+        if provider not in LOCAL_PROVIDERS and provider not in SUBSCRIPTION_PROVIDERS:
             try:
                 key = keyring.get_password("BugHunterClaudex", provider)
             except Exception as exc:
@@ -533,14 +579,14 @@ class ChatService:
             "anthropic": "https://api.anthropic.com",
             "deepseek": "https://api.deepseek.com",
         }.get(provider, "")
-        if not base and provider != "claude_code":
+        if not base and provider not in SUBSCRIPTION_PROVIDERS:
             raise ValueError("Enter the model server's API base URL in Settings.")
         # Settings validation applies to URLs on save; chat never accepts a URL in its request.
         from urllib.parse import urlsplit
         parsed = urlsplit(base)
-        if provider != "claude_code" and (parsed.scheme not in {"http", "https"} or not parsed.hostname):
+        if provider not in SUBSCRIPTION_PROVIDERS and (parsed.scheme not in {"http", "https"} or not parsed.hostname):
             raise ValueError("Invalid provider URL.")
-        if provider != "claude_code" and parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+        if provider not in SUBSCRIPTION_PROVIDERS and parsed.scheme != "https" and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("Remote model endpoints must use HTTPS.")
         # The context window is bounded; the stored transcript is never truncated.
         transcript = list((session or {}).get("messages", []))
@@ -637,7 +683,7 @@ class ChatService:
         estimated_tokens = (sum(len(str(m.get("content", ""))) for m in messages) + 1) // 2
         estimate = ((estimated_tokens * settings["input_price_per_million"])
                     + MAX_OUTPUT * settings["output_price_per_million"]) / 1_000_000
-        if provider != "claude_code" and provider not in SELF_HOSTED_PROVIDERS and estimate > settings["api_budget_usd"]:
+        if provider not in SUBSCRIPTION_PROVIDERS and provider not in SELF_HOSTED_PROVIDERS and estimate > settings["api_budget_usd"]:
             raise ValueError("Estimated chat response exceeds the API budget. Increase it or correct the model's prices in Settings.")
         # User-opt-in fallback never moves conversation data to unconfigured
         # endpoints.  Only transient service failures trigger a fallback; bad

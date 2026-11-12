@@ -36,11 +36,17 @@ def gateway(tmp_path):
                 return
             if self.path == "/api/page":
                 body = b'<html><title>Owned shop</title><form action="/api/cart" method="POST"><input name="quantity" value="1"><button>Update cart</button></form></html>'
+            elif self.path == '/api/public-page':
+                body = b'<html><title>Public fixture</title><body><div id="output"></div><script type="module" src="/api/public/a.js"></script><link rel="modulepreload" href="/api/public/b.js"><script>fetch("/api/cart",{method:"POST"});fetch("/excluded");</script></body></html>'
+            elif self.path == '/api/public/a.js':
+                body = b'import "./b.js"; document.getElementById("output").textContent += "Rendered asset. ";'
+            elif self.path.startswith('/api/public/'):
+                body = b'document.getElementById("output").textContent += "Rendered asset. ";'
             else:
                 body = json.dumps({"method": self.command, "path": self.path}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Content-Type", "text/html" if self.path == "/api/page" else "application/json")
+            self.send_header("Content-Type", "text/html" if self.path in {"/api/page", '/api/public-page'} else 'application/javascript' if self.path.endswith('.js') else "application/json")
             self.end_headers()
             self.wfile.write(body)
         def do_POST(self):
@@ -171,3 +177,22 @@ def test_managed_chromium_uses_gateway_and_preserves_held_form_response(gateway)
     assert result["url"] == origin+"/api/cart"
     assert sum(h[0] == "POST" for h in hits) == 1
     assert store.get("action",pending[0]["id"])["status"] == "completed"
+
+
+def test_public_render_serializes_assets_and_blocks_writes_before_gateway(gateway):
+    if importlib.util.find_spec('playwright') is None: pytest.skip('Playwright required')
+    store, policy, tools, client, origin, hits = gateway
+    project = policy.project('p')
+    policy.save_project({**project, 'read_only_paths':['/api/public-page','/api/public/*'],
+                         'max_concurrency':1, 'requests_per_second':2})
+    tools.gateway_verify_direct()
+    result = tools.browser('p', origin+'/api/public-page', session_id='public-fixture', public_only=True)
+    assert result['text'].count('Rendered asset.') == 2
+    assert len(result['evidence_ids']) == 3
+    assert not result['failed_requests']
+    assert result['coverage'] == 'partial'  # Excluded/write requests were blocked.
+    assert {h[1] for h in hits} == {'/api/public-page','/api/public/a.js','/api/public/b.js'}
+    assert all(h[0] == 'GET' for h in hits)
+    assert any(r['method'] == 'POST' for r in result['blocked_requests'])
+    assert not store.list('action', status='pending_approval')
+    assert not list((store.root/'workspaces').glob('browser-*.json'))

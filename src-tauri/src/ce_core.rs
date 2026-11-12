@@ -17,6 +17,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
@@ -127,6 +128,7 @@ pub struct CeAgentOutcome {
 }
 
 pub struct CeMcpConnection {
+    generation: Arc<AtomicU64>,
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
@@ -136,6 +138,12 @@ pub struct CeMcpConnection {
 
 impl CeMcpConnection {
     async fn send_rpc(&mut self, method: &str, params: Value) -> Result<Value, String> {
+        let generation = self.generation.clone();
+        let expected = generation.load(Ordering::SeqCst);
+        while_current(&generation, expected, self.send_rpc_inner(method, params)).await
+    }
+
+    async fn send_rpc_inner(&mut self, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let req = json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params });
         let mut line = serde_json::to_string(&req).map_err(|e| e.to_string())?;
@@ -196,6 +204,7 @@ impl CeMcpConnection {
 
 /// A run parked mid-loop, waiting for the operator's decision on `queue.front()`.
 pub struct AgentSession {
+    generation: u64,
     cfg: CeAppConfig,
     messages: Vec<Value>,
     queue: VecDeque<PendingCall>,
@@ -210,6 +219,7 @@ struct PendingCall {
 }
 
 pub struct CeCoreState {
+    generation: Arc<AtomicU64>,
     pub config: Mutex<CeAppConfig>,
     pub mcp: Mutex<Option<CeMcpConnection>>,
     pub agent: Mutex<Option<AgentSession>>,
@@ -220,6 +230,7 @@ pub struct CeCoreState {
 impl Default for CeCoreState {
     fn default() -> Self {
         Self {
+            generation: Arc::new(AtomicU64::new(0)),
             config: Mutex::new(CeAppConfig::default()),
             mcp: Mutex::new(None),
             agent: Mutex::new(None),
@@ -285,6 +296,7 @@ pub fn write_config_file(path: &Path, cfg: &CeAppConfig) -> Result<(), String> {
 
 /// `bundled_mac_script` is the app's shipped `mac_memory_mcp.py`, resolved by the command layer.
 pub async fn connect(state: &CeCoreState, bundled_mac_script: Option<std::path::PathBuf>) -> Result<Vec<CeMcpTool>, String> {
+    let generation = state.generation.load(Ordering::SeqCst);
     let cfg = state.config.lock().await.clone();
     let script_path = match cfg.backend.as_str() {
         BACKEND_CE => cfg.mcp_script_path.clone(),
@@ -304,6 +316,7 @@ pub async fn connect(state: &CeCoreState, bundled_mac_script: Option<std::path::
         other => return Err(format!("unknown backend `{other}` (use `{BACKEND_CE}` or `{BACKEND_MAC}`)")),
     };
     let mut mcp_guard = state.mcp.lock().await;
+    check_generation(&state.generation, generation)?;
     if let Some(mut existing) = mcp_guard.take() {
         existing.shutdown().await;
     }
@@ -334,6 +347,7 @@ pub async fn connect(state: &CeCoreState, bundled_mac_script: Option<std::path::
     let stdin = child.stdin.take().ok_or("failed to capture child stdin")?;
     let stdout = child.stdout.take().ok_or("failed to capture child stdout")?;
     let mut conn = CeMcpConnection {
+        generation: state.generation.clone(),
         child,
         stdin,
         stdout: BufReader::new(stdout),
@@ -360,6 +374,7 @@ pub async fn connect(state: &CeCoreState, bundled_mac_script: Option<std::path::
 
     match handshake {
         Ok(tools) => {
+            check_generation(&state.generation, generation)?;
             conn.tools = tools.clone();
             *mcp_guard = Some(conn);
             Ok(tools)
@@ -429,7 +444,7 @@ pub async fn connection_health(state: &CeCoreState) -> Value {
 }
 
 pub async fn disconnect(state: &CeCoreState) {
-    *state.agent.lock().await = None;
+    agent_cancel(state).await;
     if let Some(mut conn) = state.mcp.lock().await.take() {
         conn.shutdown().await;
     }
@@ -473,7 +488,9 @@ fn truncate_chars(s: String, max: usize) -> String {
 /// Direct, operator-initiated call (Lua tab / tools tab). Not subject to the agent policy:
 /// the human pressing the button is the approval.
 pub async fn call_tool(state: &CeCoreState, name: &str, arguments: Value) -> Result<String, String> {
+    let generation = state.generation.load(Ordering::SeqCst);
     let mut guard = state.mcp.lock().await;
+    check_generation(&state.generation, generation)?;
     let conn = guard.as_mut().ok_or_else(|| "ce mcp not connected".to_string())?;
     let res = conn
         .send_rpc("tools/call", json!({ "name": name, "arguments": arguments }))
@@ -594,10 +611,38 @@ fn answer_call(s: &mut AgentSession, call: &PendingCall, content: String) {
     s.messages.push(json!({ "role": "tool", "tool_call_id": call.call_id, "content": content }));
 }
 
+fn check_generation(generation: &AtomicU64, expected: u64) -> Result<(), String> {
+    if generation.load(Ordering::SeqCst) != expected {
+        Err("Memory task cancelled. Start a new task to continue.".into())
+    } else { Ok(()) }
+}
+
+// Drop pending network/pipe waits promptly so Stop can acquire the connection
+// and terminate its helper. A resumed task receives a new generation.
+async fn while_current<T>(generation: &AtomicU64, expected: u64,
+    work: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    tokio::pin!(work);
+    let mut tick = tokio::time::interval(Duration::from_millis(25));
+    loop {
+        check_generation(generation, expected)?;
+        tokio::select! {
+            biased;
+            _ = tick.tick() => {},
+            result = &mut work => { check_generation(generation, expected)?; return result; }
+        }
+    }
+}
+
+fn ensure_current(state: &CeCoreState, session: &AgentSession) -> Result<(), String> {
+    check_generation(&state.generation, session.generation)
+}
+
 async fn execute_call(state: &CeCoreState, s: &mut AgentSession, trace: &mut Vec<CeStepLog>, call: &PendingCall) -> Result<(), String> {
+    ensure_current(state, s)?;
     log(trace, "tool_call", &call.name, pretty(&call.args));
     let output = {
         let mut guard = state.mcp.lock().await;
+        ensure_current(state, s)?;
         let conn = guard.as_mut().ok_or_else(|| "ce mcp disconnected mid-run".to_string())?;
         match conn
             .send_rpc("tools/call", json!({ "name": call.name, "arguments": call.args }))
@@ -620,7 +665,9 @@ fn refuse_call(s: &mut AgentSession, trace: &mut Vec<CeStepLog>, call: &PendingC
 
 async fn drive(state: &CeCoreState, mut s: AgentSession, mut trace: Vec<CeStepLog>) -> Result<CeAgentOutcome, String> {
     loop {
+        ensure_current(state, &s)?;
         while let Some(call) = s.queue.front().cloned() {
+            ensure_current(state, &s)?;
             match ce_policy::classify(&call.name, &call.args, s.cfg.auto_approve_readonly) {
                 Verdict::Blocked(why) => {
                     s.queue.pop_front();
@@ -638,7 +685,9 @@ async fn drive(state: &CeCoreState, mut s: AgentSession, mut trace: Vec<CeStepLo
                         arguments: call.args.clone(),
                         reason,
                     };
-                    *state.agent.lock().await = Some(s);
+                    let mut parked = state.agent.lock().await;
+                    ensure_current(state, &s)?;
+                    *parked = Some(s);
                     return Ok(CeAgentOutcome { status: "awaiting_approval".into(), trace, approval: Some(approval) });
                 }
             }
@@ -648,16 +697,19 @@ async fn drive(state: &CeCoreState, mut s: AgentSession, mut trace: Vec<CeStepLo
             log(&mut trace, "notice", "step_limit", format!("stopped after {K_MAX_AGENT_STEPS} model turns"));
             return Ok(CeAgentOutcome { status: "step_limit".into(), trace, approval: None });
         }
-        let msg = match llm_turn(state, &s).await {
+        let msg = match while_current(&state.generation, s.generation, llm_turn(state, &s)).await {
             Ok(msg) => msg,
             Err(err) => {
                 // No tool call is outstanding here. Keep context so a temporary LLM failure
                 // can be retried without replaying an earlier state-changing tool call.
                 log(&mut trace, "notice", "model_error", format!("model request failed: {err}"));
-                *state.agent.lock().await = Some(s);
+                let mut parked = state.agent.lock().await;
+                ensure_current(state, &s)?;
+                *parked = Some(s);
                 return Ok(CeAgentOutcome { status: "awaiting_retry".into(), trace, approval: None });
             }
         };
+        ensure_current(state, &s)?;
         s.steps += 1;
         s.messages.push(msg.clone());
         if let Some(content) = msg.get("content").and_then(Value::as_str) {
@@ -680,6 +732,7 @@ async fn drive(state: &CeCoreState, mut s: AgentSession, mut trace: Vec<CeStepLo
 }
 
 pub async fn agent_start(state: &CeCoreState, prompt: String) -> Result<CeAgentOutcome, String> {
+    let generation = state.generation.load(Ordering::SeqCst);
     let _busy = BusyGuard::acquire(&state.busy)?;
     if state.agent.lock().await.is_some() {
         return Err("a run is waiting for approval; approve, deny or cancel it first".into());
@@ -692,6 +745,7 @@ pub async fn agent_start(state: &CeCoreState, prompt: String) -> Result<CeAgentO
         return Err(format!("enter a prompt of 1 to {K_MAX_OPERATOR_PROMPT_CHARS} characters"));
     }
     let session = AgentSession {
+        generation,
         messages: vec![
             json!({ "role": "system", "content": effective_system_prompt(&cfg) }),
             json!({ "role": "user", "content": prompt }),
@@ -742,6 +796,7 @@ pub async fn agent_resolve(state: &CeCoreState, approve: bool) -> Result<CeAgent
 }
 
 pub async fn agent_cancel(state: &CeCoreState) {
+    state.generation.fetch_add(1, Ordering::SeqCst);
     *state.agent.lock().await = None;
 }
 
@@ -862,6 +917,24 @@ pub async fn preflight(state: &CeCoreState, bundled_mac_script: Option<std::path
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn cancellation_drops_inflight_wait_and_cannot_revive_old_work() {
+        let state = CeCoreState::default();
+        let generation = state.generation.load(Ordering::SeqCst);
+        let waiting = while_current(&state.generation, generation, std::future::pending::<Result<(), String>>());
+        let cancel = async {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+            agent_cancel(&state).await;
+        };
+        let (result, _) = timeout(Duration::from_secs(1), async { tokio::join!(waiting, cancel) }).await.unwrap();
+        assert!(result.unwrap_err().contains("cancelled"));
+        let old = AgentSession { generation, cfg: CeAppConfig::default(), messages: vec![],
+            queue: VecDeque::new(), steps: 0 };
+        assert!(drive(&state, old, vec![]).await.unwrap_err().contains("cancelled"));
+        let current = state.generation.load(Ordering::SeqCst);
+        assert_eq!(while_current(&state.generation, current, async { Ok(42) }).await.unwrap(), 42);
+    }
 
     #[test]
     fn extract_text_joins_and_flags_errors() {

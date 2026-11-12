@@ -6,7 +6,7 @@ proof a specific remote tool or protected process can be controlled.
 from __future__ import annotations
 import time
 
-SUPPORTED = {'chat', 'website', 'cart', 'memory', 'ai_test', 'agents', 'research'}
+SUPPORTED = {'chat', 'website', 'cart', 'memory', 'agents', 'research'}
 
 
 def inspect_task(kind, *, settings, credentials=None, dependencies=(), project=None, gateway=None):
@@ -22,7 +22,7 @@ def inspect_task(kind, *, settings, credentials=None, dependencies=(), project=N
 
     provider = str(settings.get('provider') or '')
     model = str(settings.get('model') or '')
-    if kind in {'chat', 'research', 'ai_test'}:
+    if kind in {'chat', 'research'}:
         missing = not provider or not model or (provider in {'openai_compatible', 'remote_ollama'} and not settings.get('api_base_url'))
         if provider in {'openai', 'anthropic', 'deepseek', 'openai_compatible', 'remote_ollama'} and not credentials.get(provider):
             missing = True
@@ -48,9 +48,6 @@ def inspect_task(kind, *, settings, credentials=None, dependencies=(), project=N
             'macOS bridge is bundled, but you must grant process access and select an accessible process.' if available
             else 'The macOS memory bridge is not available here; use a supported OS and the separate memory workspace.',
             'memory' if available else 'settings')
-    if kind == 'ai_test':
-        add('AI evaluation', 'configured',
-            'You can use imported prompt research. Specify the target model and review evaluation scope before running.')
     if kind == 'agents':
         available = [name for name in ('Claude Code', 'Codex CLI') if installed.get(name)]
         add('Coding agents', 'configured' if available else 'setup',

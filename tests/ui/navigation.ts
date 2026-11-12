@@ -2,6 +2,7 @@ import type { Page } from '@playwright/test';
 
 export async function openTool(page: Page, name: string) {
   await page.getByRole('button', {name: 'Tools', exact: true}).click();
+  await page.getByText('Open individual workspaces', {exact: true}).click();
   await page.getByRole('dialog', {name: 'Tools', exact: true}).getByRole('button', {name, exact: true}).click();
 }
 

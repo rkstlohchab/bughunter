@@ -254,17 +254,15 @@ export function CeMcpPanel({ handoff, onHandoffConsumed, projectId, researchQuer
   const lookupSavedNotes = async (query: string): Promise<string> => {
     if (!query.trim()) return "";
     try {
-      const [sources, reviews, specialist] = await Promise.all([
+      const [sources, specialist] = await Promise.all([
         rpc<Record<string, any>[]>("knowledge.search", { query: query.slice(0, 300), limit: 4 }),
-        rpc<Record<string, any>[]>("redteam.search", { query: query.slice(0, 300), limit: 4 }),
         rpc<Record<string, any>[]>("training.search", { domain: "cheat_engine", query: query.slice(0, 300), limit: 3 }),
       ]);
       const passages = sources.map(s => `[source ${s.source_id || "unknown"}, ${s.locator || "passage"}] ${String(s.text || "").slice(0, 1000)}`);
-      const tests = reviews.map(r => `[prompt test ${r.id}, ${r.technique}, ${r.last_verdict}] ${String(r.prompt || "").slice(0, 650)}; lesson: ${String(r.last_lesson || "").slice(0, 500)}`);
       const worked = specialist.map(r => `[reviewed CE example ${r.id}, source ${r.source || 'operator'}] Task: ${String(r.instruction || '').slice(0, 450)}; Verified response: ${String(r.response || '').slice(0, 900)}`);
-      const text = [...passages, ...worked, ...tests].join("\n\n").slice(0, 8000);
+      const text = [...passages, ...worked].join("\n\n").slice(0, 8000);
       setKnowledgeContext(text);
-      setKnowledgeStatus(text ? `${passages.length} passages, ${worked.length} reviewed CE examples and ${tests.length} model tests loaded.` : "No matching saved material.");
+      setKnowledgeStatus(text ? `${passages.length} passages, ${worked.length} reviewed CE examples loaded.` : "No matching saved material.");
       return text;
     } catch (e) {
       setKnowledgeStatus(`Knowledge retrieval unavailable: ${String(e)}`);
@@ -485,7 +483,7 @@ export function CeMcpPanel({ handoff, onHandoffConsumed, projectId, researchQuer
           </details>}
           <details className="ce-knowledge-bridge">
             <summary>Search previous notes (optional)</summary>
-            <p className="muted">Search the existing Knowledge Library and AI red-team experiment memory. Your agent can also retrieve relevant saved notes automatically when you send a prompt.</p>
+            <p className="muted">Search the existing Knowledge Library and reviewed Cheat Engine examples. Your agent can also retrieve relevant saved notes automatically when you send a prompt.</p>
             <label className="check-row"><input type="checkbox" checked={autoKnowledge} onChange={e => setAutoKnowledge(e.target.checked)}/><span>Automatically retrieve relevant saved notes before each agent prompt</span></label>
             <div className="button-group wrap">
               <input aria-label="Search saved knowledge" value={knowledgeQuery} maxLength={300} onChange={e => setKnowledgeQuery(e.target.value)} placeholder="Search method, tool or experiment"/>

@@ -6,6 +6,14 @@ The application stores extracted passages in SQLite, with source hashes, page/ti
 
 This is retrieval-augmented knowledge, not model training. A model receives relevant passages through tools when it investigates. It does not permanently memorize the entire library. A graph helps organize and trace evidence, but does not prove that every concept or demonstration was understood. Courses about programming or other disciplines can be indexed as knowledge; importing them does not create additional execution capabilities.
 
+## Local storage and GitHub
+
+The normal library lives in `~/Library/Application Support/BugHunterClaudex/`, outside the source repository. `workbench.sqlite3` contains imported source records, extracted passages, citations, and graph data; `sources/` and `artifacts/` contain managed files. `BUGHUNTER_DATA_DIR` can select a different location. Large-folder imports may reference originals in your chosen course folder.
+
+Importing a course does not commit or push anything to GitHub. The repository ignores SQLite files, build outputs, and local verification artifacts. Code and deliberately bundled reference documents can be versioned separately; those are not the personal imported library. A Git push is not a library backup. Use the app's local backup or portable knowledge export when you want a copy, and explicitly choose where to store or share it.
+
+For a new web-testing course, import its folder under the intended project, wait for all files to reach a terminal status, then inspect extraction notes and sample searches. Missing transcripts, unreadable documents, or sampled-only visuals must remain visible as coverage gaps. Select that project in Chat to retrieve its sources. Importing and studying material does not establish that every lesson was understood or change model weights.
+
 ## Retrieval
 
 Search is hybrid: SQLite FTS5 with the Porter stemmer (so "IDOR"/"IDORs", "inject"/"injection"/"injecting", and similar plural and verb/noun forms match each other automatically) plus an optional local-embedding pass when a model is configured. On top of that, a small acronym/terminology table (`SYNONYMS` in `knowledge.py`) expands things stemming can't bridge - BOLA/IDOR, SSRF, XSS, CSRF, SQLi, RCE, JWT, TOCTOU/race condition, and a few others - by adding the mapped terms as extra OR clauses alongside the person's own words, never in place of them. The concept graph's lexical vocabulary (`CONCEPTS`) covers the same vulnerability classes plus common techniques and tools (Burp, Nuclei, Cheat Engine, Ghidra, x64dbg, Frida), so newly imported material about them gets linked automatically; it is still explicitly `inferred`, same as before. An install from before the Porter tokenizer existed is migrated in place the next time it opens - `knowledge_fts` is rebuilt from `knowledge_chunks` (the source of truth), no re-import required.
@@ -19,6 +27,12 @@ For Markdown documents, subsequent chunks in a long section now retain the most 
 - **Large course / folder:** reads existing local files without making a duplicate full copy. Keep them unchanged and accessible until processing finishes. A file can be up to 32 GiB; folders can contain up to 500 nonhidden regular files. Ingestion stays sequential. Unpack large course archives before importing their folder.
 
 Supported extraction covers PDF pages, EPUB sections, DOCX paragraphs, PPTX slides/notes, XLSX sheet rows/cells, OpenDocument text, HTML, plain text/code, images, SRT/VTT, and common audio/video formats. Scanned pages and images need Tesseract for OCR; video uses FFmpeg and local whisper.cpp for speech recognition. Matching subtitle sidecars can supply timestamps without speech recognition. Video frames are sampled, not exhaustively analyzed. Missing tools are reported; no speech model is downloaded automatically.
+
+Long recordings are transcribed in chunks of at most ten minutes. Each successful chunk keeps an atomic transcript checkpoint tied to the source and speech-model contents, with timestamps mapped back to the original recording. Incomplete audio/transcript intermediates are discarded. Library progress distinguishes transcription from frame analysis; retry reuses completed chunks. Global Stop all interrupts extraction subprocesses, including the adaptive scene scan. Transcription and OCR can misread content; a completed import is not an accuracy certification.
+
+Tutorial analysis combines a sampled screenshot with up to two earlier screenshots and the nearby timestamped narration. The local vision model separates visible facts, narrator statements, changes between frames, inferred tutorial intent and reusable lessons, and missing evidence. Saved interpretations retain their image timestamps, narrator excerpts, model identifier and evidence fingerprint. Older interpretations without this context are reanalysed. Descriptions remain inferred; speech is not proof that a click or result appeared on screen.
+
+Completed speech is searchable before the scene scan starts. Visual observations and OCR are published after the first frame, every ten frames, and at completion. These updates preserve existing corrections, citations, manual interpretations and source-backed notes. Library progress counts contextual observations separately from OCR-only frames. Model failure preserves speech and OCR while reporting missing visual interpretation; it never reports full visual understanding. Sampled analysis can miss brief actions between frames.
 
 Archives are bounded to 1,000 entries, 256 MiB cumulative expanded data, three ZIP nesting levels, and a compression-ratio limit. Text parsing is capped at 20 MiB per file/XML part and 10 million extracted characters per source. Password-protected, unsafe, legacy binary, or unknown formats must be unlocked/exported into a supported format first. The app accepts arbitrary file selections but cannot parse every possible file format.
 
@@ -48,3 +62,41 @@ The export excludes original course media, provider keys, target credentials/set
 On a source, **Create training example** lets you write a useful question and checked answer grounded in a passage, record permission to train, and choose train/evaluation. The app does not manufacture validated labels from every transcript. Correcting the cited passage makes its examples require fresh review. Deleting a source removes its curated examples. Training exports may be empty until you curate examples.
 
 A future training pipeline must adapt the JSONL schema to its trainer, check quality and permissions, remove duplicates, select supported tasks, and evaluate held-out examples. No fine-tuning is performed by this release. Existing Claude Code, explicitly configured API providers, and compatible local models can use the knowledge through retrieval now. Browser chat products do not automatically gain access to files on this Mac.
+# Bundled workbench reference pack
+
+The `workbench-methods-v1` pack adds ten authored notes covering commerce and food
+quotes, API ownership and sessions, GraphQL classification, injection evidence,
+HTTP destinations, race/workflow case studies, native memory lifetimes, PE and
+projection conventions, and retrieval provenance. Its manifest records document
+hashes and 15 primary-source links checked on 2026-11-11. Historical published
+cases, local worked examples, and suggested tests are explicitly distinguished.
+These are unreviewed reference syntheses, not trained weights or an exhaustive
+domain corpus.
+
+The primary backend imports the pack once on startup using a versioned seed
+flag. Deleting a source does not recreate it on the next launch. Explicitly
+restore/import it with desktop RPC `knowledge.reference_pack.import` (optional
+`project_id`), or, with the app closed:
+
+```sh
+backend/.venv/bin/python scripts/import_reference_pack.py
+```
+
+The importer uses the existing extraction/indexing pipeline and content-based
+deduplication. It validates the complete manifest before importing, and preserves
+project scope. The default destination is the app's normal data directory;
+`--data-dir DIR` selects an isolated library. PyInstaller packaging includes the
+same assets. No source websites or model APIs are needed to ingest the text;
+optional embeddings follow the library's existing local-model settings.
+
+Run the repeatable loopback HTTP and retrieval check with a **new** output path:
+
+```sh
+backend/.venv/bin/python scripts/smoke_commerce_knowledge.py --output artifacts/commerce-knowledge-check
+```
+
+The JSON report retains 34 paired commerce/food requests and their receipts,
+17 deliberately vulnerable outcomes and 17 fixed controls, source counts,
+retrieval probes, and the isolated database. It does not test external websites,
+payments, or concurrent coupon redemption. Native lifecycle tests use Mach API
+doubles and do not establish real target-process compatibility.

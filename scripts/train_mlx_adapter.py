@@ -23,7 +23,7 @@ def train(data: Path, model: str, output: Path, iters: int, dry_run=False):
     if not manifest_path.is_file() or not (data / "train.jsonl").is_file():
         raise ValueError("Extract a Training lab dataset ZIP containing manifest.json and train.jsonl.")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if manifest.get("training_performed") is not False or manifest.get("domain") not in {"burp_suite", "cheat_engine", "ai_redteam"}:
+    if manifest.get("training_performed") is not False or manifest.get("domain") not in {"burp_suite", "cheat_engine", "tor_research"}:
         raise ValueError("Unrecognized Training lab export.")
     examples = [json.loads(line) for line in (data / "train.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     if not examples or any(not isinstance(e.get("messages"), list) or len(e["messages"]) < 2 for e in examples):

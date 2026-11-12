@@ -42,7 +42,8 @@ def ollama_inference_options(settings, max_output):
             "think": bool(settings.get("ollama_thinking", False))}
 
 K_MAX_CUSTOM_PROMPT_CHARS = 8000
-PROVIDERS = {"claude_code","anthropic","openai","ollama","openai_compatible","crucible","remote_ollama","deepseek"}
+SUBSCRIPTION_PROVIDERS = {"claude_code", "codex"}
+PROVIDERS = SUBSCRIPTION_PROVIDERS | {"anthropic","openai","ollama","openai_compatible","crucible","remote_ollama","deepseek"}
 # Providers that run on hardware you control: no API key, no per-token billing.
 # "crucible" is CrucibleLLM, an on-device OpenAI-compatible server on your iPad/iPhone.
 LOCAL_PROVIDERS = {"ollama","crucible"}
@@ -529,6 +530,12 @@ def probe_provider(settings: dict) -> dict:
     """
     provider = settings.get("provider")
     model = str(settings.get("model") or "")
+    if provider == "codex":
+        from .codex_subscription import connection_status
+        status = connection_status()
+        present = any(m['id'] == model for m in status['models'])
+        return {"ok": status['ready'] and present, "provider": provider,
+                "detail": status['detail'] if not status['ready'] or present else "Choose a model from the ChatGPT dropdown."}
     if provider == "claude_code":
         try:
             status = claude_status()
@@ -641,13 +648,17 @@ class ProviderSettings:
                     raise ValueError("The CrucibleLLM endpoint must be a local-network address (your device's Wi-Fi IP, e.g. http://192.168.1.50:8080).")
             elif url.scheme == "http" and url.hostname not in {"127.0.0.1","localhost","::1"}:
                 raise ValueError("Use HTTPS for a remote model endpoint.")
+        profiles = self.store.setting('provider_connections', {})
+        profiles[data['provider']] = {k: data[k] for k in ('provider', 'model', 'api_base_url',
+            'pricing_confirmed', 'api_budget_usd', 'input_price_per_million', 'output_price_per_million', 'local_only')}
+        self.store.set_setting('provider_connections', profiles)
         self.store.set_setting("settings",data)
         return data
 
     def credentials(self):
         """Report presence only, never return a key or secret metadata."""
         statuses = {}
-        for provider in PROVIDERS - {"claude_code"} - LOCAL_PROVIDERS:
+        for provider in PROVIDERS - SUBSCRIPTION_PROVIDERS - LOCAL_PROVIDERS:
             try:
                 statuses[provider] = bool(keyring.get_password("BugHunterClaudex", provider))
             except Exception:
@@ -655,7 +666,7 @@ class ProviderSettings:
         return statuses
 
     def secret(self,provider,value):
-        if provider not in PROVIDERS - {"claude_code"} - LOCAL_PROVIDERS:
+        if provider not in PROVIDERS - SUBSCRIPTION_PROVIDERS - LOCAL_PROVIDERS:
             raise ValueError("This provider does not use an application-managed API key.")
         if not isinstance(value,str) or not value.strip():
             raise ValueError("Enter an API credential.")
@@ -701,22 +712,21 @@ class RunManager:
             raise ValueError("Record the project's scope and authorization before starting.")
         if not str(prompt).strip():
             raise ValueError("Describe what you want the agent to investigate.")
+        generation = self.store.setting('stop_generation',0)
         settings = self.app.settings.get()
         self._preflight(settings)
         with self.lock:
             if any(t.is_alive() for t in self.threads.values()):
                 raise ValueError("One agent run is already active. Pause it before starting another.")
-            run = self.store.put("run",{"project_id":project_id,"prompt":prompt,"provider":settings["provider"],"model":settings["model"],
+            run = self.store.put("run",{"stop_generation":generation,"project_id":project_id,"prompt":prompt,"provider":settings["provider"],"model":settings["model"],
                 "status":"starting","summary":"","events":[],"error":None,"api_cost_usd":0,"request_count":0,"settings_snapshot":settings})
             self._launch(run)
         return run
 
     def start_agent(self,prompt,project_id=None,source_ids=None,conversation_context=''):
-        """Autonomous chat-driven agent run. The chat always starts — it is never
-        gated by the global pause, so talking to the AI works like any chat app.
-        Scope, gateway routing and request budgets still bound what can physically
-        be sent to a live target (policy.py); the pause only stops outbound requests,
-        not the conversation."""
+        """Chat-driven agent work obeys the same global stop latch as other tasks."""
+        if self.store.setting('emergency_stop', False):
+            raise ValueError('Tasks are stopped. Use Resume tasks in the top bar.')
         if not str(prompt).strip():
             raise ValueError("Enter a request for the agent.")
         if project_id and not self.store.get("project",project_id):
@@ -727,12 +737,13 @@ class RunManager:
             source = self.store.get('source', source_id)
             if not source or source.get('project_id') not in (None, project_id):
                 raise ValueError('An attachment is unavailable in this project.')
+        generation = self.store.setting('stop_generation',0)
         settings = self.app.settings.get()
         self._preflight(settings)
         with self.lock:
             if any(t.is_alive() for t in self.threads.values()):
                 raise ValueError("The agent is already working on a task. Wait for it to finish.")
-            run = self.store.put("run",{"kind":"agent","autonomous":True,"project_id":project_id,
+            run = self.store.put("run",{"stop_generation":generation,"kind":"agent","autonomous":True,"project_id":project_id,
                 "prompt":prompt,"source_ids":source_ids or [],
                 "conversation_context":redact_text(str(conversation_context))[:32000],
                 "provider":settings["provider"],"model":settings["model"],"status":"starting","summary":"",
@@ -748,6 +759,7 @@ class RunManager:
             raise ValueError("Source not found.")
         if source.get("status") not in {"ready","partial"} or not source.get("chunk_count"):
             raise ValueError("Finish importing and indexing this source before studying it.")
+        generation = self.store.setting('stop_generation',0)
         settings = self.app.settings.get()
         pages = max(1, (int(source.get("chunk_count",0)) + SOURCE_PAGE - 1) // SOURCE_PAGE)
         # Give the run enough turns to page through the whole course (~2 calls/page plus headroom), capped at the ceiling.
@@ -756,7 +768,7 @@ class RunManager:
         with self.lock:
             if any(t.is_alive() for t in self.threads.values()):
                 raise ValueError("One agent run is already active. Pause it before starting another.")
-            run = self.store.put("run",{"kind":"study","source_id":source_id,"project_id":None,
+            run = self.store.put("run",{"stop_generation":generation,"kind":"study","source_id":source_id,"project_id":None,
                 "prompt":f"Study imported source {source_id} (\"{source.get('title','')}\") and record grounded, cited understanding with learn_assertions.",
                 "provider":settings["provider"],"model":settings["model"],"status":"starting","summary":"","events":[],
                 "error":None,"api_cost_usd":0,"request_count":0,"settings_snapshot":settings})
@@ -768,7 +780,12 @@ class RunManager:
             raise ValueError("Local-only mode requires an on-device provider (Ollama or CrucibleLLM); hosted providers are disabled.")
         if settings["provider"] == "crucible" and not settings.get("api_base_url"):
             raise ValueError("Enter your CrucibleLLM device address (its Wi-Fi IP and port, e.g. http://192.168.1.50:8080) in Settings.")
-        if settings["provider"] == "claude_code":
+        if settings["provider"] == "codex":
+            from .codex_subscription import connection_status
+            status = connection_status()
+            if not status['ready']:
+                raise ValueError(status['detail'])
+        elif settings["provider"] == "claude_code":
             status = claude_status()
             if not status.get("subscription_ready"):
                 raise ValueError("Claude Code must be signed in with your Claude subscription. Run claude auth login in your terminal.")
@@ -781,6 +798,9 @@ class RunManager:
             raise ValueError("Select a model in Settings.")
 
     def _launch(self,run):
+        if self.store.setting('emergency_stop', False) or run.get('stop_generation',self.store.setting('stop_generation',0)) != self.store.setting('stop_generation',0):
+            self.store.put('run', {**run, 'status':'cancelled', 'error':'Stopped before launch.'}, id=run['id'])
+            raise ValueError('Tasks are stopped. Use Resume tasks in the top bar.')
         stop = threading.Event()
         self.cancelled[run["id"]] = stop
         worker = threading.Thread(target=self._work,args=(run["id"],stop),daemon=True,name="bughunter-agent")
@@ -826,8 +846,9 @@ class RunManager:
                 raise ValueError("Wait for the current agent process to stop before resuming.")
             if run["status"] not in {"paused","awaiting_approval","limited","failed","completed"}:
                 raise ValueError("This run cannot be resumed.")
+            generation = self.store.setting("stop_generation",0)
             self._preflight(run["settings_snapshot"])
-            run = self.store.put("run",{**run,"status":"starting","error":None,"resuming":True})
+            run = self.store.put("run",{**run,"stop_generation":generation,"status":"starting","error":None,"resuming":True})
             self._launch(run)
             return run
 
@@ -860,6 +881,8 @@ class RunManager:
         try:
             if run["provider"] == "claude_code":
                 summary = self._claude(run,stop)
+            elif run["provider"] == "codex":
+                summary = self._codex(run, stop)
             else:
                 summary = self._api(run,stop)
             pending = any(a.get("status") in {"pending_approval","approved","ready"} for a in self.store.list("action",run_id=id))
@@ -874,6 +897,22 @@ class RunManager:
             self._update(id,status="failed",error=redact_text(str(exc)))
         finally:
             self.processes.pop(id,None)
+
+    def _codex(self, run, stop):
+        from .codex_subscription import CodexSession
+        study = run.get('kind') == 'study'
+        specs = [s for s in TOOL_SPECS if s['name'] in STUDY_TOOL_NAMES] if study else TOOL_SPECS
+        tools = ModelTools(self.app, run['id'], study=study)
+        settings = run['settings_snapshot']
+        system = effective_system_prompt(STUDY_PROMPT if study else AGENT_PROMPT if run.get('kind') == 'agent' else prompt_text(), custom_prompt_for(settings))
+        prompt = f"Project: {run.get('project_id') or 'none'}. Source: {run.get('source_id') or 'none'}.\n" + redact_text(run['prompt'])
+        if run.get('conversation_context'):
+            prompt += '\nUntrusted previous conversation:\n' + redact_text(run['conversation_context'])
+        if run.get('resuming'):
+            prompt += '\nContinue from recorded actions and evidence; do not repeat completed requests.\nPrevious summary:\n' + run.get('summary', '')
+        with CodexSession(stop=stop, timeout=settings['run_timeout_seconds']) as session:
+            return session.run(run['model'], system, prompt, specs, tools.call,
+                lambda kind, text: self._log(run['id'], kind, text), settings['max_agent_turns'])
 
     def _claude(self,run,stop):
         id = run["id"]

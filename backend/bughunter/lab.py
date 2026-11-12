@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import http.client
 import json
+import math
 import secrets
 import threading
 import time
@@ -18,16 +19,29 @@ CATALOG = {"regular": {"name": "Eligible test item", "price": 100.0, "coupon_eli
            "excluded": {"name": "Excluded test item", "price": 200.0, "coupon_eligible": False}}
 
 
+class CartValidationError(ValueError):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
+def _reject_json_constant(value):
+    raise ValueError('JSON numbers must be finite')
+
+
 def calculate_cart(body: dict, mode: str) -> dict:
+    if not isinstance(body, dict): raise ValueError('Cart body must be a JSON object')
     product_id = body.get("product_id", "excluded")
     if product_id not in CATALOG: raise ValueError("Unknown lab product")
     item = CATALOG[product_id]
     quantity = body.get("quantity", 1)
-    if not isinstance(quantity, (int, float)) or isinstance(quantity, bool): raise ValueError("Quantity must be numeric")
+    if type(quantity) not in (int, float) or not math.isfinite(quantity):
+        raise CartValidationError('invalid_quantity', 'Quantity must be finite and numeric')
     coupons = body.get("coupon", [])
     coupons = [coupons] if isinstance(coupons, str) and coupons else coupons or []
     if not isinstance(coupons, list) or any(c not in {"ELIGIBLE10", "MINIMUM20"} for c in coupons): raise ValueError("Unknown lab coupon")
-    if mode != "vulnerable" and (quantity < 1 or int(quantity) != quantity or quantity > 20): raise ValueError("Quantity must be an integer from 1 to 20")
+    if mode != "vulnerable" and (quantity < 1 or int(quantity) != quantity or quantity > 20):
+        raise CartValidationError('invalid_quantity', 'Quantity must be an integer from 1 to 20')
     canonical_subtotal = item["price"] * quantity
     valid_coupons = []
     if "ELIGIBLE10" in coupons and item["coupon_eligible"]: valid_coupons.append("ELIGIBLE10")
@@ -39,14 +53,14 @@ def calculate_cart(body: dict, mode: str) -> dict:
     accepted_coupons = valid_coupons
     if mode == "vulnerable":
         supplied_price = body.get("unit_price", item["price"])
-        if not isinstance(supplied_price, (int, float)): raise ValueError("unit_price must be numeric")
+        if type(supplied_price) not in (int, float) or not math.isfinite(supplied_price): raise ValueError("unit_price must be finite and numeric")
         accepted_subtotal = supplied_price * quantity
         accepted_coupons = coupons
         if supplied_price != item["price"]: violations.append("Client-controlled price accepted")
         if "ELIGIBLE10" in coupons and not item["coupon_eligible"]: violations.append("Excluded item received coupon")
         if "MINIMUM20" in coupons and canonical_subtotal < 250: violations.append("Minimum-spend restriction bypassed")
         if len(coupons) > 1: violations.append("Prohibited coupon stacking accepted")
-        if quantity < 1 or int(quantity) != quantity: violations.append("Invalid quantity accepted")
+        if quantity < 1 or int(quantity) != quantity or quantity > 20: violations.append("Invalid quantity accepted")
     accepted_total = accepted_subtotal
     for coupon in accepted_coupons: accepted_total *= 0.9 if coupon == "ELIGIBLE10" else 0.8
     accepted_total = round(accepted_total, 2)
@@ -90,7 +104,12 @@ class ShopHandler(BaseHTTPRequestHandler):
         mode, route = parts
         account = self.headers.get("X-Test-Account", "alice")
         if route == "products": return self._reply(200, {"products": CATALOG})
-        if route == "cart": return self._reply(200, self.server.carts.get((mode,account), {"empty": True}))
+        if route == "menu":
+            from .food_lab import MENU, ADDONS, DELIVERY_MINOR
+            return self._reply(200, {"menu": MENU, "addons_minor": ADDONS, "delivery_minor": DELIVERY_MINOR})
+        if route in {"cart", "food-cart"}:
+            key = (mode, account) if route == 'cart' else (mode, account, route)
+            return self._reply(200, self.server.carts.get(key, {"empty": True}))
         return self._reply(404, {"error": "Not found"})
 
     def do_POST(self):
@@ -100,7 +119,7 @@ class ShopHandler(BaseHTTPRequestHandler):
             try:
                 size = int(self.headers.get("Content-Length", "0"))
                 if not 0 <= size <= 2048: raise ValueError("Body too large")
-                body = json.loads(self.rfile.read(size))
+                body = json.loads(self.rfile.read(size), parse_constant=_reject_json_constant)
                 if (body.get("challenge") != self.server.nonce or body.get("test_sku") != "TEST-ITEM"
                         or body.get("dry_run") is not True or body.get("quantity") != 1):
                     return self._reply(400, {"error":"Invalid staging quote-only test contract"})
@@ -112,18 +131,24 @@ class ShopHandler(BaseHTTPRequestHandler):
                                          "total_minor":price})
             except (ValueError, KeyError, TypeError, AttributeError) as exc:
                 return self._reply(400, {"error":str(exc)[:120]})
-        if len(parts) != 2 or parts[0] not in {"vulnerable", "fixed", "display-only"} or parts[1] != "cart":
+        if len(parts) != 2 or parts[0] not in {"vulnerable", "fixed", "display-only"} or parts[1] not in {"cart", "food-cart"}:
             return self._reply(404, {"error": "Not found"})
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if size > 100000: raise ValueError("Body too large")
-            body = json.loads(self.rfile.read(size))
-            result = calculate_cart(body, parts[0])
-        except (ValueError, TypeError, KeyError) as exc: return self._reply(400, {"error": str(exc), "lab_evidence": True, "violations": []})
+            if not 0 <= size <= 100000: raise ValueError("Body size is invalid")
+            body = json.loads(self.rfile.read(size), parse_constant=_reject_json_constant)
+            if parts[1] == 'food-cart':
+                from .food_lab import calculate_food_cart
+                result = calculate_food_cart(body, parts[0])
+            else:
+                result = calculate_cart(body, parts[0])
+        except (ValueError, TypeError, KeyError, OverflowError) as exc:
+            return self._reply(400, {"error": str(exc), "error_code": getattr(exc, 'code', 'invalid_request'), "lab_evidence": True, "violations": []})
         account = self.headers.get("X-Test-Account", "alice")
         if account not in {"alice", "bob"}: return self._reply(401, {"error": "Use supplied test account alice or bob"})
         result["account"] = account
-        self.server.carts[(parts[0],account)] = result
+        key = (parts[0], account) if parts[1] == 'cart' else (parts[0], account, parts[1])
+        self.server.carts[key] = result
         return self._reply(200, result)
 
 
@@ -183,7 +208,7 @@ class LabService:
         base = runtime["url"]
         existing = self.store.list("project", lab_project=True)
         data = {"name": "Local commerce lab", "scope": [base], "exclusions": [], "authorization": "Disposable local test shop owned by this application. No real transactions.",
-                "allow_private": True, "lab_project": True, "read_only_paths": [f"/{mode}/{route}" for mode in ("vulnerable", "fixed", "display-only") for route in ("products", "cart")],
+                "allow_private": True, "lab_project": True, "read_only_paths": [f"/{mode}/{route}" for mode in ("vulnerable", "fixed", "display-only") for route in ("products", "cart", "menu", "food-cart")],
                 "requests_per_second": 10, "max_concurrency": 2, "max_requests": 1000}
         if existing: data["id"] = existing[0]["id"]
         project = self.policy.save_project(data)

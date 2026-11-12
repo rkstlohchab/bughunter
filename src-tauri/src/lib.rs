@@ -3,6 +3,7 @@ pub mod ce_mcp;
 pub mod ce_policy;
 mod mapping_receipt;
 pub mod mac_permissions;
+pub mod execution_control;
 pub mod mac_tool_control;
 pub mod mac_desktop;
 
@@ -169,10 +170,24 @@ impl Backend {
 struct BackendState(Arc<Backend>);
 
 #[tauri::command]
-async fn rpc(method: String, params: Option<Value>, state: tauri::State<'_, BackendState>) -> Reply {
+async fn rpc(method: String, params: Option<Value>, state: tauri::State<'_, BackendState>,
+             memory: tauri::State<'_, ce_mcp::CeMcpState>, desktop: tauri::State<'_, mac_desktop::DesktopControl>) -> Reply {
+    let stopping = method == "system.stop";
+    let resuming = method == "system.resume";
+    let status = method == "system.status";
+    let revision = execution_control::revision();
+    if stopping {
+        execution_control::stop();
+        let _ = desktop.stop_now(); // Other cancellation paths must still run if the session lock failed.
+        ce_core::agent_cancel(&memory).await;
+    }
     let backend = state.0.clone();
-    tauri::async_runtime::spawn_blocking(move || backend.request(method, params.unwrap_or_else(|| json!({}))))
-        .await.map_err(|e| e.to_string())?
+    let result = tauri::async_runtime::spawn_blocking(move || backend.request(method, params.unwrap_or_else(|| json!({}))))
+        .await.map_err(|e| e.to_string())?;
+    if resuming && result.is_ok() { execution_control::resume(); }
+    if status && result.as_ref().ok().and_then(|v|v["emergency_stop"].as_bool()) == Some(true) { execution_control::sync_stopped(revision); }
+    if stopping { ce_core::disconnect(&memory).await; }
+    result
 }
 
 #[tauri::command]
@@ -180,6 +195,7 @@ async fn ce_check_mapping(check_id: String, state: tauri::State<'_, BackendState
                           memory: tauri::State<'_, ce_mcp::CeMcpState>,
                           automatic: Option<bool>, execution: tauri::State<'_, mapping_receipt::Execution>) -> Reply {
     let _serial = execution.0.lock().await;
+    execution_control::require_running()?;
     mapping_receipt::validate_id(&check_id)?;
     let backend = state.0.clone();
     let id = check_id.clone();

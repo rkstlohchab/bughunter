@@ -12,13 +12,12 @@ async function stub(page: Page) {
       return;
     }
     const { id, method } = route.request().postDataJSON();
-    const emptyMethods = new Set(['chat.list','redteam.cases','redteam.history','tor.sources','tor.pages']);
+    const emptyMethods = new Set(['chat.list','training.workspaces','tor.sources','tor.pages']);
     let result: unknown = {};
     if (method.endsWith('.list') || emptyMethods.has(method)) result = [];
     if (method === 'settings.get') result = { provider:'openai_compatible',model:'bughunter-moe',api_base_url:'https://example.ngrok-free.app/v1',custom_system_prompt:'' };
     if (method === 'settings.credentials') result = { openai_compatible:true };
     if (method === 'tools.status') result = { burp:{available:false},nuclei:{available:true},browser:{available:true} };
-    if (method === 'redteam.insights') result = {case_count:0,trial_count:0,verdict_counts:{},lessons:[]};
     if (method === 'tor.settings') result = { socks_port:9050,allow_remote_ai:false };
     if (method === 'tor.browser.config') result = {binary_path:'',driver_path:'',allow_scripts:false};
     if (method === 'tor.browser.status') result = {running:false};
@@ -51,7 +50,7 @@ test('dark mode is the default and theme switch works in Settings', async ({page
 test('form content stays inside cards at desktop, tablet and narrow viewport', async ({page}) => {
   await stub(page); await page.goto('/');
   await openWeb(page);
-  for (const workspace of ['AI testing','Tor browser']) {
+  for (const workspace of ['Training lab','Tor browser']) {
     await openTool(page, workspace);
     for (const width of [1365,820,390]) {
       await page.setViewportSize({width,height:920});

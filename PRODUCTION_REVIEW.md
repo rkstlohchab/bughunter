@@ -1,7 +1,7 @@
 # BugHunterClaudex — Production readiness review
 
-Review scope: latest uploaded `BugHunterClaudex-Agent-Activity-Update.zip`,
-with modifications described in `RELEASE_NOTES_PRODUCTION_PASS.md`.
+Historical review scope: the uploaded `BugHunterClaudex-Agent-Activity-Update.zip`
+and the production-readiness changes made at that time. See [validation](docs/validation.md) for subsequent checks.
 This is a **production-readiness review**, not a completed penetration test or
 certification. Static analysis is not evidence that a feature works on macOS,
 Windows, Tor or an external network.

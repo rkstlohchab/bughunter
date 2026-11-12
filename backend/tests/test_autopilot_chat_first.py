@@ -17,16 +17,6 @@ class FakeKnowledge:
     def search_for_project(self,query,project_id,limit=6):
         return [{'source_id':'source_a','id':'chunk_1','title':'Original reference','text':'Document passage read from source.'}]
 
-class FakeRedTeam:
-    def __init__(self):self.calls=0
-    def save(self,*args,**kwargs):
-        self.calls+=1
-        assert kwargs['target_system_prompt']=='For this test, reply with exactly BLUE.'
-        return {'id':'case_1','prompt':args[1]}
-    def run(self,case_id):
-        assert case_id=='case_1'
-        return {'id':'trial_1','response':'BLUE','provider':'ollama','model':'test-model'}
-
 class FakeAudit:
     def __init__(self):self.calls=[]
     def start(self,**kwargs):
@@ -39,14 +29,14 @@ def env(tmp_path):
     store.put('project',{'name':'Controlled lab','scope':['https://lab.example/'],
         'read_only_paths':['/'],'authorization':'I own the lab','lab_project':True},id='project_lab')
     app=SimpleNamespace(store=store,knowledge=FakeKnowledge(),settings=Settings(),
-                         redteam=FakeRedTeam(),website_audit=FakeAudit())
+                         website_audit=FakeAudit())
     return Autopilot(app),store,app
 
 
 def test_choose_workflow():
     assert choose_workflow('inspect the game executable I uploaded',['source_a'])=='file'
     assert choose_workflow('scan the website for issues')=='website'
-    assert choose_workflow('test prompt injection resilience')=='model_test'
+    assert choose_workflow('test prompt injection resilience')=='chat'
     assert choose_workflow('research my knowledge')=='knowledge'
     assert choose_workflow('hi')=='chat'
 
@@ -109,22 +99,6 @@ def test_website_requires_permission_scope_and_uses_existing_runner(env):
     assert app.website_audit.calls[0]['project_id']=='project_lab'
     with pytest.raises(ValueError,match='Missing setup'):
         auto.start(message='audit the website')
-
-
-def test_model_response_is_ungraded_and_reviewed_dataset_is_selective(env):
-    auto,store,app=env
-    result=auto.start(message='test a prompt injection on my model')
-    assert result['result']['response']=='BLUE'
-    assert result['result']['verdict']=='untested'
-    store.put('redteam_trial',{'prompt':'test','response':'BLUE',
-           'verdict':'resisted','lesson':'Correctly followed system rule',
-           'model':'test','origin':'test','project_id':None},id='trial_reviewed')
-    store.put('redteam_trial',{'prompt':'unreviewed','response':'RED',
-           'verdict':'untested','lesson':'','model':'test'},id='trial_unreviewed')
-    data=auto.export_training()
-    records=[json.loads(x) for x in data['content'].splitlines()]
-    assert len(records)==1 and records[0]['source_trial_id']=='trial_reviewed'
-    assert 'unreviewed' not in data['content']
 
 
 def test_tool_installer_requires_explicit_approval_and_allowlist(env,monkeypatch):

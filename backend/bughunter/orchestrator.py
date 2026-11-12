@@ -11,7 +11,7 @@ from .store import now
 from .security import redact_text
 from .tool_readiness import inventory
 
-MODES = {'research', 'code_review', 'web_review', 'model_evaluation'}
+MODES = {'research', 'code_review', 'web_review'}
 TERMINAL = {'completed', 'failed', 'cancelled', 'interrupted'}
 LINKED_ACTIVE = {'queued', 'starting', 'running', 'awaiting_approval', 'awaiting_retry', 'cancelling'}
 
@@ -95,8 +95,6 @@ class Orchestrator:
             steps.append({'key':'agents', 'title':'Run a read-only coding-agent review', 'type':'approval', 'status':'pending', 'task_id':None})
         if mode == 'web_review':
             steps.append({'key':'web', 'title':'Start an authorized web investigation', 'type':'approval', 'status':'pending', 'task_id':None})
-        if mode == 'model_evaluation':
-            steps.append({'key':'eval', 'title':'Review AI-testing setup and test cases in AI Testing', 'type':'handoff', 'status':'pending'})
         row = self.store.put('work_task', {
             'kind':'orchestrated', 'title': safe_description(objective, 110),
             'objective': objective.strip(), 'mode':mode, 'project_id':project_id,

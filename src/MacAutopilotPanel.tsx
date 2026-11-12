@@ -71,6 +71,7 @@ export default function MacAutopilotPanel({initialTask,projectId,onClose}:{initi
     }
     setStatus('Mac control stopped.');
   }
+  useEffect(()=>{const halt=()=>{void stop();};window.addEventListener('bughunter-stop-all',halt);return()=>window.removeEventListener('bughunter-stop-all',halt);},[]);
   async function testAppAccess() {
     if (!desktop() || !path || runningRef.current || active) return;
     runningRef.current = true;

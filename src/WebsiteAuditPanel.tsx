@@ -14,16 +14,21 @@ export default function WebsiteAuditPanel({projectId, navigate}: Props) {
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
   const [agreed,setAgreed] = useState(false);
+  const [renderPublic,setRenderPublic] = useState(false);
   useEffect(()=>{
-    setTask(null);setError('');setAgreed(false);setSeed('');
+    let cancelled = false;
+    setTask(null);setProject(null);setError('');setAgreed(false);setSeed('');setRenderPublic(false);
     if(!projectId){setProject(null);return;}
     void rpc<Row>('projects.get',{id:projectId}).then(value=>{
+      if(cancelled)return;
       setProject(value);setSeed(value.scope?.[0]||'');
-    }).catch(e=>setError(String(e)));
+    }).catch(e=>{if(!cancelled)setError(String(e));});
     void rpc<Row[]>('tasks.list',{project_id:projectId}).then(rows=>{
+      if(cancelled)return;
       const prior=rows.find(t=>t.kind==='website_audit');
       if(prior)setTask(prior);
     }).catch(()=>{});
+    return ()=>{cancelled=true;};
   },[projectId]);
   useEffect(()=>{
     if(!task?.id || !isActive(String(task.status)))return;
@@ -36,6 +41,7 @@ export default function WebsiteAuditPanel({projectId, navigate}: Props) {
       const result=await rpc<Row>('website.audit.start',{
         project_id:projectId, approved:agreed, max_pages:count,
         seed_url:seed.trim() || undefined,
+        render_public:renderPublic,
       });
       setTask(result);
     } catch(e) {setError(e instanceof Error?e.message:String(e));}
@@ -70,6 +76,7 @@ export default function WebsiteAuditPanel({projectId, navigate}: Props) {
           <label className="field"><span>Maximum pages (1–30)</span><input aria-label="Page limit" type="number" min={1} max={30} value={count} onChange={e=>setCount(Number(e.target.value))}/></label>
           <div className="website-audit-scope"><strong>Project:</strong> {project?.name}<small>Approved GET rules: {rules.length ? rules.map((r:any)=>typeof r==='string'?r:r.path).join(', ') : 'None configured'}</small><Button onClick={()=>navigate('Targets')}>Edit authorization & safe paths</Button></div>
           <label className="website-audit-consent"><input type="checkbox" checked={agreed} onChange={e=>setAgreed(e.target.checked)}/><span>I own this target or am explicitly authorized to crawl these paths. They are safe for GET requests, and the audit must obey my program rules.</span></label>
+          <label className="website-audit-consent"><input type="checkbox" checked={renderPublic} onChange={e=>setRenderPublic(e.target.checked)}/><span>Render the public start page and inspect its loaded assets. Uses a fresh session and up to 30 extra GET requests. Declare static asset paths in the project first; external services and unknown paths are blocked.</span></label>
           <div className="button-group wrap">
             {task&&isActive(String(task.status))?<Button icon={Square} disabled={busy} onClick={()=>void stop()}>Stop audit</Button>:
               <Button icon={Play} variant="primary" disabled={busy||!agreed||!seed.trim()||!rules.length||!Number.isInteger(count)||count<1||count>30} onClick={()=>void start()}>Run authorized audit</Button>}
@@ -84,6 +91,11 @@ export default function WebsiteAuditPanel({projectId, navigate}: Props) {
         <div className="cart-audit-stat"><b>{results.skipped??0}</b><small>Links skipped</small></div>
       </div>}
       {task?.error&&<p role="alert" className="conversation-error">{task.error}</p>}
+      {results.render_error&&<p role="alert" className="conversation-error">Public rendering incomplete: {results.render_error}</p>}
+      {!!results.observations?.length&&<details className="advanced-options" open><summary>Review leads — unconfirmed</summary>
+        <div className="website-audit-pages">{results.observations.map((item:Row,i:number)=><div className="website-audit-page" key={`${item.path}-${item.title}-${i}`}><strong>{item.title}</strong><span>{item.detail}</span><small>{item.path} · Evidence: {(item.evidence_ids||[]).join(', ')}</small></div>)}</div>
+      </details>}
+      {results.public_render&&<details className="advanced-options"><summary>Public page snapshot and coverage</summary><p>{results.public_render.message}</p><p>{results.public_render.title} · {results.assets?.length??0} assets inspected · {results.public_render.blocked_requests?.length??0} resource requests blocked</p><pre className="website-audit-rendered-text">{results.public_render.text||'No visible text captured.'}</pre></details>}
       {pages.length>0&&<details className="advanced-options"><summary><Activity size={15}/> Observed pages and evidence</summary>
         <div className="website-audit-pages">{pages.map((page,i)=><div className="website-audit-page" key={page.action_id||i}><strong>HTTP {page.status}</strong><span>{page.path}</span><small>Evidence: {(page.evidence_ids||[]).join(', ')}</small></div>)}</div>
       </details>}

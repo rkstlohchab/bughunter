@@ -98,9 +98,9 @@ def test_export_only_completed_matching_project_file_evidence(tmp_path):
 def test_routing_and_missing_original_file(tmp_path):
     assert choose_workflow('Please inspect the attached APK',['source_test'])=='file'
     assert choose_workflow('Find vulnerabilities in my website')=='website'
-    assert choose_workflow('Evaluate prompt injection on my AI')=='model_test'
+    assert choose_workflow('Evaluate prompt injection on my AI')=='chat'
     assert choose_workflow('Learn prompt injection techniques')=='knowledge'
-    assert choose_workflow('Explain prompt injection')=='chat'
+    assert choose_workflow('Explain prompt injection')=='knowledge'
     assert choose_workflow('Learn ESP for an offline game')=='knowledge'
     with pytest.raises(ValueError,match='unavailable'):
         inspect_source({'id':'source_test','filename':'gone.exe',

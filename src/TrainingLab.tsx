@@ -7,7 +7,6 @@ import { Button, Code, Empty, Field } from './components';
 const DOMAINS = [
   { id: 'burp_suite', name: 'Burp Suite', detail: 'Authorized HTTP, proxy, request analysis and documented findings.' },
   { id: 'cheat_engine', name: 'Cheat Engine', detail: 'Offline process inspection, scan refinement and reviewed local memory workflows.' },
-  { id: 'ai_redteam', name: 'AI red team', detail: 'Model robustness observations, prompt families, outcomes and repeatable evaluations.' },
   { id: 'tor_research', name: 'Tor research', detail: 'Reviewed research notes, page analysis and source-backed forum findings.' },
 ] as const;
 type Domain = typeof DOMAINS[number]['id'];
@@ -26,17 +25,11 @@ export default function TrainingLab({ perform, revision, projectId }: { perform:
   const [editId, setEditId] = useState('');
   const [search, setSearch] = useState('');
   const [notice, setNotice] = useState('');
-  const [trials, setTrials] = useState<Row[]>([]);
-  const [trialId, setTrialId] = useState('');
   const [torPages, setTorPages] = useState<Row[]>([]);
   const [torPageId, setTorPageId] = useState('');
   const [torSummary, setTorSummary] = useState('');
   const current = workspaces.find(w => w.id === workspaceId);
   useEffect(() => { if (domain === 'tor_research') rpc<Row[]>('tor.pages').then(x => setTorPages(x.filter(p => p.reviewed))).catch(() => {}); }, [domain, revision]);
-  useEffect(() => {
-    if (domain !== 'ai_redteam') return;
-    rpc<Row[]>('redteam.history').then(items => setTrials(items.filter(t => t.verdict !== 'untested' && t.lesson))).catch(() => {});
-  }, [domain, revision]);
   const refresh = useCallback(async () => {
     const all = await rpc<Row[]>('training.workspaces');
     setWorkspaces(all.filter(w=>!projectId || !w.project_id || w.project_id===projectId));
@@ -113,7 +106,6 @@ export default function TrainingLab({ perform, revision, projectId }: { perform:
         <div className="button-group wrap"><Button onClick={saveWorkspace}>Save project settings</Button><Button icon={Trash2} variant="danger-quiet" onClick={async () => { if (!window.confirm('Delete this training project and all its examples?')) return; const result = await perform('Deleting curriculum', () => rpc('training.delete', { id: current.id })); if (result) { setWorkspaceId(''); await reload(); } }}>Delete project</Button></div>
       </section>
       {domain === 'tor_research' && <section className="surface"><h3>Turn research into a worked example</h3><p>Select a reviewed capture and supply your corrected takeaway. It is stored as a draft until separately approved.</p><Field label="Reviewed capture"><select aria-label="Reviewed Tor capture" value={torPageId} onChange={e => setTorPageId(e.target.value)}><option value="">Select a captured page</option>{torPages.map(p => <option key={p.id} value={p.id}>{p.title} · {p.url.slice(0, 45)}</option>)}</select></Field><Field label="Your verified takeaway"><textarea rows={3} value={torSummary} onChange={e => setTorSummary(e.target.value)} placeholder="Summarize the source in your own words, preserving provenance and uncertainties."/></Field><Button disabled={!workspaceId || !torPageId || !torSummary.trim()} onClick={async () => { const result = await perform('Promoting research capture', () => rpc('training.import_tor', { workspace_id: workspaceId, page_id: torPageId, summary: torSummary }), 'Research imported as a draft example.'); if (result) { setTorPageId(''); setTorSummary(''); await reload(); } }}>Create draft training example</Button></section>}
-      {domain === 'ai_redteam' && <section className="surface"><h3>Promote a reviewed model test</h3><p>Turn an existing reviewed prompt/response/verdict into a draft analysis example. This does not train the model to imitate the tested model's response.</p><div className="button-group wrap"><select aria-label="Reviewed model test" value={trialId} onChange={e => setTrialId(e.target.value)}><option value="">Select reviewed trial</option>{trials.map(t => <option key={t.id} value={t.id}>{t.case_title || t.technique} · {t.verdict} · {t.id.slice(-6)}</option>)}</select><Button disabled={!trialId} onClick={async () => { const result = await perform('Importing reviewed experiment', () => rpc('training.import_redteam', { workspace_id: workspaceId, trial_id: trialId }), 'Experiment imported as draft; review its training response.'); if (result) await reload(); }}>Import as draft</Button></div></section>}
       <section className="surface">
         <div className="section-title"><div><h2>{editId ? 'Edit instruction pair' : 'Teach a worked example'}</h2><p>Correct target behavior first; never train on raw, unreviewed responses.</p></div><Plus size={18}/></div>
         <Field label="Task or instruction"><textarea rows={3} value={draft.instruction} onChange={e => setDraft({...draft, instruction: e.target.value})} maxLength={16000} placeholder="Describe what the specialist should recognize or do."/></Field>

@@ -117,6 +117,36 @@ def test_missing_security_header_is_lead_not_confirmed():
     assert any(x['title']=='HSTS header not observed' for x in issues)
 
 
+def test_public_resources_stay_within_declared_get_scope(app):
+    from bughunter.website_audit import public_resource_allowed
+    project = {**app.project, 'read_only_paths':['/', '/assets/*']}
+    seed = 'https://shop.example.test/'
+    assert public_resource_allowed(project, seed, seed+'assets/site.js')
+    for url in (seed+'api/menu', seed+'assets/cart', seed+'assets/app.js?token=secret',
+                'https://cdn.example.test/app.js', seed+'assets/%2e%2e/checkout'):
+        assert not public_resource_allowed(project, seed, url)
+    assert not public_resource_allowed(project, seed, seed, 'POST')
+    assert not public_resource_allowed(project, seed, seed, 'HEAD')
+
+
+def test_meta_policy_and_frame_controls_avoid_misleading_leads():
+    _, issues, page = inspect_page('https://example.test/', {'status':200,
+        'headers':{'content-type':'text/html', 'x-frame-options':'DENY'},
+        'body':'<meta http-equiv="Content-Security-Policy" content="default-src self"><meta name="referrer" content="no-referrer"><script src="/assets/app.js"></script>'})
+    assert not any('Content Security Policy' in x['title'] or 'Framing' in x['title'] or 'Referrer' in x['title'] for x in issues)
+    assert page['resources'][0]['path'] == '/assets/app.js'
+
+
+def test_asset_indicators_are_not_findings_or_endpoint_probes():
+    from bughunter.website_audit import inspect_asset
+    result = inspect_asset('https://example.test/assets/app.js', {'status':200,
+        'headers':{'content-type':'application/javascript'}, 'truncated':True,
+        'body':'node.innerHTML=x; localStorage.getItem("test"); //# sourceMappingURL=app.js.map'})
+    assert result['indicators']['HTML insertion APIs'] == 1
+    assert result['source_map_reference'] and result['truncated']
+    assert 'no attacker-controlled data flow or exploit' in result['assessment']
+
+
 def test_emergency_stop(app):
     app.store.set_setting('emergency_stop',True)
     with pytest.raises(ValueError,match='Emergency stop'):

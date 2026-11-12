@@ -29,7 +29,7 @@ def needs_rebuild(output: Path) -> bool:
         ROOT / "prompts" / "research-assistant.md",
     ]
     sources.extend((BACKEND / "bughunter").rglob("*.py"))
-    sources.extend((BACKEND / "bughunter" / "assets" / "prompt_corpus").rglob("*"))
+    sources.extend((BACKEND / "bughunter" / "assets").rglob("*"))
     return any(f.is_file() and f.stat().st_mtime > stamp for f in sources)
 
 

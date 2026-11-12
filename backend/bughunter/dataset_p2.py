@@ -50,7 +50,7 @@ class DatasetsP2:
     def _reference_ok(self, value):
         if not isinstance(value,str) or not value.strip(): return False
         if value == 'self:manual': return True  # Explicit human-authored record.
-        for prefix,kind in (('redteam_trial:','redteam_trial'),('tor_page:','tor_page')):
+        for prefix,kind in (('tor_page:','tor_page'),):
             if value.startswith(prefix):
                 entity=self.store.get(kind,value[len(prefix):])
                 return bool(entity and (kind != 'tor_page' or entity.get('reviewed')))
@@ -81,7 +81,8 @@ class DatasetsP2:
             if project_id != '*' and e.get('project_id') not in (None,project_id):
                 continue
             reason = None
-            if e.get('status') != 'reviewed': reason = 'not_reviewed'
+            if e.get('domain') == 'ai_redteam': reason = 'retired_domain'
+            elif e.get('status') != 'reviewed': reason = 'not_reviewed'
             elif e.get('training_allowed') is not True: reason = 'no_training_permission'
             elif not self._reference_ok(e.get('source')): reason = 'missing_source_reference'
             if reason:

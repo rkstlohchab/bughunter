@@ -59,6 +59,32 @@ def test_state_changing_get_and_graphql_not_classified_from_verb(policy):
     assert classify_effect(project, gql)[0] == "state_changing"
 
 
+@pytest.mark.parametrize('method,path,body,content_type', [
+    ('POST', '/api/graphql', r'{"query":"mu\u0074ation { changeCart }"}', 'application/json'),
+    ('GET', '/api/graphql?query=mutation%20%7BchangeCart%7D', '', 'application/json'),
+    ('GET', '/api/products?query=mutation%20%7BchangeCart%7D', '', 'application/json'),
+    ('POST', '/api/graphql', '[{"query":"{ cart { id } }"},{"query":"mutation { changeCart }"}]', 'application/json'),
+    ('POST', '/api/graphql', 'query=mutation+%7BchangeCart%7D', 'application/x-www-form-urlencoded'),
+    ('POST', '/api/graphql', '{"query":"mutation { changeCart }","query":"{ cart { id } }"}', 'application/json'),
+    ('POST', '/api/products', '{"operationName":"Cart","extensions":{"persistedQuery":{"sha256Hash":"abc"}}}', 'application/json'),
+    ('GET', '/api/products?extensions=%7B%22persistedQuery%22%3A%7B%7D%7D', '', 'application/json'),
+    ('POST', '/api/graphql', '{"query":', 'application/json'),
+    ('POST', '/api/graphql', '{"query":"query Cart { cart { id } }"}', 'application/json'),
+    ('POST', '/api/products', '{ cart { id } }', 'application/graphql'),
+    ('POST', '/api/products', 'query Cart { cart { id } }', 'text/plain'),
+    ('POST', '/api/products', '--boundary\r\noperations', 'multipart/form-data; boundary=boundary'),
+])
+def test_graphql_envelopes_never_inherit_path_level_read_only_permission(policy, method, path, body, content_type):
+    project = policy.project('project')
+    project['read_only_paths'] = [{'path': '/api/*', 'methods': ['GET', 'POST']}]
+    policy.save_project(project)
+    action = policy.queue('project', {'method': method, 'url': 'https://example.com' + path,
+        'headers': {'content-type': content_type}, 'body': body})
+    assert action['effect'] in {'unknown', 'state_changing'}
+    assert action['status'] == 'pending_approval'
+    with pytest.raises(ValueError): policy._claim(action['id'])
+
+
 def test_single_use_approval_bound_to_request_and_identity(policy):
     action = policy.queue("project", request(), "alice")
     assert action["status"] == "pending_approval"

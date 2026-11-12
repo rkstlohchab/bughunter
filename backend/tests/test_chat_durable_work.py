@@ -129,5 +129,7 @@ def test_provider_switch_clears_previous_endpoint_and_price_confirmation(app):
     app.settings.save({'provider': 'openai_compatible', 'model': 'custom', 'api_base_url': 'https://fixture.invalid/v1', 'pricing_confirmed': True})
     selected = app.select_model('openai', 'fixture-model')
     assert selected['api_base_url'] == '' and not selected['pricing_confirmed']
+    restored = app.select_model('openai_compatible', 'custom')
+    assert restored['api_base_url'] == 'https://fixture.invalid/v1'
     with pytest.raises(ValueError, match='Configure this provider'):
-        app.select_model('openai_compatible', 'custom')
+        app.select_model('remote_ollama', 'unconfigured')

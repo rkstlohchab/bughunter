@@ -4,6 +4,9 @@ This can help a Mac user install *free* supporting tools. It cannot install or
 license Burp Pro or guarantee Wine/Windows program compatibility.
 """
 from __future__ import annotations
+import os
+import signal
+import time
 import platform
 import shutil
 import subprocess
@@ -25,6 +28,7 @@ class ToolInstaller:
         self.store=store
         self._lock=threading.RLock()
         self._running=set()
+        self._cancelled=set()
         for old in self.store.list('setup_job'):
             if old.get('status')=='running':
                 self.store.put('setup_job',{**old,'status':'interrupted',
@@ -49,6 +53,7 @@ class ToolInstaller:
         brew=shutil.which('brew')
         if not brew:raise ValueError('Install Homebrew first from https://brew.sh/')
         with self._lock:
+            if self.store.setting('emergency_stop',False):raise ValueError('Task execution is stopped.')
             if self._running:raise ValueError('Another installation is already running.')
             job=self.store.put('setup_job',{'package':package,'status':'running','started_at':now(),
                                              'message':'Homebrew installation started after your approval.',
@@ -58,19 +63,46 @@ class ToolInstaller:
         thread.start()
         return job
 
+    def cancel_all(self):
+        with self._lock:
+            self._cancelled.update(self._running)
+
     def _run(self,id,package,brew):
         record=self.store.get('setup_job',id)
         pkg=PACKAGES[package]
         args=[brew,'install']+(['--cask',pkg['cask']] if 'cask' in pkg else [pkg['formula']])
         try:
-            result=subprocess.run(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
-                                   text=True,timeout=1800,check=False,env=None)
+            with self._lock:
+                if id in self._cancelled or self.store.setting('emergency_stop',False):
+                    raise InterruptedError('Installation stopped before launch.')
+            process=subprocess.Popen(args,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,
+                                     text=True,start_new_session=True)
+            deadline=time.monotonic()+1800
+            try:
+                while True:
+                    with self._lock: cancelled=id in self._cancelled
+                    if cancelled or self.store.setting('emergency_stop',False):
+                        raise InterruptedError('Installation stopped. Recheck tools before installing again.')
+                    remaining=deadline-time.monotonic()
+                    if remaining<=0:raise subprocess.TimeoutExpired(args,1800)
+                    try:
+                        output,_=process.communicate(timeout=min(0.2,remaining))
+                        result=subprocess.CompletedProcess(args,process.returncode,output)
+                        break
+                    except subprocess.TimeoutExpired:continue
+            except BaseException:
+                try:os.killpg(process.pid,signal.SIGKILL)
+                except ProcessLookupError:pass
+                process.communicate()
+                raise
             output=(result.stdout or '')[-5000:]
             status='completed' if result.returncode==0 else 'failed'
             message=('Homebrew finished. Recheck installation status.' if result.returncode==0 else
                      'Homebrew returned a non-zero exit code; review the output.')
             self.store.put('setup_job',{**record,'status':status,'exit_code':result.returncode,
                                         'message':message,'output':output,'finished_at':now()},id=id)
+        except InterruptedError as exc:
+            self.store.put('setup_job',{**record,'status':'cancelled','message':str(exc),'finished_at':now()},id=id)
         except subprocess.TimeoutExpired:
             self.store.put('setup_job',{**record,'status':'failed','message':'Homebrew timed out after 30 minutes.',
                                         'finished_at':now()},id=id)
@@ -78,7 +110,9 @@ class ToolInstaller:
             self.store.put('setup_job',{**record,'status':'failed','message':type(exc).__name__,
                                         'finished_at':now()},id=id)
         finally:
-            with self._lock:self._running.discard(id)
+            with self._lock:
+                self._running.discard(id)
+                self._cancelled.discard(id)
 
     def dispatch(self, method,params):
         if method=='setup.catalog':return self.catalog()

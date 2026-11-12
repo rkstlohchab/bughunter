@@ -68,3 +68,38 @@ def test_lab_marker_alone_cannot_enable_direct_target_access(lab):
     policy.save_project(project)
     action = policy.queue(project["id"], {"method":"GET","url":"http://127.0.0.1:1/products","headers":{},"body":""})
     with pytest.raises(ValueError, match="active disposable lab"): policy.execute(action["id"])
+
+
+def test_quantity_maximum_has_a_vulnerable_oracle_and_fixed_rejection(lab):
+    _, setup, policy, _ = lab
+    responses = {}
+    for mode in ('vulnerable', 'fixed'):
+        action = policy.queue(setup['project']['id'], {
+            'method':'POST', 'url':setup['runtime']['url']+f'/{mode}/cart',
+            'headers':{'content-type':'application/json'},
+            'body':json.dumps({'product_id':'regular','quantity':21})}, 'alice')
+        policy.approve(action['id'])
+        result = policy.execute(action['id'])
+        responses[mode] = result['response']
+    assert responses['vulnerable']['status'] == 200
+    assert 'Invalid quantity accepted' in json.loads(responses['vulnerable']['body'])['violations']
+    assert responses['fixed']['status'] == 400
+    assert json.loads(responses['fixed']['body'])['error_code'] == 'invalid_quantity'
+
+
+@pytest.mark.parametrize('literal', ['NaN', 'Infinity', '-Infinity', '1e400'])
+def test_nonfinite_quantity_is_rejected_without_changing_cart(lab, literal):
+    service, setup, policy, _ = lab
+    for mode in ('vulnerable', 'fixed'):
+        baseline = {'account':'alice','accepted_total':100}
+        service.server.carts[(mode, 'alice')] = baseline.copy()
+        action = policy.queue(setup['project']['id'], {
+            'method':'POST', 'url':setup['runtime']['url']+f'/{mode}/cart',
+            'headers':{'content-type':'application/json'},
+            'body':'{"product_id":"regular","quantity":'+literal+'}'}, 'alice')
+        policy.approve(action['id'])
+        result = policy.execute(action['id'])
+        assert result['status'] == 'completed'
+        assert result['response']['status'] == 400
+        assert json.loads(result['response']['body'])['error_code'] in {'invalid_quantity','invalid_request'}
+        assert service.server.carts[(mode, 'alice')] == baseline

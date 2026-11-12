@@ -9,7 +9,7 @@ import secrets
 import socket
 import time
 from datetime import datetime, timedelta, timezone
-from urllib.parse import quote, unquote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, unquote, urlsplit, urlunsplit
 
 from .store import Store, now
 
@@ -98,9 +98,60 @@ def validate_scope(project: dict, url: str, resolve: bool = True) -> list[str]:
     return addresses
 
 
+def _graphql_effect(request: dict) -> tuple[str, str] | None:
+    """Decode transport envelopes before consulting broad path rules.
+
+    A URL rule cannot establish resolver semantics, select an operation in a
+    batch, or resolve a persisted query. Those requests need individual review.
+    This is deliberately a conservative classifier, not a GraphQL parser.
+    """
+    u = urlsplit(request['url'])
+    body = request.get('body', '')
+    headers = {k.lower(): v.lower() for k, v in request.get('headers', {}).items()}
+    content_type = headers.get('content-type', '').split(';')[0].strip()
+    marked = 'graphql' in u.path.lower() or content_type == 'application/graphql'
+    documents = [body]  # Preserve the existing raw mutation tripwire.
+    keys = {'query', 'operationName', 'variables', 'extensions', 'documentId'}
+
+    def inspect(envelope):
+        nonlocal marked
+        if isinstance(envelope, dict) and keys.intersection(envelope):
+            marked = True
+            if isinstance(envelope.get('query'), str): documents.append(envelope['query'])
+
+    try:
+        # Include duplicates: no choice of first/last server semantics may turn
+        # a conflicting envelope into an automatically executable request.
+        for key, value in parse_qsl(u.query, keep_blank_values=True, max_num_fields=256):
+            if key in keys: marked = True
+            if key == 'query': documents.append(value)
+        if content_type in {'application/x-www-form-urlencoded', 'multipart/form-data'}:
+            marked = marked or content_type == 'multipart/form-data'
+            for key, value in parse_qsl(body, keep_blank_values=True, max_num_fields=256):
+                if key in keys: marked = True
+                if key == 'query': documents.append(value)
+                if key == 'operations':
+                    marked = True
+                    documents.append(value)
+        if body.lstrip().startswith(('{', '[')):
+            # object_pairs_hook observes escaped keys and duplicate operations.
+            def pairs(values):
+                for key, value in values: inspect({key: value})
+                return dict(values)
+            json.loads(body, object_pairs_hook=pairs)
+        if re.match(r'\s*(?:query|mutation|subscription)\b', body): marked = True
+    except (ValueError, RecursionError):
+        return 'unknown', 'Ambiguous request encoding requires review'
+    if any(re.search(r'\bmutation\b', doc, re.I) for doc in documents):
+        return 'state_changing', 'GraphQL mutation changes business state'
+    if marked:
+        return 'unknown', 'GraphQL operation semantics require individual review'
+    return None
+
+
 def classify_effect(project: dict, request: dict) -> tuple[str, str]:
     method, u, body = request["method"], urlsplit(request["url"]), request.get("body", "")
-    if re.search(r"\bmutation\b", body, re.I): return "state_changing", "GraphQL mutation changes business state"
+    if effect := _graphql_effect(request): return effect
     if re.search(r"(?:^|[/?=&_-])(delete|remove|logout|purchase|checkout|apply|redeem|update|transfer|reset|cancel|create|subscribe|save|destroy|activate|disable)(?:[/?=&_-]|$)", unquote(u.path + "?" + u.query), re.I):
         return "state_changing", "The operation name indicates a state change"
     if method in {"PUT", "PATCH", "DELETE"}: return "state_changing", f"{method} changes server state"

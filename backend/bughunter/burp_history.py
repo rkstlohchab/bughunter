@@ -85,7 +85,7 @@ class BurpHistory:
     def dispatch(self,method,params):
         if method not in {'burp.history','burp.health','burp.repeater.open','burp.issues','burp.audit.start','burp.audit.status','burp.audit.stop','burp.web.review'}:raise ValueError('Unknown Burp action.')
         self.app.store.require_desktop_owner()
-        if self.app.store.setting('emergency_stop',False):raise ValueError('Task execution is paused.')
+        if self.app.store.setting('emergency_stop',False) and method not in {'burp.audit.stop','burp.audit.status'}:raise ValueError('Task execution is paused.')
         project=None
         if method in {'burp.history','burp.repeater.open','burp.issues','burp.audit.start','burp.web.review'}:
             project=self.app.policy.project(str(params.get('project_id','')))
@@ -104,6 +104,7 @@ class BurpHistory:
                 data=response.json()
             if method=='burp.audit.stop':
                 if data.get('stopped') is not True:raise ValueError('Burp did not confirm cancellation.')
+                self.app.store.set_setting('burp_audit_active',False)
                 return {'stopped':True,'source':'Authenticated local Burp extension'}
             return safe_audit_status(data)
         if method=='burp.web.review':
@@ -141,6 +142,10 @@ class BurpHistory:
                 result=res.json()
             if result.get('started') is not True or result.get('history_id')!=target:
                 raise ValueError('Burp did not confirm starting an audit.')
+            self.app.store.set_setting('burp_audit_active',True)
+            if self.app.store.setting('emergency_stop',False):
+                self.dispatch('burp.audit.stop',{'approved':True})
+                raise ValueError('Audit cancelled by global stop.')
             self.app.store.event('burp.audit.started',{'project_id':project['id'],'history_id':target})
             return {'started':True,'history_id':target,'project_id':project['id'],
                     'source':'Official Burp Montoya active audit',

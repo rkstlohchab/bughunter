@@ -236,6 +236,8 @@ class KnowledgeService:
         self._worker: threading.Thread | None = None
         self._queued: set[str] = set()
         self._queue_lock = threading.Lock()
+        self._cancel_generation = 0
+        self._processing = threading.local()
         self._vec_available = False
         self._init_schema()
         from .course_p0 import CourseP0, ProcedureP0
@@ -331,6 +333,7 @@ class KnowledgeService:
             "sources.retry": lambda: self.retry_source(p["id"]),
             "sources.release_original": lambda: self.portability().release_original(**p),
             "knowledge.export": lambda: self.portability().export_bundle(**p),
+            "knowledge.reference_pack.import": lambda: self.import_reference_pack(**p),
             "knowledge.examples.save": lambda: self.portability().save_example(**p),
             "knowledge.examples.list": lambda: self.store.list("learning_example"),
             "knowledge.search": lambda: self.search(p.get("query", ""), p.get("limit", 10), project_id=p.get("project_id", "*")),
@@ -513,9 +516,15 @@ class KnowledgeService:
                 "sources": records, "count": len(records), "limited_to_first": 50,
                 "message": "Queued up to 50 public videos. Import another batch later for larger channels."}
 
+    def import_reference_pack(self, project_id=None):
+        from .reference_pack import import_pack
+        return import_pack(self, project_id=project_id)
+
     def import_source(self, path: str | None = None, filename: str | None = None,
                       content_base64: str | None = None, url: str | None = None,
                       download_media: bool = False, language: str = "en", copy_original: bool = True, project_id=None) -> dict:
+        if self.store.setting("emergency_stop", False):
+            raise ValueError("Tasks are stopped. Use Resume tasks before importing sources.")
         if project_id is not None and not self.store.get("project", project_id):
             raise ValueError("Unknown knowledge project.")
         if sum(v is not None for v in (path, content_base64, url)) != 1:
@@ -654,13 +663,24 @@ class KnowledgeService:
         except OSError:
             return False
 
+    def cancel_pending(self):
+        self._cancel_generation += 1
+        for source in self.store.list('source'):
+            if source.get('status') in {'queued', 'processing'}:
+                self._update(source['id'], status='cancelled', stage='cancelled', error='Stopped by operator. Retry this source explicitly to continue.')
+
+    def _check_cancelled(self, id):
+        source = self.store.get('source', id)
+        if self.store.setting('emergency_stop', False) or (source and (source.get('status') == 'cancelled' or source.get('media_control') == 'cancel')):
+            raise InterruptedError('Source processing stopped by operator.')
+
     def _claim(self, id: str) -> dict | None:
         with self.store.connection(immediate=True) as db:
             row = db.execute("SELECT data FROM entities WHERE id=? AND kind='source'", (id,)).fetchone()
             if not row:
                 return None
             source = json.loads(row[0])
-            if source["status"] != "queued":
+            if source["status"] != "queued" or self.store.setting("emergency_stop", False):
                 return None
             source.update(status="processing", stage="extracting", error=None, worker_pid=os.getpid(), updated_at=now())
             db.execute("UPDATE entities SET data=?,updated_at=? WHERE id=?", (json.dumps(source), source["updated_at"], id))
@@ -687,6 +707,8 @@ class KnowledgeService:
         source = self._claim(id)
         if not source:
             return self.store.get("source", id)
+        self._processing.generation = self._cancel_generation
+        self._processing.source_id = id
         try:
             artifact_dir = self.store.root / "artifacts" / id
             artifact_dir.mkdir(exist_ok=True, mode=0o700)
@@ -701,10 +723,11 @@ class KnowledgeService:
                 temporary = checkpoint.with_suffix(".tmp")
                 temporary.write_text(json.dumps({"segments": segments, "warnings": warnings}, ensure_ascii=False))
                 temporary.replace(checkpoint)
+            self._check_cancelled(id)
             source = self._update(id, stage="indexing")
             if not source:
                 return None
-            count = self._index(source, segments)
+            count = self._index(source, segments, preserve_existing=(artifact_dir / 'media_timeline.json').exists())
             if count:
                 try:
                     self.procedures.build(id)
@@ -714,11 +737,13 @@ class KnowledgeService:
                 warnings.append("No searchable text was extracted. Check extractor/model availability and retry.")
             semantic_status = "unavailable"
             semantic_error = None
+            self._check_cancelled(id)
             if count:
                 try:
                     semantic_status = self._index_vectors(id)
                 except Exception as exc:  # noqa: BLE001 - optional model failures must preserve keyword search
                     semantic_error = str(exc)[:350]
+            self._check_cancelled(id)
             warnings, notes = extraction_messages(warnings)
             result = self._update(id, status="partial" if warnings else "ready", stage="complete",
                                  extraction_notes=notes,
@@ -727,6 +752,8 @@ class KnowledgeService:
             self.store.event("source.indexed", {"source_id": id, "chunk_count": count,
                                                 "status": result["status"] if result else "deleted"})
             return result
+        except InterruptedError as exc:
+            return self._update(id, status="cancelled", stage="cancelled", error=str(exc), worker_pid=None)
         except Exception as exc:  # noqa: BLE001 - durable worker boundary records extractor failures
             result = self._update(id, status="error", stage="failed", error=str(exc)[:1000], worker_pid=None)
             self.store.event("source.failed", {"source_id": id, "error": str(exc)[:400]})
@@ -759,15 +786,17 @@ class KnowledgeService:
         return {**result, 'source_status': current.get('status') if current else 'deleted'}
 
     def retry_source(self, id: str) -> dict:
+        if self.store.setting("emergency_stop", False):
+            raise ValueError("Tasks are stopped. Use Resume tasks before retrying sources.")
         with self.store.connection(immediate=True) as db:
             row = db.execute("SELECT data FROM entities WHERE kind='source' AND id=?",(id,)).fetchone()
             if not row: raise ValueError("Source not found.")
             source = json.loads(row[0])
             if source.get("original_retained") is False and not source.get("url"):
                 raise ValueError("The original was released. Import the original file again to re-extract it; existing knowledge is still available.")
-            if source["status"] == "processing" and self._pid_alive(source.get("worker_pid")):
+            if source["status"] in {"processing", "cancelled"} and self._pid_alive(source.get("worker_pid")):
                 raise ValueError("This source is still processing.")
-            source.update(status="queued",error=None,worker_pid=None,original_retained=True)
+            source.update(status="queued",error=None,worker_pid=None,original_retained=True,media_control="resume")
             db.execute("UPDATE entities SET data=?,updated_at=? WHERE id=?",(json.dumps(source),now(),id))
         # Explicit retry re-extracts so newly installed OCR/media tools are used.
         checkpoint = self.store.root / "artifacts" / id / "extracted.json"
@@ -791,6 +820,7 @@ class KnowledgeService:
             self._worker.join(timeout=2)
 
     def _extract(self, source: dict, artifacts: Path, budget=None, depth=0) -> tuple[list[dict], list[str]]:
+        self._check_cancelled(source["id"])
         if source.get("video_id"):
             return self._extract_youtube(source, artifacts)
         if source.get("web_resource"):
@@ -846,7 +876,7 @@ class KnowledgeService:
 
     def _extract_website(self, source, artifacts):
         snapshot = artifacts / "downloaded-resource"
-        receipt = fetch_resource(source["url"],snapshot,lambda: self._stop.is_set() or self.store.get("source",source["id"]) is None)
+        receipt = fetch_resource(source["url"],snapshot,lambda: self._stop.is_set() or self.store.setting("emergency_stop",False) or (self.store.get("source",source["id"]) or {}).get("status") == "cancelled" or self.store.get("source",source["id"]) is None)
         source.update(downloaded_url=receipt["url"],fetched_at=now(),download_bytes=receipt["bytes"],media_type=receipt["content_type"],content_hash=_digest(snapshot.read_bytes()))
         self._update(source["id"],**{k:source[k] for k in ("downloaded_url","fetched_at","download_bytes","media_type","content_hash")})
         downloaded = {**source,"web_resource":False,"path":str(snapshot),"filename":Path(urlparse(receipt["url"]).path).name or ("index.html" if "html" in receipt["content_type"] else "download")}
@@ -869,6 +899,7 @@ class KnowledgeService:
             budget["bytes"] += total
             budget["entries"] += len(members)
             for item in members:
+                self._check_cancelled(source["id"])
                 if self._stop.is_set() or not self.store.get("source",source["id"]): raise ValueError("Archive import cancelled.")
                 if item.is_dir() or "__MACOSX" in Path(item.filename).parts or Path(item.filename).name.startswith("."):
                     continue
@@ -951,9 +982,12 @@ class KnowledgeService:
                 description = runtime.vision(frame, 0)
                 if description:
                     segments.append({"text":description,"locator":"Visual analysis","modality":"vision",
-                                     "frame_path":str(frame),"model":config["vision_model"]})
+                                     "frame_path":str(frame),"provider":config.get('vision_provider', 'local'),
+                                     "model":config.get('codex_vision_model') if config.get('vision_provider') == 'codex_subscription' else config['vision_model']})
             except (ValueError, OSError, httpx.HTTPError) as exc:
-                warnings.append(f"Qwen3-VL visual analysis unavailable ({type(exc).__name__}); set it up in Video AI and reprocess.")
+                if isinstance(exc, InterruptedError) or config.get('vision_provider') == 'codex_subscription':
+                    raise
+                warnings.append(f"Visual analysis unavailable ({type(exc).__name__}); check Video AI and reprocess.")
         else:
             warnings.append("Visual model analysis disabled or unavailable; use Video AI setup to enable it.")
         self._update(source["id"],frames=[{"artifact_id":frame.name,"path":str(frame),"time":0,"locator":"Image"}],frame_count=1)
@@ -975,8 +1009,9 @@ class KnowledgeService:
                     from PIL import Image
                     with pymupdf.open(path) as pdf:
                         bitmap = pdf[i].get_pixmap(matrix=pymupdf.Matrix(2, 2))
-                        text = pytesseract.image_to_string(Image.frombytes("RGB", [bitmap.width, bitmap.height], bitmap.samples))
-                    modality = "ocr"
+                        ocr_text = _text(pytesseract.image_to_string(Image.frombytes("RGB", [bitmap.width, bitmap.height], bitmap.samples)))
+                    if ocr_text:
+                        text, modality = ocr_text, "ocr"
                 except (ImportError, OSError, RuntimeError) as exc:
                     warnings.append(f"Page {i + 1} needs OCR: {type(exc).__name__}. Install the OCR extras and Tesseract.")
             if _text(text):
@@ -999,15 +1034,41 @@ class KnowledgeService:
                                  "modality": "transcript", "start": start, "end": end})
         return segments
 
-    @staticmethod
-    def _run(arguments: list[str], timeout: float = 1800) -> subprocess.CompletedProcess:
-        result = subprocess.run(arguments, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL, check=False)
+    def _run(self, arguments: list[str], timeout: float = 1800) -> subprocess.CompletedProcess:
+        generation = getattr(self._processing, 'generation', self._cancel_generation)
+        def check():
+            if self._stop.is_set() or generation != self._cancel_generation or self.store.setting('emergency_stop', False):
+                raise InterruptedError('Source processing stopped by operator.')
+            source_id = getattr(self._processing, 'source_id', None)
+            source = self.store.get('source', source_id) if source_id else None
+            if source and source.get('media_control') == 'cancel':
+                raise InterruptedError('Video processing cancelled by user.')
+        check()
+        process = subprocess.Popen(arguments, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                   text=True, stdin=subprocess.DEVNULL)
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                check()
+                remaining = deadline - time.monotonic()
+                if remaining <= 0: raise subprocess.TimeoutExpired(arguments, timeout)
+                try:
+                    out, err = process.communicate(timeout=min(0.2, remaining))
+                    check()
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+        result = subprocess.CompletedProcess(arguments, process.returncode, out, err)
         if result.returncode:
             raise ValueError(f"{Path(arguments[0]).name} failed: {result.stderr[-600:]}")
         return result
 
     def _extract_media(self, path: Path, artifacts: Path, source: dict, transcript: list[dict] | None = None) -> tuple[list[dict], list[str]]:
-        """Checkpointed local frame + Whisper analysis, preserving timestamp provenance.
+        """Checkpointed frame + Whisper analysis, preserving timestamp provenance.
 
         Speech segments and screenshots are separate evidence sources; the index
         connects them chronologically but never claims that a sampled frame
@@ -1016,6 +1077,8 @@ class KnowledgeService:
         from .local_media import binary
         runtime = getattr(self, "media_runtime", None)
         settings = runtime.config() if runtime else {"enabled": False, "frame_interval": 30, "max_frames": 48}
+        visual_provider = settings.get('vision_provider', 'local')
+        visual_model = settings.get('codex_vision_model') if visual_provider == 'codex_subscription' else settings.get('vision_model')
         if not transcript:
             for suffix in (".srt", ".vtt"):
                 sidecar = path.with_suffix(suffix)
@@ -1040,33 +1103,28 @@ class KnowledgeService:
         sid = source["id"]
         timeline_path = artifacts / "media_timeline.json"
         timeline = json.loads(timeline_path.read_text()) if timeline_path.exists() else []
-        speech_cache = artifacts / "speech_segments.json"
+        from .media_context import CONTEXT_VERSION, context_key, narration_near, retained_timeline, save_json
         if has_audio and not transcript:
-            if speech_cache.exists():
-                segments.extend(json.loads(speech_cache.read_text()))
+            model_path = (runtime.whisper_path() if runtime else
+                          Path(self._settings().get("whisper_model_path") or os.environ.get("BUGHUNTER_WHISPER_MODEL") or ""))
+            whisper = binary("whisper-cli")
+            if runtime and not settings.get("speech_enabled", True):
+                warnings.append("Local speech transcription disabled in Video AI setup.")
+            elif whisper and model_path.is_file():
+                from .media_speech import transcribe_chunks
+                audio_stream = next(item for item in probe['streams'] if item.get('codec_type') == 'audio')
+                try:
+                    audio_duration = float(audio_stream.get('duration'))
+                    if not math.isfinite(audio_duration) or audio_duration <= 0: audio_duration = duration
+                except (TypeError, ValueError):
+                    audio_duration = duration
+                segments.extend(transcribe_chunks(self, runtime, source, path, artifacts,
+                                audio_duration, ffmpeg, whisper, model_path))
             else:
-                model_path = (runtime.whisper_path() if runtime else
-                              Path(self._settings().get("whisper_model_path") or os.environ.get("BUGHUNTER_WHISPER_MODEL") or ""))
-                whisper = binary("whisper-cli")
-                if runtime and not settings.get("speech_enabled", True):
-                    warnings.append("Local speech transcription disabled in Video AI setup.")
-                elif whisper and model_path.is_file():
-                    if runtime: runtime.checkpoint(sid, self)
-                    audio = artifacts / "audio.wav"
-                    if not audio.exists():
-                        self._run([ffmpeg, "-nostdin", "-y", "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", str(audio)], 3600)
-                    output = artifacts / "transcript"
-                    if not output.with_suffix(".srt").exists():
-                        self._run([whisper, "-m", str(model_path), "-f", str(audio),
-                                   "-osrt", "-of", str(output), "-l", "auto", "-nt"], 7200)
-                    if output.with_suffix(".srt").exists():
-                        speech = self._subtitle_segments(output.with_suffix(".srt").read_text())
-                        segments.extend(speech)
-                        speech_cache.write_text(json.dumps(speech))
-                    # Audio is a large intermediate. The SRT is a durable checkpoint.
-                    audio.unlink(missing_ok=True)
-                else:
-                    warnings.append("Local Whisper is not ready. In Video AI, install whisper.cpp and the speech model, then reprocess.")
+                warnings.append("Local Whisper is not ready. In Video AI, install whisper.cpp and the speech model, then reprocess.")
+        # Speech is already useful while the much longer visual pass runs.
+        if segments:
+            self._publish_media(source, segments, artifacts, cached=timeline)
         if has_video:
             if has_audio and video_duration + 1 < duration:
                 warnings.append(MEDIA_AUDIO_TAIL_NOTE)
@@ -1077,15 +1135,39 @@ class KnowledgeService:
             # changes sharply. A scene cut is NOT proof a button was clicked.
             extra_times = []
             if settings.get("adaptive_frames", True) and settings.get("vision_enabled",True) and video_duration:
-                extra_times = scene_cuts(ffmpeg, str(path), video_duration,
-                    threshold=float(settings.get("scene_threshold",0.30)))
+                self._update(sid, media_progress={"phase":"scene_scan", "analyzed":0,
+                             "total":0, "timestamp":0, "duration":video_duration})
+                scene_identity = {'source':source.get('content_hash'), 'duration':video_duration,
+                                  'threshold':float(settings.get('scene_threshold',0.30))}
+                scene_path = artifacts / 'scene-cuts.json'
+                try:
+                    saved_scenes = json.loads(scene_path.read_text())
+                except (OSError, ValueError):
+                    saved_scenes = {}
+                if saved_scenes.get('identity') == scene_identity and isinstance(saved_scenes.get('times'), list):
+                    extra_times = saved_scenes['times']
+                else:
+                    extra_times = scene_cuts(ffmpeg, str(path), video_duration,
+                        threshold=scene_identity['threshold'], run=self._run)
+                    save_json(scene_path, {'identity':scene_identity, 'times':extra_times})
             stamps = plan_frames(video_duration, interval, cap, extra_times)
             total_frames = len(stamps)
+            self._update(sid, media_progress={"phase":"frames", "analyzed":0,
+                         "total":total_frames, "timestamp":0, "duration":video_duration})
             step = interval
             frames = []
             existing = {round(float(t.get("start", -1)), 2): t for t in timeline if t.get("modality") == "vision"}
+            visual_count = 0
+            ocr_count = 0
             vision_usable = bool(runtime and settings.get("enabled", True) and settings.get("vision_enabled", True))
             had_model_error = False
+            def check_visual_cancelled():
+                self._check_cancelled(sid)
+                if self._stop.is_set():
+                    raise InterruptedError('Application shutting down.')
+                latest = self.store.get('source', sid)
+                if latest is None or latest.get('media_control') == 'cancel':
+                    raise InterruptedError('Source visual analysis cancelled.')
             for index, stamp in enumerate(stamps):
                 if runtime: runtime.checkpoint(sid, self)
                 # Timestamp-keyed paths avoid silently reusing the wrong JPEG
@@ -1101,55 +1183,80 @@ class KnowledgeService:
                         continue
                 if not frame.exists():
                     continue
-                frames.append({"artifact_id":frame.name,"path":str(frame),"time":stamp,
-                               "locator":f"Frame at {_seconds_label(stamp)}"})
+                current_frame = {"artifact_id":frame.name,"path":str(frame),"time":stamp,
+                                 "locator":f"Frame at {_seconds_label(stamp)}"}
+                previous_frames = frames[-2:]
+                nearby = narration_near(segments, stamp)
+                cache_key = context_key(source.get('content_hash'), f'{visual_provider}:{visual_model}',
+                                        current_frame, previous_frames, nearby)
+                frames.append(current_frame)
                 visual = existing.get(round(stamp, 2))
+                if visual and visual.get('context_key') != cache_key:
+                    visual = None
                 if visual is None and vision_usable:
                     try:
-                        description = runtime.vision(frame, stamp)
+                        description = runtime.vision(frame, stamp, context=nearby,
+                            previous_frames=previous_frames, cancel_check=check_visual_cancelled)
                         if description:
                             visual = {"text":description,"locator":f"Frame at {_seconds_label(stamp)}",
                                       "modality":"vision","start":stamp,"end":min(video_duration,stamp+step),
-                                      "frame_path":str(frame),"model":settings.get("vision_model")}
-                            timeline.append(visual)
+                                      "frame_path":str(frame),"model":visual_model,"provider":visual_provider,
+                                      "assertion_status":"inferred", "origin":"model",
+                                      "context_version":CONTEXT_VERSION, "context_key":cache_key,
+                                      "narration_context":nearby,
+                                      "previous_frames":[{'artifact_id':f['artifact_id'],'time':f['time']} for f in previous_frames]}
                             existing[round(stamp, 2)] = visual
-                            # Atomic checkpoints enable retry after power loss or interruption.
-                            tmp = timeline_path.with_suffix(".tmp")
-                            tmp.write_text(json.dumps(timeline,ensure_ascii=False))
-                            tmp.replace(timeline_path)
                     except (ValueError, OSError, httpx.HTTPError) as exc:
+                        if isinstance(exc, InterruptedError):
+                            raise
+                        if visual_provider == 'codex_subscription':
+                            # Preserve completed observations, then surface provider
+                            # failures instead of silently finishing with only OCR.
+                            self._publish_media(source, segments, artifacts, cached=list(existing.values()))
+                            self._update(sid, frames=frames, frame_count=len(frames),
+                                visual_context_count=visual_count, ocr_frame_count=ocr_count)
+                            raise ValueError(f'ChatGPT visual analysis paused at {_seconds_label(stamp)}: {redact_text(str(exc))[:500]}. Completed work is saved; retry this source after resolving the connection or limit.') from exc
                         if not had_model_error:
                             warnings.append(f"Vision not available ({type(exc).__name__}); frames preserved for reprocessing.")
                         had_model_error = True
                         vision_usable = False
                 if visual:
                     segments.append(visual)
+                    visual_count += 1
                 else:
                     try:
                         import pytesseract
                         from PIL import Image
-                        text = _text(pytesseract.image_to_string(Image.open(frame)))
+                        text = _text(pytesseract.image_to_string(Image.open(frame), timeout=30))
                         if text:
                             segments.append({"text":text,"locator":f"Frame at {_seconds_label(stamp)}",
                                              "modality":"ocr","start":stamp,"frame_path":str(frame)})
+                            ocr_count += 1
                     except (ImportError, OSError, RuntimeError):
                         pass
-                if index % 5 == 0:
-                    self._update(sid, frame_count=len(frames), media_progress={"analyzed":index+1,"total":total_frames,"timestamp":stamp}, duration=duration)
+                # The timeline checkpoints every completed frame; searchable
+                # batches preserve prior corrections and source-linked notes.
+                cached_visuals = list(existing.values())
+                save_json(timeline_path, retained_timeline(segments, cached_visuals))
+                if index == 0 or (index + 1) % 10 == 0:
+                    self._publish_media(source, segments, artifacts, cached=cached_visuals)
+                    save_json(artifacts / 'frames.json', frames)
+                    self._update(sid, frame_count=len(frames), frames=frames,
+                        visual_context_count=visual_count, ocr_frame_count=ocr_count,
+                        media_progress={"phase":"frames", "analyzed":index+1,"total":total_frames,
+                            "timestamp":stamp, "visual_context":visual_count,"ocr":ocr_count}, duration=duration)
             (artifacts / "frames.json").write_text(json.dumps(frames))
             self._update(sid, frame_count=len(frames), frames=frames, duration=duration, video_duration=video_duration,
-                         media_progress={"analyzed":len(frames),"total":total_frames,"timestamp":video_duration})
+                         visual_context_count=visual_count, ocr_frame_count=ocr_count,
+                         media_progress={"phase":"frames", "analyzed":len(frames),"total":total_frames,
+                            "timestamp":video_duration,"visual_context":visual_count,"ocr":ocr_count})
             if not vision_usable and not existing:
-                warnings.append("Only sampled frames and available OCR were indexed. Enable Qwen3-VL for frame descriptions.")
+                warnings.append("Only sampled frames and available OCR were indexed. Enable a vision provider in Video AI for frame descriptions.")
             warnings.append(MEDIA_SAMPLING_NOTE)
         elif not has_audio:
             warnings.append("No audio or video stream was detected.")
         if segments:
-            # Timeline includes both modalities and is searchable via ordinary source chunks.
-            ordered = sorted(segments, key=lambda s:(float(s.get("start",0)), 0 if s.get("modality")=="transcript" else 1))
-            tmp = timeline_path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(ordered,ensure_ascii=False))
-            tmp.replace(timeline_path)
+            self._publish_media(source, segments, artifacts)
         return segments, warnings
 
     def _fetch_youtube(self, video_id: str, language: str) -> list[dict]:
@@ -1205,7 +1312,7 @@ class KnowledgeService:
         with yt_dlp.YoutubeDL(options) as downloader:
             downloader.download([url])
 
-    def _index(self, source: dict, segments: list[dict]) -> int:
+    def _index(self, source: dict, segments: list[dict], *, preserve_existing=False) -> int:
         id = source["id"]
         records = []
         seen = set()
@@ -1221,6 +1328,8 @@ class KnowledgeService:
                     metadata["section"] = section
                 records.append({"id": chunk_id, "text": text, "locator": locator,
                                 "modality": segment.get("modality", "text"), "metadata": metadata})
+        if preserve_existing:
+            return self._append_media_records(source, records)
         with self.store.connection(immediate=True) as db:
             if not db.execute("SELECT 1 FROM entities WHERE kind='source' AND id=?", (id,)).fetchone():
                 return 0
@@ -1256,6 +1365,60 @@ class KnowledgeService:
                                {"origin":"timestamp", "start":at, "next_start":next_at, "status":"observed_order"})
             self._remove_orphan_nodes(db)
         return len(records)
+
+    def _append_media_records(self, source, records):
+        """Publish completed evidence without replacing corrections or learned references."""
+        sid = source['id']
+        with self.store.connection(immediate=True) as db:
+            row = db.execute("SELECT data FROM entities WHERE kind='source' AND id=?", (sid,)).fetchone()
+            if not row:
+                return 0
+            current = json.loads(row[0])
+            if current.get('status') == 'cancelled':
+                raise InterruptedError('Source processing stopped by operator.')
+            existing = {r['id'] for r in db.execute('SELECT id FROM knowledge_chunks WHERE source_id=?', (sid,))}
+            ordinal = db.execute('SELECT coalesce(max(ordinal),-1)+1 FROM knowledge_chunks WHERE source_id=?', (sid,)).fetchone()[0]
+            self._node(db, sid, 'source', source['title'], {'source_id':sid, 'status':'imported'})
+            for record in records:
+                if record['id'] in existing:
+                    continue
+                metadata = record['metadata']
+                status = 'inferred' if record['modality'] in {'vision','vision_interpretation'} else 'imported'
+                db.execute('INSERT INTO knowledge_chunks VALUES(?,?,?,?,?,?,?,?,0)',
+                           (record['id'], sid, ordinal, record['text'], record['text'], record['locator'],
+                            record['modality'], json.dumps(metadata)))
+                db.execute('INSERT INTO knowledge_fts VALUES(?,?,?,?,?)',
+                           (record['id'], sid, record['text'], _fts_title(source['title'], metadata.get('section','')), record['locator']))
+                self._node(db, record['id'], 'example', record['text'][:90],
+                           {'source_id':sid, 'chunk_id':record['id'], 'locator':record['locator'], 'status':status,
+                            'modality':record['modality'], 'origin':'model' if status=='inferred' else 'extraction'})
+                self._edge(db, sid, record['id'], 'contains', sid, record['id'], {'origin':'lexical','status':status})
+                self._lexical_graph(db, sid, record['id'], record['text'], record['locator'])
+                existing.add(record['id']); ordinal += 1
+            db.execute("DELETE FROM knowledge_edges WHERE source_id=? AND json_extract(data,'$.origin')='timestamp'", (sid,))
+            timed = []
+            for row in db.execute('SELECT id,metadata FROM knowledge_chunks WHERE source_id=?', (sid,)):
+                start = json.loads(row['metadata']).get('start')
+                if isinstance(start, (int,float)) and math.isfinite(start):
+                    timed.append((float(start), row['id']))
+            timed.sort()
+            for (at, earlier), (next_at, later) in zip(timed, timed[1:]):
+                self._edge(db, earlier, later, 'precedes', sid, earlier,
+                           {'origin':'timestamp','start':at,'next_start':next_at,'status':'observed_order'})
+            count = len(existing)
+            current.update(chunk_count=count, semantic_index='pending', updated_at=now())
+            db.execute("UPDATE entities SET data=?,updated_at=? WHERE kind='source' AND id=?",
+                       (json.dumps(current), current['updated_at'], sid))
+        return count
+
+    def _publish_media(self, source, segments, artifacts, cached=()):
+        from .media_context import retained_timeline, save_json
+        self._check_cancelled(source['id'])
+        ordered = sorted(segments, key=lambda s:(float(s.get('start',0)), s.get('modality','')))
+        save_json(artifacts / 'media_timeline.json', retained_timeline(ordered, cached))
+        count = self._index(source, ordered, preserve_existing=True)
+        self._update(source['id'], media_indexed_at=now(), media_indexed_passages=count)
+        return count
 
     @staticmethod
     def _invalidate_examples(db,chunk_id):

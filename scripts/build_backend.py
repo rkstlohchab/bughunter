@@ -16,11 +16,9 @@ def main():
     command = [str(python),"-m","PyInstaller","--noconfirm","--clean","--onefile","--name","bughunter-backend",
         "--paths",str(ROOT/"backend"),"--distpath",str(ROOT/"build/sidecar"),"--workpath",str(ROOT/"build/pyinstaller"),
         "--specpath",str(ROOT/"build"),"--add-data",f"{ROOT/'prompts/research-assistant.md'}:bughunter/resources"]
-    # Keep the user-supplied prompt corpus and its model index available in the
-    # frozen sidecar. These are research data, never program instructions.
-    corpus = ROOT/'backend/bughunter/assets/prompt_corpus'
-    if corpus.is_dir():
-        command += ['--add-data', f'{corpus}:bughunter/assets/prompt_corpus']
+    command += ['--add-data', f"{ROOT/'backend/bughunter/assets/retired_prompt_hashes.json'}:bughunter/assets"]
+    references = ROOT/'backend/bughunter/assets/reference_pack'
+    command += ['--add-data', f'{references}:bughunter/assets/reference_pack']
     for package in ("sqlite_vec","mitmproxy","mitmproxy_rs","yt_dlp","playwright","selenium","keyring","certifi","pymupdf","ddgs"):
         command += ["--collect-all",package]
     command += ["--hidden-import","keyring.backends.macOS","--hidden-import","bughunter.mac_memory",str(ROOT/"scripts/sidecar_entry.py")]

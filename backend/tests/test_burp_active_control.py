@@ -122,3 +122,14 @@ def test_mac_agent_only_focuses_observed_nonsecret_fields():
         validate_plan('{"action":"focus_field","value":"Password","reason":"Login"}',observed,True)
     with pytest.raises(ValueError,match='not observed'):
         validate_plan('{"action":"focus_field","value":"API Key","reason":"Login"}',observed,True)
+
+
+def test_stop_remains_available_after_global_latch(prepared):
+    bridge,fake=prepared
+    bridge.app.store.set_setting('emergency_stop',True)
+    bridge.app.store.set_setting('burp_audit_active',True)
+    with pytest.raises(ValueError,match='paused'):
+        bridge.dispatch('burp.audit.start',{'project_id':'p','history_id':42,'approved':True})
+    assert bridge.dispatch('burp.audit.stop',{'approved':True})['stopped']
+    assert bridge.app.store.setting('burp_audit_active') is False
+    assert fake.calls==[('POST','http://127.0.0.1:18765/audit/stop',None)]

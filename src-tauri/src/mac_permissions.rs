@@ -3,6 +3,24 @@
 use serde_json::{json, Value};
 
 #[cfg(target_os = "macos")]
+fn full_disk_status() -> Value {
+    // Open a protected file solely to test access. Never read its contents.
+    let Some(home) = std::env::var_os("HOME") else { return Value::Null; };
+    let paths = [std::path::PathBuf::from(home).join("Library/Application Support/com.apple.TCC/TCC.db"),
+        std::path::PathBuf::from("/Library/Application Support/com.apple.TCC/TCC.db")];
+    for path in paths {
+        match std::fs::File::open(path) {
+            Ok(_) => return json!(true),
+            Err(_) => {},
+        }
+    }
+    // There is no public FDA preflight API. A probe failure may reflect a
+    // different app identity, ordinary file permissions, or a missing database.
+    // It does not establish the state of the user's Full Disk Access toggle.
+    Value::Null
+}
+
+#[cfg(target_os = "macos")]
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn AXIsProcessTrusted() -> bool;
@@ -17,6 +35,8 @@ pub fn mac_permission_status() -> Value {
         return json!({
             "platform": "macOS", "screen_recording": CGPreflightScreenCaptureAccess(),
             "accessibility": AXIsProcessTrusted(),
+            "full_disk": full_disk_status(),
+            "process": std::env::current_exe().ok().map(|p|p.display().to_string()),
             "note": "These permissions apply to this desktop process, not automatically to Python, Wine or other helper apps. App discovery does not require either permission."
         });
     }
@@ -35,6 +55,7 @@ pub fn mac_permission_action(kind: String) -> Result<Value, String> {
             return Ok(mac_permission_status());
         }
         let target = match kind.as_str() {
+            "full_disk" => "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
             "accessibility" => "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
             "screen_settings" => "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
             _ => return Err("Unknown macOS permission setting.".into())

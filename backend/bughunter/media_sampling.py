@@ -8,7 +8,7 @@ _PTS = re.compile(r'pts_time:\s*(-?\d+(?:\.\d+)?)')
 
 
 def scene_cuts(ffmpeg: str, path: str, duration: float, threshold: float = 0.30,
-               max_events: int = 1200) -> list[float]:
+               max_events: int = 1200, run=None) -> list[float]:
     """Find low-resolution scene changes across the recording, with a hard timeout.
 
     FFmpeg exits nonzero for files that cannot be decoded; that is a soft failure
@@ -21,17 +21,21 @@ def scene_cuts(ffmpeg: str, path: str, duration: float, threshold: float = 0.30,
         '-i', path, '-an', '-vf', f'fps=1/2,scale=320:-2,select=gt(scene\\,{threshold}),showinfo',
         '-f', 'null', '-']
     try:
-        done = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.PIPE, timeout=min(1200, max(75, duration/3)),
-                              check=False)
+        timeout = min(1200, max(75, duration/3))
+        done = (run(command, timeout) if run else
+                subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.PIPE, timeout=timeout, check=False))
         if done.returncode: return []
         times = []
-        for match in _PTS.finditer(done.stderr.decode('utf-8','replace')):
+        stderr = done.stderr if isinstance(done.stderr, str) else done.stderr.decode('utf-8','replace')
+        for match in _PTS.finditer(stderr):
             value=float(match.group(1))
             if 0 < value < duration and (not times or value-times[-1] >= 1.5):
                 times.append(round(value,2))
                 if len(times) >= max_events: break
         return times
+    except InterruptedError:
+        raise
     except (OSError, subprocess.TimeoutExpired, ValueError):
         return []
 

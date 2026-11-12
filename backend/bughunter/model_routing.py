@@ -11,7 +11,7 @@ import tempfile
 import keyring
 import httpx
 from urllib.parse import urlsplit
-from .providers import PROVIDERS, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS, is_local_network_host, ollama_inference_options
+from .providers import PROVIDERS, LOCAL_PROVIDERS, SELF_HOSTED_PROVIDERS, SUBSCRIPTION_PROVIDERS, is_local_network_host, ollama_inference_options
 
 SERVICE = 'BugHunterClaudex-ModelRoutes'
 TRANSIENT_HTTP = {408, 429, 500, 502, 503, 504}
@@ -27,7 +27,7 @@ def validate_route(item):
     url = str(item.get('base_url', '')).strip().rstrip('/')
     if not re.fullmatch(r'[a-zA-Z0-9_-]{1,48}', route_id):
         raise ValueError('Route ID must be 1–48 letters, digits, _ or -.')
-    if provider not in PROVIDERS - {'claude_code'}:
+    if provider not in PROVIDERS - SUBSCRIPTION_PROVIDERS:
         raise ValueError('Choose a supported API or self-hosted provider.')
     if not model or len(model) > 150 or not url:
         raise ValueError('Every fallback needs a model and endpoint URL.')
@@ -170,6 +170,9 @@ def request_claude_subscription(messages, system, model='opus'):
 def request_chat(candidate, messages, system, max_output, estimated_input):
     """Return assistant text; raises on errors (caller decides whether to fail over)."""
     provider = candidate['provider']
+    if provider == 'codex':
+        from .codex_subscription import complete
+        return complete(messages, system, candidate['model'])
     if provider == 'claude_code':
         return request_claude_subscription(messages, system, candidate.get('model', 'opus'))
     if provider not in SELF_HOSTED_PROVIDERS and not candidate.get('pricing_confirmed'):

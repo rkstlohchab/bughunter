@@ -1,0 +1,94 @@
+{
+  "id": "workbench-methods-v1",
+  "version": 1,
+  "reviewed_on": "2026-11-11",
+  "kind": "authored_synthesis",
+  "documents": [
+    {
+      "filename": "commerce-pricing.md",
+      "title": "Commerce pricing and discount validation",
+      "sha256": "c0b4aa8273970b26371bd0822e1d8d5c1f103f6cf2d658bb0b7d8542a2259cda",
+      "references": [
+        "https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/10-Business_Logic/10-Payment_Functionality/"
+      ]
+    },
+    {
+      "filename": "food-ordering.md",
+      "title": "Food-ordering methods and reproducible fixture",
+      "sha256": "75f95b94b7a5710c957195f5f775e54857efca545d0617e99ebfa8adc330411f",
+      "references": [
+        "https://owasp.github.io/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic/01-Business_Logic_Data_Validation"
+      ]
+    },
+    {
+      "filename": "access-and-sessions.md",
+      "title": "API access control and session comparison",
+      "sha256": "4ea2f648250e0376b828e593066e41d414c5ab0a9a67da6e2a32e0df9ccbcc51",
+      "references": [
+        "https://api-security.owasp.org/editions/2023/en/0xa1-broken-object-level-authorization/",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+      ]
+    },
+    {
+      "filename": "graphql-classification.md",
+      "title": "GraphQL transport and effect classification",
+      "sha256": "8a4267e982d39dbe19d21160cd8ff036fb0da70e97edc37c572f3fa83e3f727d",
+      "references": [
+        "https://http-spec.graphql.org/draft/"
+      ]
+    },
+    {
+      "filename": "injection-and-rendering.md",
+      "title": "Injection hypotheses and browser evidence",
+      "sha256": "cbc62e707843200c5ab638555f66dc71cc41dab7914c6d4e19946e376b316735",
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+      ]
+    },
+    {
+      "filename": "http-and-ssrf.md",
+      "title": "HTTP destination handling and SSRF review",
+      "sha256": "96778aa817f0915f0d27170a263cd659d447e16493896d3c5702a23b42f840aa",
+      "references": [
+        "https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html"
+      ]
+    },
+    {
+      "filename": "races-and-case-studies.md",
+      "title": "Race conditions, workflow states, and published cases",
+      "sha256": "97af9082d11eec9bfeb39055d998636e660f8f770991f30a8bd46b570aa14ceb",
+      "references": [
+        "https://portswigger.net/research/smashing-the-state-machine",
+        "https://docs.gitlab.com/releases/patches/patch-release-gitlab-16-7-2-released/"
+      ]
+    },
+    {
+      "filename": "native-memory-lifecycle.md",
+      "title": "Native memory acquisition and lifetime discipline",
+      "sha256": "96561e08c5bd9ada7fd7aa57dac1dcc334a0aade5caaa5a14ba455b8228ab81e",
+      "references": [
+        "https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-readprocessmemory",
+        "https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-writeprocessmemory"
+      ]
+    },
+    {
+      "filename": "pe-projection-observability.md",
+      "title": "PE evidence, projection math, and observation limits",
+      "sha256": "9b98a50445c1758ce6f0ba4f964385515b544eaf8d75f5847b9bf8d86e5be022",
+      "references": [
+        "https://learn.microsoft.com/en-us/windows/win32/debug/pe-format",
+        "https://learn.microsoft.com/en-us/windows/win32/direct3d9/viewports-and-clipping",
+        "https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-pssetloadimagenotifyroutine"
+      ]
+    },
+    {
+      "filename": "evidence-and-retrieval.md",
+      "title": "Evidence quality and knowledge retrieval",
+      "sha256": "f37dbb6a5bfe034a56638e16c0356f1a04fcef3f1f03d6bd34c7f83800426b71",
+      "references": [
+        "https://owasp.github.io/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic/01-Business_Logic_Data_Validation"
+      ]
+    }
+  ]
+}

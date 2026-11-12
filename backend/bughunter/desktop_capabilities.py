@@ -30,7 +30,7 @@ Runtime and tool capabilities of your host application:
   The included offline fixture and radar demo are for testing, not proof that
   a third-party game exposes a compatible data layout.
 - Other specialist integrations may be available: file inspection, knowledge
-  search, authorized website review/Burp evidence, AI model evaluation,
+  search, authorized website review/Burp evidence,
   and an approval-gated native process-memory helper. Availability varies.
 - You do NOT have direct computer, shell, browser, memory, or network access
   from the inference API. A normal chat response is not an executed action.

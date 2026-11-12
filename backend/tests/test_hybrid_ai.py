@@ -77,8 +77,8 @@ def test_vision_checks_local_weights_before_uploading(tmp_path, monkeypatch, inf
     def handle(request):
         calls.append(request)
         return httpx.Response(200, json=info)
-    original = httpx.Client
-    monkeypatch.setattr("bughunter.local_media.httpx.Client", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+    original = httpx.AsyncClient
+    monkeypatch.setattr("bughunter.local_media.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     image = tmp_path / "sample.jpg"
     image.write_bytes(b"private-image")
     with pytest.raises(ValueError):
@@ -104,12 +104,12 @@ def test_vision_sends_media_only_to_verified_loopback_model(tmp_path, monkeypatc
         if request.url.path == "/api/show":
             return httpx.Response(200, json={"capabilities":["completion", "vision"]})
         assert request.url.path == "/api/chat"
-        return httpx.Response(200, json={"message":{"content":"A menu is visible."}})
-    original = httpx.Client
-    monkeypatch.setattr("bughunter.local_media.httpx.Client", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
+        return httpx.Response(200, json={"message":{"content":"Visible facts: A menu is visible.\nUncertain or missing evidence: No click verified."}})
+    original = httpx.AsyncClient
+    monkeypatch.setattr("bughunter.local_media.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     image = tmp_path / "sample.jpg"
     image.write_bytes(b"private-image")
-    assert runtime.vision(image, 1) == "A menu is visible."
+    assert runtime.vision(image, 1) == "Visible facts: A menu is visible.\nUncertain or missing evidence: No click verified."
     assert [r.url.host for r in seen] == ["127.0.0.1", "127.0.0.1"]
     assert "images" not in json.loads(seen[0].content)
     assert json.loads(seen[1].content)["messages"][0]["images"]

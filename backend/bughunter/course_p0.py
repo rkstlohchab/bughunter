@@ -83,12 +83,16 @@ class CourseP0:
         self.store: Store = knowledge.store
         self._threads: dict[str, threading.Thread] = {}
         self._lock = threading.RLock()
+        self._cancelled: set[str] = set()
         if start_worker:
             for batch in self.store.list('course_batch'):
                 if batch.get('status') in {'queued', 'importing'}:
-                    self._launch(batch['id'])
+                    if self.store.setting('emergency_stop',False):
+                        self._update(batch['id'],status='cancelled',detail='Stopped before restart. Resume this import explicitly.')
+                    else:self._launch(batch['id'])
 
     def import_archive(self, path: str, project_id=None):
+        self._check_running()
         candidate = Path(path).expanduser().resolve()
         if not candidate.is_file() or candidate.suffix.lower() != '.zip':
             raise ValueError('Select the absolute path of an existing local ZIP file.')
@@ -130,13 +134,27 @@ class CourseP0:
         return value
 
     def resume(self, id: str):
+        self._check_running()
+        self._cancelled.discard(id)
         batch = self.status(id)
         if batch['status'] == 'complete': return batch
         self._launch(id)
         return self.status(id)
 
+    def _check_running(self, id=None):
+        if self.store.setting('emergency_stop', False) or id in self._cancelled:
+            raise InterruptedError('Course import stopped by operator. Resume this import explicitly.')
+
+    def cancel_all(self):
+        with self._lock:
+            for batch in self.store.list('course_batch'):
+                if batch.get('status') in {'queued', 'importing'}:
+                    self._cancelled.add(batch['id'])
+                    self._update(batch['id'], status='cancelled', detail='Stopped by operator.')
+
     def _launch(self, id):
         with self._lock:
+            self._check_running(id)
             thread = self._threads.get(id)
             if thread and thread.is_alive(): return
             thread = threading.Thread(target=self.run_archive, args=(id,), daemon=True,
@@ -156,6 +174,7 @@ class CourseP0:
         root = self.store.root / 'sources' / id
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         try:
+            self._check_running(id)
             current = archive_path.stat()
             if (current.st_size != batch['archive_size'] or
                     current.st_mtime_ns != batch['archive_mtime_ns']):
@@ -164,6 +183,7 @@ class CourseP0:
             with zipfile.ZipFile(archive_path) as archive:
                 members = _safe_items(archive)
                 for index, item in enumerate(members):
+                    self._check_running(id)
                     if item.is_dir() or '__MACOSX' in PurePosixPath(item.filename).parts:
                         continue
                     ext = PurePosixPath(item.filename).suffix.lower()
@@ -184,6 +204,7 @@ class CourseP0:
                             with archive.open(item) as src, temporary.open('wb') as out:
                                 written = 0
                                 while block := src.read(1024*1024):
+                                    self._check_running(id)
                                     written += len(block)
                                     if written > item.file_size: raise ValueError('Member exceeded declared size.')
                                     out.write(block)
@@ -219,9 +240,12 @@ class CourseP0:
                         self._update(id, items=list(reports.values()),completed_entries=len(reports),
                                      imported_sources=sum(bool(r.get('source_id')) for r in reports.values()),
                                      errors=errors[-100:],detail=f'Cannot import {item.filename}')
+            self._check_running(id)
             self._update(id, status='partial' if errors else 'complete',
                          detail='Course sources queued for indexing', errors=errors,
                          items=list(reports.values()),completed_entries=len(reports))
+        except InterruptedError as exc:
+            self._update(id,status='cancelled',detail=str(exc),items=list(reports.values()),completed_entries=len(reports))
         except Exception as exc:
             errors.append(str(exc)[:450])
             self._update(id,status='interrupted',detail=str(exc)[:450],errors=errors,

@@ -1,5 +1,5 @@
 /** Small, deterministic UI router. This proposes workflows; it never executes a tool. */
-export type TaskIntent = 'chat' | 'website' | 'cart' | 'memory' | 'ai_test' | 'agents' | 'research';
+export type TaskIntent = 'chat' | 'website' | 'cart' | 'memory' | 'agents' | 'research';
 
 /** Open the cited mapping workflow; execution still requires a selected native process. */
 export function wantsMappingResearch(message: string): boolean {
@@ -17,7 +17,6 @@ export function classifyTask(message: string): TaskIntent {
   // Action requests to monitor or modify values in an offline game belong to the memory workspace.
   // General explanations remain Chat; this router never executes or approves a memory write.
   if (/\b(?:find|scan|locate|inspect|resolve|track|monitor|analy[sz]e|build|create|make|generate|modify|change)\b.{0,130}\b(?:memory|pointers?|cheat engine|process|health address|health value|money value|esp overlay|entity coordinates|game health|game money)\b|\bcheat engine\b/i.test(text)) return 'memory';
-  if (/\b(?:test|audit|evaluat(?:e|ion)|probe|assess|check|perform|run|start|do)\b.{0,130}\b(?:prompt injection|jailbreak|llm|ai model|model defenses?)\b|\bprompt injection (?:test|audit)\b/i.test(text)) return 'ai_test';
   if (/\b(?:audit|test|inspect|review|check|perform|run|do)\b.{0,130}\b(?:cart|checkout|coupon|price validation)\b|\b(?:cart|checkout)\b.{0,50}\b(?:audit|test)\b/i.test(text)) return 'cart';
   if (/\b(?:audit|test|crawl|scan|inspect|review|check|perform|run|do)\b.{0,130}\b(?:websites?|web\s?pages?|web apps?|web applications?|sites?|web penetration test)\b|\b(?:websites?|web applications?)\b.{0,80}\b(?:audit|test)\b/i.test(text)) return 'website';
   if (/\b(?:research|investigate|study)\b.{0,130}\b(?:my sources|my knowledge|documents|research|topic)\b/i.test(text)) return 'research';

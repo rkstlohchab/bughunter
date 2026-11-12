@@ -180,7 +180,6 @@ def test_frames_stop_at_video_duration_and_keep_audio_tail(setup,tmp_path,monkey
     artifacts=tmp_path/'frames'
     artifacts.mkdir()
     speech=[{'text':'Last spoken instruction.','locator':'00:00:11','modality':'transcript','start':11,'end':12}]
-    (artifacts/'speech_segments.json').write_text(json.dumps(speech))
     sampled=[]
     scene_bounds=[]
     def fake_run(args,timeout=1800):
@@ -198,13 +197,13 @@ def test_frames_stop_at_video_duration_and_keep_audio_tail(setup,tmp_path,monkey
     monkeypatch.setattr('bughunter.local_media.binary',lambda name:name)
     monkeypatch.setattr('bughunter.media_sampling.scene_cuts',cuts)
     monkeypatch.setattr(runtime,'checkpoint',lambda *_args:None)
-    monkeypatch.setattr(runtime,'vision',lambda _path,stamp:f'Frame at {stamp}')
-    segments,notes=k._extract_media(tmp_path/'lesson.mp4',artifacts,source)
+    monkeypatch.setattr(runtime,'vision',lambda _path,stamp,**kwargs:f'Frame at {stamp}')
+    segments,notes=k._extract_media(tmp_path/'lesson.mp4',artifacts,source,transcript=speech)
     assert scene_bounds==[expected_end]
     assert sampled and all(t<expected_end for t in sampled)
     assert max(s['end'] for s in segments if s['modality']=='vision')==expected_end
     assert speech[0] in segments
-    assert json.loads((artifacts/'speech_segments.json').read_text())==speech
+    assert speech==[{'text':'Last spoken instruction.','locator':'00:00:11','modality':'transcript','start':11,'end':12}]
     row=k.store.get('source',source['id'])
     assert row['duration']==12 and row['video_duration']==expected_end
     assert row['media_progress']['analyzed']==row['media_progress']['total']==len(sampled)

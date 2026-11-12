@@ -16,7 +16,7 @@ const labels: Record<string,string> = {
 };
 const active = (status:string) => ['starting','running','queued','awaiting_approval','awaiting_retry','awaiting_workspace'].includes(status);
 
-export default function Team({perform, busy, projectId, onOpenAITesting, onOpenMemory}: Pick<Shared,'perform'|'busy'|'projectId'> & {onOpenAITesting:()=>void;onOpenMemory:()=>void}) {
+export default function Team({perform, busy, projectId, onOpenMemory}: Pick<Shared,'perform'|'busy'|'projectId'> & {onOpenMemory:()=>void}) {
   const [tasks, setTasks] = useState<Row[]>([]);
   const [selected, setSelected] = useState('');
   const [detail, setDetail] = useState<Row | null>(null);
@@ -73,7 +73,6 @@ export default function Team({perform, busy, projectId, onOpenAITesting, onOpenM
               {step.result?.detected&&<small>Detected: {step.result.detected.join(', ')||'None'} · Missing: {(step.result.needs_setup||[]).join(', ')||'None'}</small>}
               {step.task_id&&<button className="task-linked" onClick={()=>setSelected(step.task_id)}>View linked task activity →</button>}
               {step.error&&<p role="alert" className="conversation-error">{step.error}</p>}
-              {step.status==='awaiting_workspace'&&<div className="task-review-card"><p className="muted">Model tests require a configured target and observable trial results. This is a handoff, not a completed evaluation.</p><Button variant="primary" onClick={onOpenAITesting}>Open AI testing</Button></div>}
             </div></article>)}
             <Button onClick={async()=>{try{const result=await rpc<Row>('plans.report',{id:detail.id});const blob=new Blob([result.content],{type:'text/markdown;charset=utf-8'});const link=document.createElement('a');const url=URL.createObjectURL(blob);link.href=url;link.download=result.filename;link.click();URL.revokeObjectURL(url);}catch(e){setError(String(e));}}}>Export checkpoint report</Button>
             {detail.status==='draft'&&<Button disabled={!!busy} onClick={()=>perform('Planning task',()=>rpc('plans.run',{id:detail.id})).then(()=>reload())}>Run safe preflight</Button>}

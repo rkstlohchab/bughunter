@@ -34,20 +34,13 @@ Burp Professional/other paid apps, user account authentication, and macOS
 Accessibility/Screen Recording approvals require user action; those are not
 silently activated by this installer. See `ONE_COMMAND_MAC_SETUP.md`.
 
-> **New on 2026-10-31:** The chat-first automation upgrade adds recorded file inspection, scoped web review, neutral model evaluation, knowledge retrieval and a guided Homebrew tool installer. See [RELEASE_NOTES_CHAT_AUTOPILOT_2026_10_31.md](RELEASE_NOTES_CHAT_AUTOPILOT_2026_10_31.md) for capabilities and important limitations. A full macOS/Tauri build and game-modification workflow have not been verified.
-
-## Start here: four simple screens
-> **Latest Mac-native tool handoff:** see [`RELEASE_NOTES_MAC_TOOL_HANDOFF_2026_10_31.md`](RELEASE_NOTES_MAC_TOOL_HANDOFF_2026_10_31.md) for the operator-only app-open and loopback-status controls, verification details, and remaining limits.
-
-
+## Start here
 1. **Chat** — talk to your AI, attach a document, or describe an authorized research task. Choose “Decide from my message” or a task type explicitly. The app presents a review dialog for actions requiring access or permissions.
 2. **Tasks** — monitor what the application actually did, inspect evidence, approvals and final reports. Open **Advanced tools (optional)** only when needed.
 3. **Knowledge** — upload a file or link, wait for indexing, and reuse it in Chat or a tracked task. Indexing supplies retrieval; it does not retrain your LLM.
 4. **Settings** — connect/test your Kaggle or local model, inspect tool installation status, and back up work.
 
-Read `RELEASE_NOTES_ONE_TASK_UI.md` for exact capabilities and limitations.
-
-> **New:** Task plans from Chat, verified methods, and checkpoint reports. See [release notes](RELEASE_NOTES_AUTONOMOUS_WORKFLOWS.md).
+See [chat controls](docs/chat-controls.md), [AI connections](docs/ai-connections.md), and [learning and storage](docs/knowledge.md) for the current workflow.
 
 # BugHunterClaudex
 
@@ -111,7 +104,7 @@ The library accepts files, folders, ZIPs, public website pages, direct download 
 
 YouTube imports reuse [youtube-transcript-api](https://github.com/jdepoix/youtube-transcript-api) for timestamped captions and [yt-dlp](https://github.com/yt-dlp/yt-dlp) for optional media download. Caption-only imports remain labeled partial because they miss visual demonstrations. Local transcription uses [whisper.cpp](https://github.com/ggml-org/whisper.cpp); sampled frames can be reviewed by an image-capable configured model and retain timestamp provenance.
 
-**Default reasoning uses your installed Claude Code CLI and its existing subscription login.** The app calls documented noninteractive CLI operation and exposes its own narrow MCP tools. It does not bundle Claude Code or read subscription tokens. See Anthropic’s [programmatic operation](https://code.claude.com/docs/en/headless), [authentication](https://code.claude.com/docs/en/authentication), and [integration conditions](https://code.claude.com/docs/en/legal-and-compliance).
+**Subscriptions support ChatGPT through the installed Codex CLI and Claude through Claude Code.** Each uses its own existing subscription sign-in. Settings lists available models in a dropdown; Chat groups connections under Subscriptions, Paid APIs, and My own models. See [AI connections](docs/ai-connections.md).
 
 Optional Anthropic API, OpenAI API, OpenAI-compatible endpoints, Ollama, and on-device CrucibleLLM (iPhone/iPad) are explicit choices in Settings. API keys use macOS Keychain; paid API budgets are separate from subscription indicators. Errors and limits never trigger provider or paid fallback. Local-only inference rejects hosted providers and cloud-backed Ollama models. Embeddings use only a loopback Ollama endpoint; keyword search works without embeddings.
 
@@ -172,19 +165,15 @@ See [setup and tool connections](docs/setup.md), [execution boundaries](docs/exe
 
 Local application data lives in `~/Library/Application Support/BugHunterClaudex`; the development bridge uses `BugHunterClaudex-Development`. Raw traffic and browser account state remain local and may contain credentials. Exported reports and model text context are redacted. Keep a backup of the data directory with the app closed; API credentials remain in Keychain.
 
-## AI red-team experiments, persistent learning and provider prompts
+## Website and application testing
 
-Open **AI red team** in the main navigation to create a model prompt test case. Enter the prompt, optional target-model system prompt, method, expected response, and tags. Save the case. For an API evaluation choose an API provider and model in **Settings**, configure its key and confirmed price if hosted, then click **Run against configured API**. The call sends no tools to the model under test; the returned response is saved as `untested`. Review the response, select a verdict, and record a lesson.
+The LLM jailbreak/prompt-testing workspace and bundled prompt archive have been removed. Ordinary Chat, model settings, website/API tools, memory tools, desktop controls and Tor research remain available. The local Prompt editor is a phrase-based courtesy editor; it does not run model experiments.
 
-**AI draft from history** uses the configured provider to propose a single new variant informed by earlier tests and reviewed lessons. It never sends that candidate to the target automatically. Variant ancestry, recorded trials, search, aggregate counts and portable JSON export remain in the local SQLite workspace. **Publish lesson to Library** imports a reviewed trial as a cited knowledge source, available through the existing research-agent knowledge search. This is retrieval memory rather than training or fine-tuning model weights.
+On first launch after this change, exact bundled prompt-library content and explicitly linked model-trial records are archived before removal from active retrieval. Unrelated user documents are retained. The verified recovery ZIP is saved in the data directory's sibling `<data-directory-name>-archives` folder; its path is recorded in the `prompt_workflow_retired_v1` setting.
 
-**System prompts:** Settings now contains a global custom prompt and a distinct per-provider system-prompt field, both appended to the workbench's built-in agent instructions. Model-under-test prompts in AI red team are independent, allowing controlled evaluation of response policies. The CE/mac bridge has its own configurable system prompt. The bridge agent panel can fetch relevant read-only knowledge and experiment notes before sending a user prompt (toggle in the panel); execution approvals remain unchanged.
+**Public-page review:** Web testing → Start supports an optional fresh browser snapshot with same-origin GET-only asset inspection. Every request uses the project gateway. See [public-page review](docs/public-page-review.md) for coverage and limits.
 
-**Testing:** `PYTHONPATH=backend pytest -q backend/tests/test_redteam.py backend/tests/test_system_prompt.py` and `python -m unittest discover -s tests/mac_mcp`. Desktop UI and full Rust integration must be validated on a machine with the project dependencies installed.
-
-### Specialist model training (new)
-
-Use the **Specialist training** page for separate Burp Suite, Cheat Engine and AI red-team curricula. Save and review worked examples, capture completed memory bridge sessions as drafts, import reviewed prompt robustness trials, and export isolated MLX-LM training datasets. See [specialist training documentation](docs/specialist-training.md) for Kaggle GGUF import through Ollama and optional Apple Silicon LoRA training. Merely saving a lesson does not train model weights.
+**Training lab:** Burp Suite, Cheat Engine and Tor research keep separate reviewed curricula and dataset exports. See [specialist training](docs/specialist-training.md). Saving examples does not update model weights.
 
 ## Tor research (user-supplied .onion and public forums)
 
@@ -196,11 +185,11 @@ Open **Tor research** in the sidebar. Connect an independently running Tor SOCKS
 
 ## Project-centered interface (2026-10-31)
 
-The main sidebar now has Chat, Workspaces, Knowledge and Settings. Use the project selector in the top bar and add sources via Knowledge → Upload / add link. Personal model servers (including Kaggle/llama.cpp) are under Settings → My own models; paid API prices are a separate category. See `RELEASE_NOTES_PROJECT_CENTERED_UI.md` for behavior, verification and current limits.
+Use the project selector in the top bar and add sources via Library → Import resource. Personal model servers (including Kaggle/llama.cpp) are under Settings → My own models; paid API prices are a separate category. See [AI connections](docs/ai-connections.md).
 
 ## Production validation and private backups
 
-For the latest development release, see `RELEASE_NOTES_PRODUCTION_MILESTONES.md`.
+See [validation](docs/validation.md) for recorded checks and their limits.
 
 In the desktop app, Settings → **Back up your work** creates an unencrypted,
 private ZIP containing your local database and stored source/artifact files.
@@ -221,22 +210,18 @@ substitute for live desktop, Burp, Tor Browser or memory-bridge testing.
 
 ## Model backup, web research, and scoped computer sandbox (October 2026)
 
-See [RELEASE_NOTES_MODEL_ROUTING_OS_RESEARCH.md](RELEASE_NOTES_MODEL_ROUTING_OS_RESEARCH.md) for instructions, security limitations, and Mac-specific smoke tests. Chat supports explicit backup-model consent and an opt-in web search mode. Settings has separate model routes, Brave Search key storage, and a bounded Computer Workspace. These new controls **do not** give AI models unrestricted host access, nor do they sandbox existing Claude/Codex CLI subprocesses.
+Chat supports explicit backup-model consent and an opt-in web search mode. Settings has separate model routes, Brave Search key storage, and a bounded Computer Workspace. These controls do not give AI models unrestricted host access. See [AI connections](docs/ai-connections.md) for subscription transport isolation and provider behavior.
 
 ## Autonomous website review (bounded, authorized)
 
 Open **Workspaces → Web Testing → Start investigation → Autonomous website review**, or ask for a website audit in Chat. Add a project target and authorization first. In **Targets & scope → Advanced limits**, explicitly list safe GET paths (`/`, `/about`, `/public/*`). Under **Settings → Connect tools**, select **Built-in web testing → Connect built-in web testing**. Burp is optional. The gateway limits and scope still apply to every request.
 
-The review discovers in-scope links, inspects response metadata and forms without submitting them, and records unconfirmed configuration leads and evidence. Stop/recovery and report export are available in the Workspaces and Agents views. This is not an unrestricted security scanner; account-changing operations, checkout, pricing mutations and active exploitation require separate controlled workflows. Details: `RELEASE_NOTES_AUTONOMOUS_WEBSITE_REVIEW.md`.
+The review discovers in-scope links, inspects response metadata and forms without submitting them, and records unconfirmed configuration leads and evidence. Stop/recovery and report export are available in the Workspaces and Agents views. This is not an unrestricted security scanner; account-changing operations, checkout, pricing mutations and active exploitation require separate controlled workflows. See [public-page review](docs/public-page-review.md).
 
-### October 2026: Simplified Mac-local video and UX
+### File inspection
 
-See [RELEASE_NOTES_SIMPLIFIED_UI.md](RELEASE_NOTES_SIMPLIFIED_UI.md) for the updated Knowledge navigation, no-cap frame sampling, and macOS tool-detection and task-control changes.
-
-### October 31 continued Autopilot update
-
-The current source version adds bounded PE/APK static inspection, evidence-linked review leads, live task status for Chat website audits, and real file-observation exports in the Knowledge ZIP. See `RELEASE_NOTES_CONTINUED_AUTOPILOT_2026_10_31.md`. Autonomous whole-desktop control, arbitrary Cheat Engine/Burp operation, and verified game exploits are **not** implemented; do not confuse an installed tool with an active verified connection.
+The current source version adds bounded PE/APK static inspection, evidence-linked review leads, live task status for Chat website audits, and real file-observation exports in the Knowledge ZIP. Autonomous whole-desktop control, arbitrary Cheat Engine/Burp operation, and verified game exploits are **not** implemented; do not confuse an installed tool with an active verified connection.
 
 ## Latest native memory test (2026-11-01)
 
-See [verified native tool checks](RELEASE_NOTES_NATIVE_MEMORY_PROOF_2026_11_01.md). To test the memory backend without touching a game, run `python3 scripts/verify_memory_engine_live.py` or use **Settings → Memory helper → Test memory reader** in the Mac app. This test proves only memory read/write on a temporary value inside the helper itself.
+To test the memory backend without touching a game, run `python3 scripts/verify_memory_engine_live.py` or use **Settings → Memory helper → Test memory reader** in the Mac app. This test proves only memory read/write on a temporary value inside the helper itself.

@@ -90,17 +90,17 @@ test('Stop all switches to Resume, survives refresh, and does not restart a run'
   await page.goto('/');
   await openWeb(page);
   await page.getByRole('button',{name:'Stop all',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Resume requests',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Resume tasks',exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Start investigation',exact:true})).toBeDisabled();
   await page.getByRole('button',{name:'Refresh workspace'}).click();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toHaveCount(0);
   await page.reload();
   await openWeb(page);
-  await expect(page.getByRole('button',{name:'Resume requests',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Resume requests',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Resume tasks',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Resume tasks',exact:true}).click();
   await expect(page.getByRole('button',{name:'Stop all',exact:true})).toBeVisible();
-  await expect(page.getByRole('button',{name:'Resume requests',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Resume tasks',exact:true})).toHaveCount(0);
   expect(calls.some(c => c.method==='runs.start' || c.method==='runs.resume')).toBe(false);
 });
 
@@ -175,12 +175,12 @@ test('custom system prompt saves with other settings and never replaces the base
   await expect(page.getByLabel('Your AI instructions (optional)')).toHaveValue('');
 });
 
-test('settings can pause outbound work without starting a run', async ({page}) => {
+test('settings uses the global stop without duplicate task controls', async ({page}) => {
   const calls = await backend(page); await page.goto('/');
   await page.getByRole('button',{name:'Settings',exact:true}).click();
-  await page.getByText('Task controls',{exact:true}).click();
-  await page.getByRole('button',{name:'Pause outbound requests',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Resume outbound requests',exact:true})).toBeVisible();
+  await expect(page.getByText('Task controls',{exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Stop all',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Resume tasks',exact:true})).toBeVisible();
   expect(calls.some(c => c.method === 'system.stop')).toBe(true);
   expect(calls.some(c => c.method === 'runs.start')).toBe(false);
 });
