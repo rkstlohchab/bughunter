@@ -283,6 +283,17 @@ class GameLabService:
                 features=p.get("features", {}),
                 hid=p.get("hid", {}),
             )
+        if method == "gamelab.chat_start":
+            return self.chat_start(project_id=p.get("project_id"),
+                                    message=p["message"])
+        if method == "gamelab.chat_send":
+            return self.chat_send(run_id=p["run_id"], message=p["message"])
+        if method == "gamelab.chat_get":
+            return self.chat_get(run_id=p["run_id"])
+        if method == "gamelab.chat_list":
+            return {"runs": self.chat_list(project_id=p.get("project_id"))}
+        if method == "gamelab.chat_stop":
+            return self.chat_stop(run_id=p["run_id"])
         if method == "gamelab.hardware_check":
             return self.hardware_check(force=bool(p.get("force", False)))
         if method == "gamelab.create_project":
@@ -698,9 +709,16 @@ class GameLabService:
         return results
 
     def ask_guide(self, project_id: str | None, message: str) -> dict:
-        """Send a message to the GameLab AI guide. Loads the game-cheat-ops
-        runtime prompt + current project/hardware context, then kicks off
-        a fresh OperatorAgent run."""
+        """One-shot alias of chat_start — kept for the old UI button."""
+        return self.chat_start(project_id=project_id, message=message)
+
+    # -------- multi-turn chat with the guide ------------------------------
+
+    def chat_start(self, project_id: str | None, message: str) -> dict:
+        """Start a multi-turn thread with the GameLab guide. Loads the
+        game-cheat-ops runtime prompt + current project/hardware context,
+        then kicks off an OperatorAgent run. Use ``chat_send`` to continue
+        on the same run_id."""
         runtime_prompt = _load_runtime_prompt()
         ctx_lines = ["# GameLab session context", ""]
         if project_id:
@@ -715,7 +733,46 @@ class GameLabService:
         run = self.app.operator.start(prompt=full_prompt,
                                        objective=f"gamelab:{project_id or 'adhoc'}",
                                        approved=True)
-        return {"run_id": run.get("id"), "status": run.get("status")}
+        self._emit_timeline("chat_start",
+                            payload={"run_id": run.get("id"),
+                                     "project_id": project_id})
+        return {"run_id": run.get("id"), "status": run.get("status"),
+                "project_id": project_id}
+
+    def chat_send(self, run_id: str, message: str) -> dict:
+        """Continue an existing gamelab chat thread."""
+        rec = self.app.operator.send(id=run_id, message=message)
+        return {"run_id": run_id, "status": rec.get("status")}
+
+    def chat_get(self, run_id: str) -> dict:
+        """Fetch the operator-run record (transcript + status)."""
+        rec = self.app.operator.get(id=run_id)
+        if not rec:
+            return {"run_id": run_id, "status": "missing", "transcript": []}
+        return {
+            "run_id": run_id,
+            "status": rec.get("status"),
+            "turns_done": rec.get("turns_done", 0),
+            "transcript": rec.get("transcript", []),
+            "objective": rec.get("objective", ""),
+            "created_at": rec.get("created_at"),
+        }
+
+    def chat_list(self, project_id: str | None) -> list[dict]:
+        """List gamelab chats (filtered by project if asked)."""
+        runs = self.app.operator.list()
+        prefix = f"gamelab:{project_id}" if project_id else "gamelab:"
+        return [
+            {"id": r.get("id"), "objective": r.get("objective", ""),
+             "status": r.get("status"), "created_at": r.get("created_at"),
+             "turns_done": r.get("turns_done", 0)}
+            for r in runs
+            if str(r.get("objective", "")).startswith(prefix)
+        ]
+
+    def chat_stop(self, run_id: str) -> dict:
+        rec = self.app.operator.stop(id=run_id)
+        return {"run_id": run_id, "status": rec.get("status")}
 
     # -------- internals --------------------------------------------------
 

@@ -8,6 +8,7 @@ import {
   GameProfile, StackProfile,
   Project, Recipe, Recommendation, HardwareInventory,
 } from './gameLabApi';
+import GameLabChat from './GameLabChat';
 
 type View = 'overview' | 'new' | 'project';
 
@@ -191,7 +192,6 @@ function NewProject({ games, stacks, hw, onCreated }: {
 function ProjectDetail({ project, onReload }: {
   project: Project; onReload: () => Promise<void>;
 }) {
-  const [msg, setMsg] = useState('');
   const [log, setLog] = useState<string[]>([]);
   const recipes = useMemo(() => project.recipes || [], [project]);
 
@@ -219,12 +219,6 @@ function ProjectDetail({ project, onReload }: {
   const stop = async (rid: string) => {
     await gameLab.stopRecipe(rid);
     await onReload();
-  };
-  const askGuide = async () => {
-    if (!msg) return;
-    const r = await gameLab.ask(msg, project.id);
-    setLog(l => [...l, `ask → run_id=${r.run_id}`]);
-    setMsg('');
   };
   const startFullKit = async () => {
     const r = await gameLab.startFullKit(project.id, features, hid);
@@ -336,11 +330,8 @@ function ProjectDetail({ project, onReload }: {
         ))}
       </ul>
 
-      <h4>Ask the GameLab guide</h4>
-      <textarea placeholder="e.g. walk me through DMA setup for this project"
-                value={msg} onChange={e => setMsg(e.target.value)} />
-      <br />
-      <button onClick={askGuide} disabled={!msg}>Ask</button>
+      <h4>Chat with the GameLab guide</h4>
+      <GameLabChat projectId={project.id} />
 
       {log.length > 0 && (
         <>

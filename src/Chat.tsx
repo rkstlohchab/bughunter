@@ -173,6 +173,71 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
     const message = text.trim();
     setSending(true); setError(''); setActiveTask(null);
     try {
+      // GameLab mode — route to the guide (OperatorAgent with game-cheat-ops prompt).
+      // Entered by a /gamelab, /cheat, /esp, /aim, /bgmi, /dma, /valorant, /cs2
+      // slash prefix on any message, or any message once a thread is open
+      // (gamelabRunId in session storage). /exit leaves.
+      const gamelabPrefixes = ['/gamelab', '/cheat', '/esp', '/aim', '/bgmi',
+                                '/dma', '/valorant', '/cs2', '/apex', '/rust',
+                                '/fortnite', '/pubg', '/codm'];
+      const activeGamelab = sessionStorage.getItem('gamelab.run_id');
+      const matchedPrefix = gamelabPrefixes.find(p =>
+        message.toLowerCase().startsWith(p + ' ') || message.toLowerCase() === p);
+      const isExit = message.toLowerCase() === '/exit' ||
+                     message.toLowerCase() === '/leave';
+      if (isExit && activeGamelab) {
+        sessionStorage.removeItem('gamelab.run_id');
+        setError('left GameLab guide thread');
+        setText(''); setSending(false);
+        sendGuard.current = false;
+        return;
+      }
+      if (matchedPrefix || activeGamelab) {
+        const body = matchedPrefix
+          ? message.slice(matchedPrefix.length).trim() || 'help me set up a cheat for this game'
+          : message;
+        try {
+          let runId = activeGamelab;
+          if (!runId) {
+            const started = await rpc<{ run_id: string; status: string }>(
+              'gamelab.chat_start', { project_id: projectId || null, message: body });
+            runId = started.run_id;
+            sessionStorage.setItem('gamelab.run_id', runId);
+          } else {
+            await rpc('gamelab.chat_send', { run_id: runId, message: body });
+          }
+          setText(''); setAttached([]); setSending(false);
+          // Poll the transcript so the Chat panel shows it
+          const poll = async () => {
+            try {
+              const g = await rpc<{ status: string;
+                                    transcript: Array<{ role: string; content: string }> }>(
+                'gamelab.chat_get', { run_id: runId });
+              // Render as a chat session shape the panel already knows
+              setSession({
+                id: `gamelab-${runId}`,
+                messages: g.transcript.map((t, i) => ({
+                  id: `${runId}-${i}`,
+                  role: t.role,
+                  text: typeof t.content === 'string' ? t.content : JSON.stringify(t.content),
+                })),
+                status: g.status,
+              } as unknown as Session);
+              if (g.status === 'running' || g.status === 'awaiting_approval') {
+                setTimeout(poll, 1500);
+              }
+            } catch (e) {
+              setError(`gamelab guide error: ${String(e)}`);
+            }
+          };
+          void poll();
+        } catch (e) {
+          setError(`GameLab guide: ${e instanceof Error ? e.message : String(e)}`);
+          setSending(false);
+        }
+        sendGuard.current = false;
+        return;
+      }
       if (session?.mapping_id && mappingActive(mapping.data?.workflow.status)) {
         const accepted = await mapping.reply(message, attached.map(a=>a.id));
         if (version !== scopeVersion.current) return;
@@ -301,7 +366,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
         {attached.length > 0 && <div className="conversation-attachments">{attached.map(a => <div key={a.id} className="conversation-attachment ready"><Paperclip size={15}/><span>{a.title || a.filename || 'File'}</span><button type="button" aria-label="Remove" onClick={() => setAttached(prev => prev.filter(x => x.id !== a.id))}><X size={13}/></button></div>)}</div>}
         <form className="chat-composer" onSubmit={e => { e.preventDefault(); void send(); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); void addFiles(e.dataTransfer.files); }}>
-          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : 'Message the agent…'} disabled={sending || stopped}/>
+          <textarea aria-label="Message" rows={1} maxLength={12000} value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); void send(); } }} placeholder={sending ? 'Working…' : (sessionStorage.getItem('gamelab.run_id') ? 'In GameLab guide — type /exit to leave…' : 'Message the agent… (/gamelab <question> for game-cheat guide)')} disabled={sending || stopped}/>
           <div className="chat-composer-actions">
             <input ref={fileInput} type="file" multiple className="sr-only" aria-label="Attach files" onChange={e => void addFiles(e.target.files || [])}/>
             <button type="button" className="chat-tool-btn" aria-label="Attach a file" title="Attach a file to discuss" onClick={() => fileInput.current?.click()} disabled={sending || importing || stopped}><Plus size={18}/></button>

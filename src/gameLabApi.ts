@@ -125,6 +125,24 @@ export const gameLab = {
                                                               { project_id, source, duration_s, fps }),
   ask:              (message: string, project_id?: string) =>
                     rpc<{ run_id: string }>('gamelab.ask', { message, project_id }),
+  chatStart:        (message: string, project_id?: string) =>
+                    rpc<{ run_id: string; status: string }>(
+                        'gamelab.chat_start', { message, project_id: project_id || null }),
+  chatSend:         (run_id: string, message: string) =>
+                    rpc<{ run_id: string; status: string }>(
+                        'gamelab.chat_send', { run_id, message }),
+  chatGet:          (run_id: string) =>
+                    rpc<{ run_id: string; status: string;
+                          transcript: Array<{ role: string; content: string }> }>(
+                        'gamelab.chat_get', { run_id }),
+  chatList:         (project_id?: string) =>
+                    rpc<{ runs: Array<{ id: string; status: string;
+                                         created_at: string;
+                                         turns_done: number }> }>(
+                        'gamelab.chat_list', { project_id: project_id || null }),
+  chatStop:         (run_id: string) =>
+                    rpc<{ run_id: string; status: string }>(
+                        'gamelab.chat_stop', { run_id }),
   featureMatrix:    () =>
                     rpc<{ features: Record<string, Record<string, boolean | string>> }>(
                         'gamelab.feature_matrix', {}),
