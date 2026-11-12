@@ -125,4 +125,14 @@ export const gameLab = {
                                                               { project_id, source, duration_s, fps }),
   ask:              (message: string, project_id?: string) =>
                     rpc<{ run_id: string }>('gamelab.ask', { message, project_id }),
+  featureMatrix:    () =>
+                    rpc<{ features: Record<string, Record<string, boolean | string>> }>(
+                        'gamelab.feature_matrix', {}),
+  startFullKit:     (project_id: string,
+                     features: Record<string, unknown>,
+                     hid: Record<string, unknown>) =>
+                    rpc<{ project_id: string; game: string;
+                          steps: Array<{ step: string; recipe: Recipe }> }>(
+                        'gamelab.start_full_kit', { project_id, features, hid }),
 };
+

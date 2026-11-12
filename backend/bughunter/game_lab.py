@@ -140,6 +140,52 @@ GAME_PROFILES = {
     },
 }
 
+FEATURE_MATRIX = {
+    "cs2":       {"engine": "source2",   "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": True},
+    "valorant":  {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "apex":      {"engine": "apex",      "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": True,
+                  "loot": True, "has_offsets_dumper": False},
+    "rust":      {"engine": "unity",     "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": True,
+                  "loot": True, "has_offsets_dumper": False},
+    "fortnite":  {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "r6_siege":  {"engine": "anvil",     "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "tarkov":    {"engine": "unity",     "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "cod_mw":    {"engine": "iw",        "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "pubg":      {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "bgmi":      {"engine": "unreal_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "cod_mobile":{"engine": "unreal_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "free_fire": {"engine": "unity_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "fivem":     {"engine": "rage",      "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": True,
+                  "loot": False, "has_offsets_dumper": False},
+    "dayz":      {"engine": "enfusion",  "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+}
+
+
 STACKS = {
     "external-vision": {
         "label": "External vision (capture card + YOLO + Arduino HID)",
@@ -224,9 +270,19 @@ class GameLabService:
     def dispatch(self, method: str, params: dict) -> Any:
         p = params or {}
         if method == "gamelab.list_games":
-            return {"games": [{"id": k, **v} for k, v in GAME_PROFILES.items()]}
+            return {"games": [{"id": k, **v,
+                                "features": FEATURE_MATRIX.get(k, {})}
+                               for k, v in GAME_PROFILES.items()]}
         if method == "gamelab.list_stacks":
             return {"stacks": [{"id": k, **v} for k, v in STACKS.items()]}
+        if method == "gamelab.feature_matrix":
+            return {"features": FEATURE_MATRIX}
+        if method == "gamelab.start_full_kit":
+            return self.start_full_kit(
+                project_id=p["project_id"],
+                features=p.get("features", {}),
+                hid=p.get("hid", {}),
+            )
         if method == "gamelab.hardware_check":
             return self.hardware_check(force=bool(p.get("force", False)))
         if method == "gamelab.create_project":
@@ -550,6 +606,97 @@ class GameLabService:
 
     # -------- AI guide ---------------------------------------------------
 
+    # -------- start_full_kit -----------------------------------------------
+
+    def start_full_kit(self, project_id: str, features: dict,
+                        hid: dict) -> dict:
+        """Start every enabled feature for a project in one call.
+
+        features = { "memory_esp": bool, "radar": bool, "aim": bool,
+                     "trigger": bool, "recoil": bool, "chams_mode": str,
+                     "draw_box"/"draw_snapline"/etc.: bool }
+        hid      = { "backend": "arduino"|"kmbox"|"adb",
+                     "arduino_port": str, "kmbox_endpoint": str,
+                     "adb_serial": str }
+        """
+        proj = self.store.get("cheat_project", project_id)
+        if not proj:
+            raise ValueError(f"no such project: {project_id}")
+        game = proj["game"]
+        feat = FEATURE_MATRIX.get(game, {})
+        if not feat.get("esp"):
+            raise ValueError(f"game {game} has no supported engine walker yet")
+        engine = feat.get("engine", "")
+        is_mobile = engine.endswith("_mobile")
+        results: dict = {"project_id": project_id, "game": game,
+                         "steps": []}
+
+        # Pipeline 1: memory_esp (always on if asked)
+        if features.get("memory_esp", True):
+            recipe = self.start_recipe(project_id=project_id,
+                                        adapter=("mobile_memory_esp"
+                                                 if is_mobile else "memory_esp"),
+                                        config={
+                                            "mode": "start",
+                                            "game": game,
+                                            "project_id": project_id,
+                                            "reader_backend": _pick_reader_backend(game),
+                                            "chams_mode": features.get("chams_mode", "team"),
+                                            "features": {
+                                                k: v for k, v in features.items()
+                                                if k.startswith("draw_")
+                                            },
+                                            "serial": hid.get("adb_serial"),
+                                        })
+            results["steps"].append({"step": "memory_esp", "recipe": recipe})
+            shared_file = (recipe.get("last_result") or {}).get("shared_file")
+        else:
+            shared_file = None
+
+        # Pipeline 2: radar
+        if features.get("radar", True):
+            r_rec = self.start_recipe(project_id=project_id, adapter="radar",
+                                       config={"mode": "start",
+                                               "shared_file": shared_file,
+                                               "range_m": features.get("radar_range_m", 300.0)})
+            results["steps"].append({"step": "radar", "recipe": r_rec})
+
+        # Pipeline 3: combat aim
+        if features.get("aim", False) and feat.get("aim", True):
+            c_rec = self.start_recipe(project_id=project_id, adapter="combat",
+                                       config={
+                                           "mode": "start",
+                                           "feature": "aim",
+                                           "shared_file": shared_file,
+                                           "hid_backend": hid.get("backend", "arduino"),
+                                           "arduino_port": hid.get("arduino_port"),
+                                           "kmbox_endpoint": hid.get("kmbox_endpoint"),
+                                           "adb_serial": hid.get("adb_serial"),
+                                           "trigger_enabled": features.get("trigger", False),
+                                           "aim_smooth": features.get("aim_smooth", 0.42),
+                                           "miss_rate": features.get("miss_rate", 0.08),
+                                           "reaction_floor_ms": features.get("reaction_floor_ms", 180),
+                                           "fov_px": features.get("fov_px", 180.0),
+                                       })
+            results["steps"].append({"step": "combat_aim", "recipe": c_rec})
+
+        # Pipeline 4: recoil writer
+        if features.get("recoil", False) and feat.get("recoil", False):
+            r_rec = self.start_recipe(project_id=project_id, adapter="combat",
+                                       config={
+                                           "mode": "start",
+                                           "feature": "recoil",
+                                           "game": game,
+                                           "process_name": _default_process_name(game),
+                                           "reader_backend": _pick_reader_backend(game),
+                                       })
+            results["steps"].append({"step": "combat_recoil", "recipe": r_rec})
+
+        self._emit_timeline("start_full_kit",
+                            payload={"project_id": project_id, "game": game,
+                                     "step_count": len(results["steps"])})
+        return results
+
     def ask_guide(self, project_id: str | None, message: str) -> dict:
         """Send a message to the GameLab AI guide. Loads the game-cheat-ops
         runtime prompt + current project/hardware context, then kicks off
@@ -736,6 +883,27 @@ def _tail(d: dict) -> dict:
     """Trim adapter result for recipe log tail storage."""
     return {k: (v if not isinstance(v, (str, bytes)) else v[:1000])
             for k, v in d.items() if k not in ("stdout", "stderr")}
+
+
+def _pick_reader_backend(game: str) -> str:
+    """Default to DMA on PC, android bridge on mobile."""
+    if game in ("bgmi", "cod_mobile", "free_fire", "pubg_mobile"):
+        return "android"
+    return "dma"
+
+
+def _default_process_name(game: str) -> str:
+    return {
+        "valorant": "VALORANT-Win64-Shipping.exe",
+        "cs2":      "cs2.exe",
+        "apex":     "r5apex.exe",
+        "rust":     "RustClient.exe",
+        "fortnite": "FortniteClient-Win64-Shipping.exe",
+        "r6_siege": "RainbowSix.exe",
+        "tarkov":   "EscapeFromTarkov.exe",
+        "cod_mw":   "ModernWarfare.exe",
+        "pubg":     "TslGame.exe",
+    }.get(game, "")
 
 
 def _load_runtime_prompt() -> str:

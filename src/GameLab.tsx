@@ -195,6 +195,22 @@ function ProjectDetail({ project, onReload }: {
   const [log, setLog] = useState<string[]>([]);
   const recipes = useMemo(() => project.recipes || [], [project]);
 
+  // Universal feature toggles
+  const [features, setFeatures] = useState({
+    memory_esp: true, radar: true,
+    aim: false, trigger: false, recoil: false,
+    draw_box: true, draw_head_dot: true, draw_snapline: true,
+    draw_skeleton: true, draw_name: true, draw_hp_bar: true,
+    draw_distance: true, draw_weapon: true, draw_loot: false,
+    chams_mode: 'team',
+    aim_smooth: 0.42, miss_rate: 0.08, reaction_floor_ms: 180,
+    fov_px: 180, radar_range_m: 300,
+  });
+  const [hid, setHid] = useState({
+    backend: 'arduino' as 'arduino' | 'kmbox' | 'adb',
+    arduino_port: '', kmbox_endpoint: '', adb_serial: '',
+  });
+
   const start = async (adapter: string, config: Record<string, unknown>) => {
     const r = await gameLab.startRecipe(project.id, adapter, config);
     setLog(l => [...l, `start ${adapter} → ${r.status}${r.error ? ' / ' + r.error : ''}`]);
@@ -210,6 +226,13 @@ function ProjectDetail({ project, onReload }: {
     setLog(l => [...l, `ask → run_id=${r.run_id}`]);
     setMsg('');
   };
+  const startFullKit = async () => {
+    const r = await gameLab.startFullKit(project.id, features, hid);
+    setLog(l => [...l, `full kit → ${r.steps.length} recipes started`]);
+    await onReload();
+  };
+
+  const toggle = (k: string) => setFeatures(f => ({ ...f, [k]: !(f as any)[k] }));
 
   return (
     <section className="gl-section">
@@ -217,29 +240,89 @@ function ProjectDetail({ project, onReload }: {
       <p>Status: {project.status}</p>
       {project.notes && <p className="gl-note">{project.notes}</p>}
 
-      <h4>Recipes</h4>
+      <h4>Feature toggles</h4>
+      <div className="gl-feature-grid">
+        <label><input type="checkbox" checked={features.memory_esp}
+                       onChange={() => toggle('memory_esp')} /> Memory ESP</label>
+        <label><input type="checkbox" checked={features.radar}
+                       onChange={() => toggle('radar')} /> 2D radar</label>
+        <label><input type="checkbox" checked={features.aim}
+                       onChange={() => toggle('aim')} /> Aim</label>
+        <label><input type="checkbox" checked={features.trigger}
+                       onChange={() => toggle('trigger')} /> Trigger</label>
+        <label><input type="checkbox" checked={features.recoil}
+                       onChange={() => toggle('recoil')} /> No-recoil (writes)</label>
+      </div>
+      <h5>ESP primitives</h5>
+      <div className="gl-feature-grid">
+        {['draw_box','draw_head_dot','draw_snapline','draw_skeleton',
+          'draw_name','draw_hp_bar','draw_distance','draw_weapon','draw_loot']
+          .map(k => (
+            <label key={k}>
+              <input type="checkbox" checked={(features as any)[k]}
+                     onChange={() => toggle(k)} /> {k.replace('draw_','')}
+            </label>
+          ))}
+      </div>
+      <label>Chams mode:{' '}
+        <select value={features.chams_mode}
+                onChange={e => setFeatures(f => ({ ...f, chams_mode: e.target.value }))}>
+          <option value="team">team</option>
+          <option value="visibility">visibility</option>
+          <option value="distance">distance</option>
+          <option value="off">off</option>
+        </select>
+      </label>
+
+      <h4>HID output</h4>
+      <div className="gl-feature-grid">
+        <label>Backend:{' '}
+          <select value={hid.backend}
+                  onChange={e => setHid(h => ({ ...h, backend: e.target.value as 'arduino' | 'kmbox' | 'adb' }))}>
+            <option value="arduino">Arduino HID</option>
+            <option value="kmbox">KMBox Net</option>
+            <option value="adb">ADB (mobile)</option>
+          </select>
+        </label>
+        <label>Arduino port: <input value={hid.arduino_port}
+          onChange={e => setHid(h => ({ ...h, arduino_port: e.target.value }))}
+          placeholder="/dev/ttyACM0" /></label>
+        <label>KMBox endpoint: <input value={hid.kmbox_endpoint}
+          onChange={e => setHid(h => ({ ...h, kmbox_endpoint: e.target.value }))}
+          placeholder="192.168.1.50:65432" /></label>
+        <label>ADB serial: <input value={hid.adb_serial}
+          onChange={e => setHid(h => ({ ...h, adb_serial: e.target.value }))}
+          placeholder="phone serial" /></label>
+      </div>
+
+      <h4>One-click</h4>
       <div className="gl-recipe-row">
-        <button onClick={() => start('vision_esp',
-          { esp_overlay: true, aimbot_enabled: false })}>
-          Start ESP (vision)
-        </button>
-        <button onClick={() => start('vision_esp',
-          { esp_overlay: true, aimbot_enabled: true })}>
-          Start aim+ESP (vision)
-        </button>
-        <button onClick={() => start('dma_memread',
-          { game: project.game })}>
-          Start DMA reader
-        </button>
-        {project.game === 'bgmi' &&
-          <button onClick={() => start('bgmi_mobile',
-            { aim_via: 'none', overlay: true })}>
-            Start BGMI scrcpy ESP
-          </button>}
+        <button onClick={startFullKit}>Start full kit</button>
         <button onClick={() => start('game_offsets',
           { mode: 'refresh', game: project.game })}>
           Refresh offsets
         </button>
+        <button onClick={() => start('hwid_spoof',
+          { mode: 'snapshot', label: 'pre-session' })}>
+          HWID snapshot
+        </button>
+      </div>
+
+      <h4>Legacy single recipes</h4>
+      <div className="gl-recipe-row">
+        <button onClick={() => start('vision_esp',
+          { esp_overlay: true, aimbot_enabled: false })}>
+          Start ESP (capture-card vision)
+        </button>
+        <button onClick={() => start('dma_memread',
+          { game: project.game })}>
+          Start DMA reader (old pipeline)
+        </button>
+        {['bgmi','cod_mobile','free_fire'].includes(project.game) &&
+          <button onClick={() => start('bgmi_mobile',
+            { aim_via: 'none', overlay: true })}>
+            Start scrcpy ESP (vision-only)
+          </button>}
       </div>
       <ul className="gl-recipes">
         {recipes.map(r => (

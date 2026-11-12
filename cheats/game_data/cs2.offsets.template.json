@@ -1,0 +1,21 @@
+{
+    "_notes": "Template. Real values come from a2x/cs2-dumper via `gamelab.offsets.refresh game=cs2`. Updated weekly.",
+    "offsets": {
+        "base_module": "client.dll",
+        "dwEntityList": 0,
+        "dwLocalPlayerController": 0,
+        "dwViewMatrix": 0,
+        "m_hPlayerPawn": 0,
+        "m_iTeamNum": 0,
+        "m_iHealth": 0,
+        "m_vOldOrigin": 0,
+        "m_pGameSceneNode": 0,
+        "m_modelState_m_bonesArray": 0,
+        "m_sSanitizedPlayerName": 0,
+        "bones": { "head": 6, "neck": 5, "pelvis": 0, "spine_up": 2, "spine_lo": 1,
+                   "shoulder_l": 8, "elbow_l": 9, "hand_l": 10,
+                   "shoulder_r": 13, "elbow_r": 14, "hand_r": 15,
+                   "hip_l": 22, "knee_l": 23, "foot_l": 24,
+                   "hip_r": 25, "knee_r": 26, "foot_r": 27 }
+    }
+}
