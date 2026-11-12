@@ -1,0 +1,136 @@
+// language: C++17, header, target: Windows 11, MSVC
+// *copy to game_config.h and fill in the per-game offsets — derive these per build using
+//  the methodology in docs/anticheat_methodology.md*
+//
+// This is the only file you edit per game / per patch. Everything downstream reads from
+// `g_game`. Offsets here are placeholders; derive the real ones for whichever game you
+// own / are authorized against using Il2CppDumper (Unity / BGMI), schema dumps (Source 2 / CS2),
+// or UE4 reflection globals (Valorant / UE4-based games).
+#pragma once
+
+#include <cstdint>
+#include <string>
+
+namespace esp {
+
+struct GameConfig {
+    // module the game engine lives in — the base address is resolved by name at runtime
+    std::wstring engine_module;
+
+    // entity system / world globals
+    uintptr_t entity_list_ptr;      // RVA of the global entity list base
+    uintptr_t local_player_ptr;     // RVA of the global local-player pointer
+    uintptr_t view_matrix_offset;   // RVA of the per-frame view-projection matrix
+
+    // entity list structure
+    uint32_t entity_stride;         // bytes between entries in the entity list
+    uint32_t max_entities;          // max entries to walk per frame
+
+    // per-entity offsets (from entity base pointer)
+    uint32_t pos_offset;            // Vec3 world position
+    uint32_t health_offset;         // int32 or int16 — adjust Read in overlay accordingly
+    uint32_t team_offset;           // int32
+    uint32_t name_offset;           // char[16..64] or wchar_t[16..32] — game dependent
+    uint32_t alive_offset;          // bool / byte — 1 if alive
+    uint32_t bone_matrix_offset;    // offset to bone matrix array (for skeleton ESP)
+    uint32_t bone_count;            // number of bones in the array
+    uint32_t bone_stride;           // bytes per bone matrix entry
+
+    // local player identity
+    uint32_t local_team_offset;     // team id on the local player struct
+    uint32_t local_eye_pos_offset;  // Vec3 eye position on the local player (for FOV / aim)
+    uint32_t local_view_fwd_offset; // Vec3 forward vector
+
+    // display-only toggles
+    bool draw_boxes = true;
+    bool draw_names = true;
+    bool draw_health = true;
+    bool draw_distance = true;
+    bool draw_lines = false;         // line from screen center to each entity
+    bool draw_bones = false;
+    bool team_check = true;          // skip entities on the local team
+    float max_render_distance = 500.0f;  // units — game-scale dependent
+};
+
+// Fill one of these for your target. Example templates below are PLACEHOLDERS — the actual
+// values drift with every game patch. Derive with Il2CppDumper / schema dump / UE4 reflection.
+
+// ================================================================================
+// EXAMPLE: generic Unity game template (BGMI / PUBG Mobile / any Il2Cpp Unity game)
+// ================================================================================
+inline GameConfig UnityGenericTemplate() {
+    GameConfig c{};
+    c.engine_module       = L"UserAssembly.dll";   // Il2Cpp runtime; some builds use "GameAssembly.dll"
+    c.entity_list_ptr     = 0x00000000;            // <- fill from Il2CppDumper's output on `*ActorManager` or `*GameManager`
+    c.local_player_ptr    = 0x00000000;            // <- `LocalCharacter` static
+    c.view_matrix_offset  = 0x00000000;            // <- `Camera.main.worldToCameraMatrix * projectionMatrix` composite
+    c.entity_stride       = 0x08;                  // Il2Cpp lists usually store pointers → stride 8 on x64
+    c.max_entities        = 100;
+    c.pos_offset          = 0x00;                  // Transform.position or custom position field
+    c.health_offset       = 0x00;
+    c.team_offset         = 0x00;
+    c.name_offset         = 0x00;
+    c.alive_offset        = 0x00;
+    c.bone_matrix_offset  = 0x00;
+    c.bone_count          = 23;
+    c.bone_stride         = 0x40;                  // 4x4 matrix in some Unity builds
+    c.local_team_offset   = 0x00;
+    c.local_eye_pos_offset = 0x00;
+    c.local_view_fwd_offset = 0x00;
+    return c;
+}
+
+// ================================================================================
+// EXAMPLE: generic Source 2 game template (CS2)
+// ================================================================================
+inline GameConfig Source2GenericTemplate() {
+    GameConfig c{};
+    c.engine_module       = L"client.dll";
+    c.entity_list_ptr     = 0x00000000;            // <- CEntitySystem::m_pEntityHandles — derive per build
+    c.local_player_ptr    = 0x00000000;            // <- CBasePlayer::GetLocalPlayer()
+    c.view_matrix_offset  = 0x00000000;            // <- CRenderGameSystem view-proj
+    c.entity_stride       = 0x78;                  // Source 2 entity handle stride
+    c.max_entities        = 64;                    // CS2: 64 players max
+    c.pos_offset          = 0x1218;                // placeholder — CBaseEntity::m_vecOrigin per some builds
+    c.health_offset       = 0x344;                 // placeholder — m_iHealth
+    c.team_offset         = 0x3E0;                 // placeholder — m_iTeamNum
+    c.name_offset         = 0x668;                 // placeholder — m_iszPlayerName
+    c.alive_offset        = 0x334;                 // placeholder — m_bIsAlive
+    c.bone_matrix_offset  = 0x1268;                // placeholder — CSkeletonInstance::m_modelState.m_pBoneArray
+    c.bone_count          = 24;
+    c.bone_stride         = 0x20;                  // Source 2 bone matrix stride
+    c.local_team_offset   = 0x3E0;
+    c.local_eye_pos_offset = 0x1234;
+    c.local_view_fwd_offset = 0x1240;
+    return c;
+}
+
+// ================================================================================
+// EXAMPLE: generic UE4 game template (Valorant / any UE4 shipping build)
+// ================================================================================
+inline GameConfig UE4GenericTemplate() {
+    GameConfig c{};
+    c.engine_module       = L"VALORANT-Win64-Shipping.exe";  // or whatever Shipping exe
+    c.entity_list_ptr     = 0x00000000;            // <- UWorld::PersistentLevel::Actors
+    c.local_player_ptr    = 0x00000000;            // <- GetWorld()->GetFirstLocalPlayerFromController()
+    c.view_matrix_offset  = 0x00000000;            // <- APlayerController::PlayerCameraManager::CameraCache view*proj
+    c.entity_stride       = 0x08;                  // TArray<AActor*> — 8 bytes per pointer on x64
+    c.max_entities        = 200;                   // UE4 Actors array can be large
+    c.pos_offset          = 0x1F0;                 // placeholder — AActor::RootComponent->RelativeLocation
+    c.health_offset       = 0x00;                  // custom in gameplay class
+    c.team_offset         = 0x00;                  // custom
+    c.name_offset         = 0x18;                  // AActor::Name FName index
+    c.alive_offset        = 0x00;                  // custom
+    c.bone_matrix_offset  = 0x5B0;                 // placeholder — USkeletalMeshComponent::BoneSpaceTransforms
+    c.bone_count          = 80;
+    c.bone_stride         = 0x30;                  // FTransform stride
+    c.local_team_offset   = 0x00;
+    c.local_eye_pos_offset = 0x1F0;
+    c.local_view_fwd_offset = 0x00;
+    return c;
+}
+
+// Switch which config the overlay compiles against.
+inline GameConfig g_game = Source2GenericTemplate();
+
+} // namespace esp
