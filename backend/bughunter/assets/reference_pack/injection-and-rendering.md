@@ -2,9 +2,9 @@
 
 Authored synthesis; references reviewed 2026-11-11.
 
-## SQL injection method
+## Внедрение-SQL method
 
-Trace untrusted input to query construction using available code or controlled behavior. Prepared statements separate values from SQL structure; dynamic identifiers usually require a restricted mapping. Stored procedures are not automatically safe if they concatenate executable SQL. A database-looking error is a lead, not proof that supplied text executed. See [OWASP SQL injection prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html).
+Trace untrusted input to query construction using available code or controlled behavior. Prepared statements separate values from SQL structure; dynamic identifiers usually require a restricted mapping. Stored procedures are not automatically safe if they concatenate executable SQL. A database-looking error is a lead, not proof that supplied text executed. See [OWASP Внедрение-SQL prevention](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html).
 
 Record a normal input and a minimally changed comparison using the same session and endpoint. Prefer application logs or a bounded local fixture that reveals the actual query operation. Unstable latency, rate limiting, dependency outages, and generic errors can produce misleading differences. Preserve exact request encoding and repeated parameter order.
 

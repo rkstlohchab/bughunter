@@ -104,7 +104,7 @@ reports remain subject to the app's existing export-retention behavior.
 
 These tests do not establish access to an arbitrary external program, Windows
 adapter support, or a live provider's proposal quality. macOS can refuse external
-attachment even when the helper's own-memory read test succeeds.
+attachment even when the helper's own-чтение-П test succeeds.
 
 ### When selecting a program appears to do nothing
 
@@ -131,7 +131,7 @@ The UI correction does not grant access to a protected process.
 - Rust: **28 passed**. Routing: **32 passed**. TypeScript typecheck passed.
 - Support/packaging contracts: **29 passed**.
 - Native helper: **20 tests run, 4 skipped** because macOS refused external
-  attachment. The real owned-memory read and all selection/identity tests pass.
+  attachment. The real owned-чтение-П and all selection/identity tests pass.
 
 Browser workflow tests use a mocked native transport; backend tests use controlled
 model proposals and native receipts. They do not prove a live model's mapping

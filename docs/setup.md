@@ -29,7 +29,7 @@ For local audio transcription, install `whisper-cli` from [whisper.cpp](https://
 
 For YouTube, paste a public video URL in **Import resource**. Captions are attempted first. Enable the explicit media-download checkbox to extract local frames/audio where the video is downloadable. No browser cookies, course-account credentials, or arbitrary downloader hooks are loaded. Remote availability and caption language affect results; a failed/partial source can be retried. Matching local SRT/VTT sidecars next to linked media provide timestamped text without speech recognition; you can also import subtitle files directly.
 
-## Burp and the policy gateway
+## Burp and the ШЛЮЗ-П
 
 Use a dedicated Burp project/listener for this workbench. Configure the gateway before enabling external execution:
 
@@ -96,7 +96,7 @@ In the app: paste the tunnel URL as the API base URL, enter the pulled model id,
 
 ### DeepSeek API (hosted)
 
-Select **DeepSeek API · chat / reasoner**, create a key at platform.deepseek.com, and store it in the API key field. The base URL defaults to `https://api.deepseek.com` and can stay empty. Two model ids: `deepseek-chat` is the tool-calling model the agent loop uses natively; `deepseek-reasoner` trades native tools for longer visible chains of reasoning, so the app routes it through the same prompt-level tool protocol used for CrucibleLLM instead of sending the tools parameter. Enter the current per-million input/output rates from DeepSeek's pricing page in both price fields and tick the confirmation — the budget guard then estimates every call before it is sent. **Save & test connection** uses the free `/models` listing to verify the key without a billed request, and flags a model id that is not listed. Local-only mode blocks this provider; the scope, policy gateway, and approvals apply exactly as with any provider.
+Select **DeepSeek API · chat / reasoner**, create a key at platform.deepseek.com, and store it in the API key field. The base URL defaults to `https://api.deepseek.com` and can stay empty. Two model ids: `deepseek-chat` is the tool-calling model the agent loop uses natively; `deepseek-reasoner` trades native tools for longer visible chains of reasoning, so the app routes it through the same prompt-level tool protocol used for CrucibleLLM instead of sending the tools parameter. Enter the current per-million input/output rates from DeepSeek's pricing page in both price fields and tick the confirmation — the budget guard then estimates every call before it is sent. **Save & test connection** uses the free `/models` listing to verify the key without a billed request, and flags a model id that is not listed. Local-only mode blocks this provider; the scope, ШЛЮЗ-П, and approvals apply exactly as with any provider.
 
 ## Packaging
 

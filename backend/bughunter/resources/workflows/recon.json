@@ -1,0 +1,27 @@
+{
+  "name": "recon",
+  "description": "Passive + active recon: subdomain discovery → HTTP probe → nuclei dns/http tags.",
+  "inputs": ["root_domain"],
+  "nodes": [
+    {
+      "id": "subfinder",
+      "adapter": "subfinder",
+      "args": {"domain": "$inputs.root_domain", "timeout": 600}
+    },
+    {
+      "id": "httpx",
+      "adapter": "httpx",
+      "depends_on": ["subfinder"],
+      "args": {"targets": "$nodes.subfinder.output.subdomains", "threads": 25,
+               "probes": ["status-code","title","tech-detect","web-server"]}
+    },
+    {
+      "id": "nuclei",
+      "adapter": "nuclei",
+      "depends_on": ["httpx"],
+      "args": {"targets": "$nodes.httpx.output.hostnames",
+               "tags": ["misconfig","exposure","tech"],
+               "rate_limit": 25, "max_duration": 1200}
+    }
+  ]
+}

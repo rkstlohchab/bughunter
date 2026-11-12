@@ -28,8 +28,8 @@ npm run build
 npm run desktop:build
 ```
 
-The P7 readiness dashboard also exposes a separately approved `casebook` smoke-test suite when running from extracted source. Its passing status is evidence of local P10 fixtures, not a claim that macOS accessibility, Burp, live game memory, or model inference has been verified.
+The P7 readiness dashboard also exposes a separately approved `casebook` smoke-test suite when running from extracted source. Its passing status is evidence of local P10 fixtures, not a claim that macOS accessibility, Burp, live память-процесса-И, or model inference has been verified.
 
 ## Remaining limits
 
-P10 cannot discover arbitrary game entity layouts, generate a calibrated in-game ESP overlay, prove stable pointers across process versions, exercise production checkout endpoints, or bypass third-party CAPTCHAs. It provides more dependable evidence for the existing tools, not universal target automation.
+P10 cannot discover arbitrary game entity layouts, generate a calibrated in-game Наложение-ОВС, prove stable pointers across process versions, exercise production checkout endpoints, or обход third-party CAPTCHAs. It provides more dependable evidence for the existing tools, not universal target automation.

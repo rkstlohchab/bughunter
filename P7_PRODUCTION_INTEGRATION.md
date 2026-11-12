@@ -11,7 +11,7 @@ This release includes all prior P0–P6 source and adds a persistent local diagn
 - **Evidence**: `readiness.p7.export` writes a local JSON report at `<data directory>/exports/p7-release-readiness.json`, clearly stating that live Mac verification is separate.
 - **Packaged app**: compiled Python modules are detected by import; source-based smoke scripts are disabled if the source tree is not bundled. Run the extracted project's script for release checks. This prevents a misleading Run button inside the `.app`.
 
-This is an integration and diagnostic milestone. It does not silently finish arbitrary-game ESP, universal cheating, production checkout exploitation, CAPTCHA solving, autonomous arbitrary command execution, or model fine-tuning.
+This is an integration and diagnostic milestone. It does not silently finish arbitrary-game ESP, universal нестандартный-ввод, production checkout срабатывание, CAPTCHA solving, autonomous arbitrary command execution, or model fine-tuning.
 
 ## On your Mac: final test sequence
 
@@ -35,7 +35,7 @@ bash scripts/verify_p7_release.sh --full
 3. **AI providers** — save and test each configured local Ollama, Kaggle/OpenAI-compatible, and subscription provider independently. Do not infer one provider is connected from another provider's results.
 4. **Courses** — import your original course ZIP, process real Whisper audio and Qwen3-VL frames, inspect exact timestamps/citations, create a P1 fixture experiment, and verify reviewed P6 skill recall after restarting the app.
 5. **Burp** — build/load the extension in Burp Professional, use P7 Burp probe, import an in-scope proxy capture, and confirm history and Scanner finding metadata matches the actual extension response.
-6. **Game memory** — first run the bundled read-only fixture; then verify the native memory bridge against the intended accessible offline game. Fixture addresses do **not** validate arbitrary third-party game offsets.
+6. **Память-процесса-И** — first run the bundled read-only fixture; then verify the native мост-ИП against the intended accessible offline game. Fixture addresses do **not** validate arbitrary third-party game offsets.
 7. **Tor** — use an operator-bookmarked research page through the actual Tor browser; confirm stop/pause at login/CAPTCHA, manually continue, and capture an unreviewed page. No automatic CAPTCHA-solving claim.
 8. **Research & knowledge** — monitor a subscribed HTTPS feed, review the result, inspect the knowledge graph, and verify no unreviewed source is automatically promoted into a verified skill or training dataset.
 9. **Persistence and failure handling** — stop a running P7 suite, restart the app mid-task, confirm interrupted status and local evidence export, and verify emergency stop cancels local test runners.

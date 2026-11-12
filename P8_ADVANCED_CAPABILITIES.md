@@ -44,13 +44,13 @@ Save it as `entity-layout.json` with the **real** PID and values, then:
 python3 scripts/run_esp_lab_demo.py --layout ./entity-layout.json
 ```
 
-The service binds only to localhost and reads actual memory through the Mac helper. A nonexistent process, invalid layout, denied memory access, or missing coordinates raises a visible failure. It does not discover unknown offsets, inject a display into a game, bypass protections, or turn 2D radar coordinates into game-view ESP automatically. A game restart may require a new PID and re-resolved entity address.
+The service binds only to localhost and reads actual memory through the Mac helper. A nonexistent process, invalid layout, denied memory access, or missing coordinates raises a visible failure. It does not discover unknown offsets, inject a display into a game, обход protections, or turn 2D radar coordinates into game-view ESP automatically. A game restart may require a new PID and re-resolved entity address.
 
 ## Evidence-based website coverage
 
 In **Settings → P8 Advanced capabilities**, choose a project and click **Review current project**. P8 correlates actual captured traffic, checkout-looking URLs, and staging test receipts. Missing access-control or transaction evidence is explicitly marked unverified. Existing Burp and staging quote regressions remain available in their own panels. The P8 overview does not send new requests or perform arbitrary production checkout actions.
 
-The P3 research browser continues to pause at CAPTCHA/login interruptions for manual completion; no automatic third-party CAPTCHA bypass is implemented.
+The P3 research browser continues to pause at CAPTCHA/login interruptions for manual completion; no automatic third-party CAPTCHA обход is implemented.
 
 ## AI tools
 
@@ -65,4 +65,4 @@ bash scripts/verify_p8_advanced.sh
 npm run desktop:build
 ```
 
-The verification script runs the P8/P7 tests and prior P0–P6 focused suites. Full Mac compilation, actual training, Burp connectivity, and game memory attachment still require Mac testing.
+The verification script runs the P8/P7 tests and prior P0–P6 focused suites. Full Mac compilation, actual training, Burp connectivity, and память-процесса-И attachment still require Mac testing.

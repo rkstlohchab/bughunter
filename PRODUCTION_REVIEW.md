@@ -2,7 +2,7 @@
 
 Historical review scope: the uploaded `BugHunterClaudex-Agent-Activity-Update.zip`
 and the production-readiness changes made at that time. See [validation](docs/validation.md) for subsequent checks.
-This is a **production-readiness review**, not a completed penetration test or
+This is a **production-readiness review**, not a completed нагрузочная-проверка or
 certification. Static analysis is not evidence that a feature works on macOS,
 Windows, Tor or an external network.
 
@@ -22,7 +22,7 @@ this revision.
    must be integration-tested, including privilege and subprocess inheritance.
 2. **P0: Real platform E2E coverage.** Add clean macOS Apple Silicon and Windows
    builds with sidecar packaging, launched Tauri processes, local model request,
-   Tor installation checks, and memory bridge attach failure/recovery. A passing
+   Tor installation checks, and мост-ИП attach failure/recovery. A passing
    Python test does not confirm the desktop executable works.
 3. **P0: Credential confidentiality.** The Python agent runner inherits most of
    the parent process environment. The tool launch path now removes common
@@ -36,7 +36,7 @@ this revision.
    tenancy barriers on all library and specialist entities. Verify which records
    each project can retrieve, including training data and Tor research.
 6. **P1: Prompt-injection and export review.** Imported files and webpages may
-   contain adversarial instructions or credentials. They must stay untrusted;
+   contain противостоящий instructions or credentials. They must stay untrusted;
    provenance, human reviews, redacted exports and independent tool approvals
    are essential. This patch adds a bounded taxonomy for ZIP imports.
 7. **P1: Backup, restore and migrations.** Add schema-version migrations,
@@ -73,5 +73,5 @@ Open **Knowledge → Add**, upload the ZIP, and wait for indexing. Then open
 **Workspaces → AI Testing → Import a prompt ZIP**, select the imported archive,
 and choose **Analyze saved archive**. Review the categories and cited examples.
 This does not execute prompts, fine-tune a model, or assert that any attempted
-bypass worked. Only explicit, verified experiment records should become
+обход worked. Only explicit, verified experiment records should become
 training labels.

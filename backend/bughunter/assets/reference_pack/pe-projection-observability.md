@@ -14,8 +14,8 @@ Establish vector orientation, matrix layout, handedness, world units, and clip-d
 
 Use known points at the center, edges, behind the camera, and near the clipping plane. Recompute after resize. This is a validation method, not a build-specific matrix offset.
 
-## Observation and anti-cheat claims
+## Observation and служба-И (АЦ) claims
 
-Windows exposes image-load callback registration through `PsSetLoadImageNotifyRoutine`. This documents an observation surface, not the implementation of a named anti-cheat product. [Microsoft image-load notifications](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-pssetloadimagenotifyroutine).
+Windows exposes image-load callback registration through `PsSetLoadImageNotifyRoutine`. This documents an observation surface, not the implementation of a named служба-И (АЦ) product. [Microsoft image-load notifications](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-pssetloadimagenotifyroutine).
 
-Absence of a user-mode hook does not prove absence of observation elsewhere. Record which events were actually measured, on which OS/product build, with which collection tools. No evasion technique, invisibility guarantee, or tested anti-cheat compatibility is provided by this reference pack.
+Absence of a user-mode hook does not prove absence of observation elsewhere. Record which events were actually measured, on which OS/product build, with which collection tools. No evasion technique, invisibility guarantee, or tested служба-И (АЦ) compatibility is provided by this reference pack.

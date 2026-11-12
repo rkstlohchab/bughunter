@@ -50,6 +50,18 @@ from .advanced_p8 import AdvancedP8
 from .verification_p9 import VerificationP9
 from .investigation_p10 import InvestigationP10
 from .capabilities import CapabilityService
+# Forge + operator stack (Phase α/β/γ/δ — see FULL_PLATFORM_ROADMAP.md)
+from .learning_forge import LearningForge
+from .adapter_registry import AdapterRegistry
+from .kaggle_finetune import KaggleFinetune
+from .operator_agent import OperatorAgent
+from .asset_db import AssetDB
+from .vault import Vault
+from .timeline import Timeline
+from .workflow import WorkflowEngine
+from .transport.socks_chain import SocksChain
+from .transport.tcp_relay import TcpRelay
+from .local_inference import LocalInference
 
 
 class Application:
@@ -109,6 +121,18 @@ class Application:
         self.tor = TorResearchService(self.store, self.knowledge)
         self.tor.task_service = self.tasks
         self.capabilities = CapabilityService(self)
+        # --- Forge / operator stack -------------------------------------
+        self.timeline = Timeline(self)
+        self.assets = AssetDB(self)
+        self.vault = Vault(self)
+        self.forge = LearningForge(self)
+        self.adapters_registry = AdapterRegistry(self)
+        self.kaggle = KaggleFinetune(self)
+        self.workflows = WorkflowEngine(self)
+        self.socks_chain = SocksChain(self)
+        self.tcp_relay = TcpRelay(self)
+        self.inference = LocalInference(self)
+        self.operator = OperatorAgent(self)
         self.memory = None
         try:
             import platform as _plat
@@ -142,6 +166,29 @@ class Application:
         if not isinstance(method,str) or not isinstance(params or {},dict):
             raise ValueError("Invalid RPC request.")
         p = params or {}
+        # --- Forge / operator stack namespaces --------------------------
+        if method.startswith("forge."):
+            return self.forge.dispatch(method, p)
+        if method.startswith("adapters."):
+            return self.adapters_registry.dispatch(method, p)
+        if method.startswith("kaggle."):
+            return self.kaggle.dispatch(method, p)
+        if method.startswith("operator."):
+            return self.operator.dispatch(method, p)
+        if method.startswith("assets."):
+            return self.assets.dispatch(method, p)
+        if method.startswith("vault."):
+            return self.vault.dispatch(method, p)
+        if method.startswith("timeline."):
+            return self.timeline.dispatch(method, p)
+        if method.startswith("workflow."):
+            return self.workflows.dispatch(method, p)
+        if method.startswith("socks."):
+            return self.socks_chain.dispatch(method, p)
+        if method.startswith("relay."):
+            return self.tcp_relay.dispatch(method, p)
+        if method.startswith("inference."):
+            return self.inference.dispatch(method, p)
         if method.startswith("capabilities."):
             return self.capabilities.dispatch(method,p)
         if method.startswith("investigation.p10."):

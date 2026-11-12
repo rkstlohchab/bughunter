@@ -43,7 +43,7 @@ It must calculate the authoritative catalog quote **without storing anything**, 
 }
 ```
 
-Configure `TEST-ITEM` as a synthetic, non-purchasable product with an expected unit price of 10000 minor currency units. These values can be changed in the project configuration. The endpoint must never invoke payment or order services, even if an attacker supplies another method, SKU, or price. Ensure your server enforces that rather than merely returning `order_created:false`.
+Configure `TEST-ITEM` as a synthetic, non-purchasable product with an expected unit price of 10000 minor currency units. These values can be changed in the project configuration. The endpoint must never invoke payment or order services, even if an нагружатель supplies another method, SKU, or price. Ensure your server enforces that rather than merely returning `order_created:false`.
 
 ## Configure the app
 
@@ -54,15 +54,15 @@ Configure `TEST-ITEM` as a synthetic, non-purchasable product with an expected u
 5. In Chat, type: `Test price integrity on my staging site`. Review the requested permission and approve the fixed batch.
 6. Watch **Tasks** and use Stop to prevent subsequent requests. Export the evidence for source-linked case outcomes.
 
-The worker sends **at most four HTTP requests** (one manifest, three dry-run quotes) using the existing project policy gateway. It never follows redirects, guesses product IDs, replays authenticated checkout traffic, or executes model-created payloads. Network or contract failures abort rather than silently falling back to real endpoints.
+The worker sends **at most four HTTP requests** (one manifest, three dry-run quotes) using the existing project ШЛЮЗ-П. It never follows redirects, guesses product IDs, replays authenticated checkout traffic, or executes model-created payloads. Network or contract failures abort rather than silently falling back to real endpoints.
 
 ## Verified behavior vs limitations
 
-- A quote influenced by a supplied client price is flagged as **review needed**, not as a confirmed production vulnerability.
+- A quote influenced by a supplied client price is flagged as **review needed**, not as a confirmed production дефект.
 - If the API does not explicitly confirm `quote_only:true`, `order_created:false`, and `payment_initiated:false`, BugHunter stops. These JSON claims cannot independently prove the absence of server-side effects; deploy a genuinely isolated staging service.
 - For a production website, the existing Burp metadata/Scanner review remains passive, and any active Burp audit is separately authorized.
 - The local fixture can be exercised by `backend/tests/test_staging_price.py`; the test process contains both correct and deliberately insecure quote implementations.
-- Automatic purchase/checkout exploitation is not provided.
+- Automatic purchase/checkout срабатывание is not provided.
 
 ## Mac setup
 

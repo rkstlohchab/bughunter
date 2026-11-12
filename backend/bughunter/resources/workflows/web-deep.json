@@ -1,0 +1,31 @@
+{
+  "name": "web-deep",
+  "description": "Deep web probe: httpx → ffuf content discovery → nuclei full template set per route.",
+  "inputs": ["target", "wordlist"],
+  "nodes": [
+    {
+      "id": "httpx",
+      "adapter": "httpx",
+      "args": {"targets": "$inputs.target", "threads": 10,
+               "probes": ["status-code","title","tech-detect","content-length"]}
+    },
+    {
+      "id": "ffuf",
+      "adapter": "ffuf",
+      "depends_on": ["httpx"],
+      "when": "nodes.httpx.status == \"ok\"",
+      "args": {"url": "$inputs.target/FUZZ",
+               "wordlist": "$inputs.wordlist",
+               "match_codes": [200,204,301,302,307,401,403],
+               "threads": 20}
+    },
+    {
+      "id": "nuclei",
+      "adapter": "nuclei",
+      "depends_on": ["ffuf"],
+      "args": {"targets": "$inputs.target",
+               "severity": ["medium","high","critical"],
+               "rate_limit": 20}
+    }
+  ]
+}

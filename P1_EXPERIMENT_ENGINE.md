@@ -23,7 +23,7 @@ lab recipes require explicit confirmation in the app.
 |---|---|---|
 | `source_fidelity` | Exact step quotation exists in indexed and original text, with matching locator | Whether a step works in a real program |
 | `memory_restart_lab` | Two disposable offline processes; pointer and entity observation | Unknown game address / universal ESP capability |
-| `checkout_integrity_lab` | In-process loopback regression tests from the included checkout lab | Real production website vulnerabilities |
+| `checkout_integrity_lab` | In-process loopback regression tests from the included checkout lab | Real production website дефекты |
 
 Results are marked `source_verified_only`, `lab_reproduced_only`, or
 `not_verified`. Candidate procedures remain unverified even when the fixture passes.

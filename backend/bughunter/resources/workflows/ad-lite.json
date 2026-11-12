@@ -1,0 +1,37 @@
+{
+  "name": "ad-lite",
+  "description": "Authorised AD-lite walk: NetBIOS discover → SMB enum → NPUsers/SPNs → BloodHound.",
+  "inputs": ["domain", "dc", "username", "password_vault_ref"],
+  "nodes": [
+    {
+      "id": "nmap",
+      "adapter": "nmap",
+      "args": {"targets": "$inputs.dc", "ports": "53,88,135,139,389,445,464,636,3268,3269",
+               "scripts": ["smb-enum-shares","smb-security-mode","smb-protocols"]}
+    },
+    {
+      "id": "npusers",
+      "adapter": "impacket",
+      "depends_on": ["nmap"],
+      "args": {"tool": "GetNPUsers.py",
+               "args": ["$inputs.domain/", "-dc-ip", "$inputs.dc", "-no-pass"]}
+    },
+    {
+      "id": "spns",
+      "adapter": "impacket",
+      "depends_on": ["nmap"],
+      "args": {"tool": "GetUserSPNs.py",
+               "args": ["$inputs.domain/$inputs.username:{{VAULT:$inputs.password_vault_ref}}",
+                        "-dc-ip", "$inputs.dc"]}
+    },
+    {
+      "id": "bloodhound",
+      "adapter": "bloodhound",
+      "depends_on": ["spns"],
+      "args": {"domain": "$inputs.domain", "dc": "$inputs.dc",
+               "username": "$inputs.username",
+               "password": "{{VAULT:$inputs.password_vault_ref}}",
+               "collection": "Default"}
+    }
+  ]
+}

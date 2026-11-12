@@ -16,7 +16,7 @@ For a new web-testing course, import its folder under the intended project, wait
 
 ## Retrieval
 
-Search is hybrid: SQLite FTS5 with the Porter stemmer (so "IDOR"/"IDORs", "inject"/"injection"/"injecting", and similar plural and verb/noun forms match each other automatically) plus an optional local-embedding pass when a model is configured. On top of that, a small acronym/terminology table (`SYNONYMS` in `knowledge.py`) expands things stemming can't bridge - BOLA/IDOR, SSRF, XSS, CSRF, SQLi, RCE, JWT, TOCTOU/race condition, and a few others - by adding the mapped terms as extra OR clauses alongside the person's own words, never in place of them. The concept graph's lexical vocabulary (`CONCEPTS`) covers the same vulnerability classes plus common techniques and tools (Burp, Nuclei, Cheat Engine, Ghidra, x64dbg, Frida), so newly imported material about them gets linked automatically; it is still explicitly `inferred`, same as before. An install from before the Porter tokenizer existed is migrated in place the next time it opens - `knowledge_fts` is rebuilt from `knowledge_chunks` (the source of truth), no re-import required.
+Search is hybrid: SQLite FTS5 with the Porter stemmer (so "IDOR"/"IDORs", "inject"/"injection"/"injecting", and similar plural and verb/noun forms match each other automatically) plus an optional local-embedding pass when a model is configured. On top of that, a small acronym/terminology table (`SYNONYMS` in `knowledge.py`) expands things stemming can't bridge - BOLA/IDOR, SSRF, XSS, CSRF, SQLi, RCE, JWT, TOCTOU/race condition, and a few others - by adding the mapped terms as extra OR clauses alongside the person's own words, never in place of them. The concept graph's lexical vocabulary (`CONCEPTS`) covers the same дефект classes plus common techniques and tools (Burp, Nuclei, Cheat Engine, Ghidra, x64dbg, Frida), so newly imported material about them gets linked automatically; it is still explicitly `inferred`, same as before. An install from before the Porter tokenizer existed is migrated in place the next time it opens - `knowledge_fts` is rebuilt from `knowledge_chunks` (the source of truth), no re-import required.
 
 For Markdown documents, subsequent chunks in a long section now retain the most recent heading as searchable **section metadata**. The original passage text stays unchanged, so verbatim-quote checks and citations still refer to the source, not inserted heading text. Previously imported passages gain this metadata when their source is reprocessed; legacy records without section metadata remain readable.
 
@@ -96,7 +96,7 @@ backend/.venv/bin/python scripts/smoke_commerce_knowledge.py --output artifacts/
 ```
 
 The JSON report retains 34 paired commerce/food requests and their receipts,
-17 deliberately vulnerable outcomes and 17 fixed controls, source counts,
+17 deliberately дефектный outcomes and 17 fixed controls, source counts,
 retrieval probes, and the isolated database. It does not test external websites,
 payments, or concurrent coupon redemption. Native lifecycle tests use Mach API
 doubles and do not establish real target-process compatibility.

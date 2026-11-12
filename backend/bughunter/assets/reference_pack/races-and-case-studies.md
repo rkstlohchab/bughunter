@@ -12,7 +12,7 @@ Map the shared object, which endpoints read/write it, and the intended invariant
 
 ## Published case: recovery destination validation
 
-GitLab's January 11, 2024 advisory for CVE-2023-7028 describes password-reset emails reaching an unverified email address. It identifies affected releases and fixed versions 16.7.2, 16.6.4, and 16.5.6 among the published updates. Use the advisory for exact version applicability; do not infer current vulnerability from the product name. [GitLab advisory](https://docs.gitlab.com/releases/patches/patch-release-gitlab-16-7-2-released/).
+GitLab's January 11, 2024 advisory for CVE-2023-7028 describes password-reset emails reaching an unverified email address. It identifies affected releases and fixed versions 16.7.2, 16.6.4, and 16.5.6 among the published updates. Use the advisory for exact version applicability; do not infer current дефект from the product name. [GitLab advisory](https://docs.gitlab.com/releases/patches/patch-release-gitlab-16-7-2-released/).
 
 The testing lesson is to bind recovery delivery to verified account state and validate destination handling at the operation boundary. A food service's receipt, refund, or loyalty workflow could merit an analogous state review, but that is a hypothesis, not evidence of a defect in any service.
 

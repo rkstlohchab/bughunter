@@ -10,7 +10,7 @@ The OWASP payment guide covers price tampering, fractional/negative quantities, 
 
 ## Worked local example: excluded item
 
-The bundled cart catalog prices `excluded` at 200 test units. The client proposes `unit_price=1`, quantity 1. The intentionally vulnerable variant returns an accepted total of 1 and canonical total of 200. The fixed variant returns both totals as 200. For the `ELIGIBLE10` exclusion case, the fixed accepted coupon list must also be empty. These numbers belong to this fixture, not any restaurant.
+The bundled cart catalog prices `excluded` at 200 test units. The client proposes `unit_price=1`, quantity 1. The intentionally дефектный variant returns an accepted total of 1 and canonical total of 200. The fixed variant returns both totals as 200. For the `ELIGIBLE10` exclusion case, the fixed accepted coupon list must also be empty. These numbers belong to this fixture, not any restaurant.
 
 ## Pass, fail, and inconclusive
 

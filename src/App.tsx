@@ -8,6 +8,11 @@ import Chat from './Chat';
 import Team from './Team';
 import SkillsView from './SkillsView';
 import CeMcpPanel from './CeMcpPanel';
+import { ForgePanel } from './ForgePanel';
+import { OperatorMode } from './OperatorMode';
+import { Timeline as OpTimeline } from './Timeline';
+import { AssetBrowser } from './AssetBrowser';
+import { VaultPanel } from './VaultPanel';
 import TrainingLab from './TrainingLab';
 import TorResearch from './TorResearch';
 import MacAutopilotPanel from './MacAutopilotPanel';
@@ -20,7 +25,7 @@ import type { LucideIcon } from 'lucide-react';
 import { asList, fileBase64, httpText, pretty, rpc } from './api';
 import type { RecordData as Row } from './api';
 
-type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'Training lab' | 'Tor research' | 'Prompt editor' | 'Mac control';
+type Page = 'Chat' | 'Overview' | 'Library' | 'Methods' | 'Knowledge graph' | 'Targets' | 'Traffic' | 'Tests' | 'Approvals' | 'Findings' | 'Settings' | 'Team' | 'CE bridge' | 'Training lab' | 'Tor research' | 'Prompt editor' | 'Mac control' | 'Forge' | 'Operator' | 'Timeline' | 'Assets' | 'Vault';
 const WEB_PAGES: Page[] = ['Overview','Targets','Traffic','Tests','Approvals','Findings'];
 // Chat is home. Everything else is reachable from the top-bar quick menu or lives
 // as a background capability the AI can invoke directly.
@@ -148,6 +153,11 @@ export default function App() {
           {page === 'Prompt editor' && <PromptEditor/>}
           {page === 'Tor research' && <TorResearch perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Mac control' && <MacAutopilotPanel initialTask="" projectId={projectId} onClose={()=>setPage('Chat')}/>}
+          {page === 'Forge' && <ForgePanel/>}
+          {page === 'Operator' && <OperatorMode/>}
+          {page === 'Timeline' && <OpTimeline/>}
+          {page === 'Assets' && <AssetBrowser/>}
+          {page === 'Vault' && <VaultPanel/>}
           {page === 'Library' && <><Library {...shared}/><details className="surface history-details"><summary>Export and storage</summary><KnowledgeTransfer perform={perform} busy={busy}/></details></>}
           {page === 'Knowledge graph' && <KnowledgeGraph perform={perform} revision={revision} projectId={projectId}/>}
           {page === 'Methods' && <SkillsView projectId={projectId}/>}

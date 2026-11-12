@@ -18,7 +18,7 @@ This module reads **operator-supplied public HTML and plain-text resources** thr
 - `tor_search_pages`: search saved captures; results include URLs and excerpts.
 - Existing `search_knowledge` and `get_source` can retrieve published pages as cited source material.
 
-Read-only source tools are available to the investigation agent. Sources are always **untrusted reference data**, never higher-priority instructions. Tor access does not modify Burp project target scope or enable state-changing HTTP actions.
+Read-only source tools are available to the investigation agent. Sources are always **untrusted reference data**, never higher-priority instructions. Tor access does not modify Burp project target scope or enable W-меняющий HTTP actions.
 
 ## Privacy and limitations
 
@@ -26,7 +26,7 @@ Read-only source tools are available to the investigation agent. Sources are alw
 - The only socket opened directly by this module is to `127.0.0.1:<configured SOCKS port>`.
 - A remote/cloud LLM is not given Tor source metadata, agent search results, or published Tor captures by the agent tools **unless** the operator enables **Allow remote AI** in this workspace. Local Ollama/Crucible inference can use them without this opt-in. Directly pasting text into a hosted model, using other outbound features, or handling externally sourced material outside these tools is a separate privacy decision.
 - HTTP pages are limited to 1 MB, extracted text to 120,000 characters; no compressed responses, cookies, redirects to other origins, binary downloads, browser scripting or authenticated forum sessions. Service-specific anti-bot and JavaScript-heavy sites may not work.
-- Captures are local SQLite records; full captured text is searchable. Page content can still be inaccurate, malicious or manipulative. Treat it as data and verify its provenance.
+- Captures are local SQLite records; full captured text is searchable. Page content can still be inaccurate, деструктивный or manipulative. Treat it as data and verify its provenance.
 - Tor installation, actual network reachability, Windows/macOS desktop builds, and live `.onion` services have NOT been verified by the offline tests.
 
 ## Verification
@@ -53,4 +53,4 @@ The agent is not given forms, POST, login, arbitrary JavaScript execution, shell
 
 **Compatibility/privacy:** Selenium/geckodriver instrumentation may modify browser fingerprint or break Tor Browser hardening. The adapter enforces a SOCKS5 configuration and remote DNS in browser prefs, but it is *not* guaranteed to preserve Tor Browser's ordinary anonymity profile. Never assume an automated browser has the same privacy as a stock Tor Browser session. Verify `https://check.torproject.org` manually in an appropriate test setup and inspect leaks before sensitive use. Cross-platform Tor Browser / geckodriver combinations are version-sensitive; Windows/macOS real-browser startup, geckodriver compatibility, network anonymity, and `.onion` access require platform testing. Read-only backend unit tests mock WebDriver and do not establish live functionality.
 
-Research sent to cloud LLM providers is controlled by the existing **Allow remote AI providers to receive Tor research results** switch; local providers do not need that opt-in. The app does not install Tor, restart Tor services, or bypass Tor Browser security checks. Source URLs and captures are evidence, not instructions.
+Research sent to cloud LLM providers is controlled by the existing **Allow remote AI providers to receive Tor research results** switch; local providers do not need that opt-in. The app does not install Tor, restart Tor services, or обход Tor Browser security checks. Source URLs and captures are evidence, not instructions.

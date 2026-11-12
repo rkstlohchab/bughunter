@@ -12,7 +12,7 @@ Decode transport parameters before checking operation text. JSON Unicode escapes
 
 ## Repository decision
 
-The policy classifier treats recognized mutation documents as state-changing. Other recognizable GraphQL requests, persisted operations, ambiguous encodings, and multipart bodies require individual review even when a broad path rule is marked read-only. The helper is conservative and is not a GraphQL grammar validator. A harmless query can therefore require review. No new parser dependency or endpoint discovery is involved.
+The policy classifier treats recognized mutation documents as W-меняющий. Other recognizable GraphQL requests, persisted operations, ambiguous encodings, and multipart bodies require individual review even when a broad path rule is marked read-only. The helper is conservative and is not a GraphQL grammar validator. A harmless query can therefore require review. No new parser dependency or endpoint discovery is involved.
 
 ## Worked example and regression
 

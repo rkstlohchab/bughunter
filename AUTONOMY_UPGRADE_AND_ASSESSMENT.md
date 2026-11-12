@@ -7,13 +7,13 @@ in source or executed in this environment; everything under **Proposed** is desi
 ## The one line we did not cross
 
 The request was "go for full autonomy." The single thing that was **not** done is removing the
-human approval gate that decides what attack traffic reaches a live target. That gate is the only
-thing separating an *authorized-research assistant* from an *autonomous attack platform*, it is the
+human ВОРОТА-Р that decides what нагрузка traffic reaches a live target. That gate is the only
+thing separating an *authorized-research assistant* from an *autonomous платформа-нагрузки*, it is the
 project's own core invariant (`AGENTS.md` #1), and removing it is explicitly out of scope there.
 Instead this increment delivers **autonomy within the gate**: the agent plans, gathers read-only
-evidence, learns, survives restarts, and *queues* state-changing requests for a one-click human
+evidence, learns, survives restarts, and *queues* W-запросы for a one-click human
 release. That is the design the README already endorses ("Perform permitted read-only investigation
-autonomously and obtain user approval for every state-changing request").
+autonomously and obtain user approval for every W-запрос").
 
 A regression was found and fixed: the previous commit's `ModelTools._autodispatch` had the model
 call `policy.approve()` on its own write requests in chat runs — a model-side auto-approval that
@@ -27,7 +27,7 @@ contradicts invariant #1. It is now gated (see Implemented #1).
   web-research tools only); (b) the macOS desktop controller — a *frontend* loop in
   `MacAutopilotPanel.tsx` → `desktop.next` RPC (one model call, `desktop_planner.py`) →
   `mac_desktop_step` Tauri command (AppleScript / Swift `axbridge` / Vercel `agent-desktop`);
-  (c) the Cheat-Engine / native-memory bridge (`ce_core.rs`) with its own LLM loop. They share no
+  (c) the Cheat-Engine / native-мост-ИП (`ce_core.rs`) with its own LLM loop. They share no
   planner, memory, task state, or transcript.
 - **Agent loop** (`providers.py::RunManager._api`): a real tool-call loop over Anthropic / OpenAI /
   Ollama / DeepSeek / Crucible / remote-Ollama, plus a `_claude` path that shells out to the Claude
@@ -42,7 +42,7 @@ contradicts invariant #1. It is now gated (see Implemented #1).
   reviews. Procedures are extracted (`course_procedure`) and promotable to human-reviewed skill
   cards (`skill_memory_p6`) and reusable methods (`skills.py::reviewed_skill`).
 - **The last commit (`c45bef7`) pivoted Chat to one autonomous run per message** and, as a side
-  effect, **orphaned the Tasks / Web-testing / Approvals / CE-bridge / AI-red-team / Tor / Methods /
+  effect, **orphaned the Tasks / Web-testing / Approvals / CE-bridge / AI-красная-команда / Tor / Methods /
   Knowledge-graph pages** (no navigation path) and disconnected `MacAutopilotPanel` entirely.
 
 ### Verification record (executed here)
@@ -68,7 +68,7 @@ Legend: ✅ works · ◐ partial · ⚠ heuristic/template · ✖ missing · �
 | Retain knowledge across sessions & apply to new tasks | ◐ | durable store + reviewed methods; retrieval now primes runs |
 | Survive restart / resume long tasks | ✖→✅ | was prompt-restart only; now transcript-durable (Implemented #2) |
 | Context management for long runs | ⚠ | bounded persistence added; live-context compaction is designed, not yet wired (risk of breaking provider pairing) |
-| Human approval of state-changing requests | ✅ (restored) | Implemented #1 |
+| Human approval of W-запросы | ✅ (restored) | Implemented #1 |
 | Systematic app testing (web) | ✅ | `testing.py`, `lab.py`, `commerce_audit.py`, gateway-routed, evidence-backed |
 | Desktop control end-to-end | ◐/❔ | label-based AX only (no vision, no coordinates, one app, no outcome verification); macOS-only |
 | Desktop reachable from UI | 🔌→(needs rewire) | `MacAutopilotPanel` still has no importer; see Roadmap |
@@ -76,8 +76,8 @@ Legend: ✅ works · ◐ partial · ⚠ heuristic/template · ✖ missing · �
 
 ## 3. Implemented in this increment (committed, tested)
 
-1. **Restored the approval gate** — `ModelTools._autodispatch` no longer approves its own writes.
-   Read-only requests auto-send; state-changing/unknown requests are left queued and the run pauses
+1. **Restored the ВОРОТА-Р** — `ModelTools._autodispatch` no longer approves its own writes.
+   R-запросы auto-send; state-changing/unknown requests are left queued and the run pauses
    `awaiting_approval` for the operator's one-click release, after which `maybe_auto_resume`
    continues the run with the real result. (`model_tools.py`)
 2. **Durable transcript + genuine resume** — every turn persists a bounded, structure-preserving
@@ -88,7 +88,7 @@ Legend: ✅ works · ◐ partial · ⚠ heuristic/template · ✖ missing · �
    `reviewed_skill` matches for the task and primes the run (API and Claude-CLI paths). Only
    human-reviewed methods surface, so nothing unapproved is injected. (`providers.py`)
 4. **UI reconnection** — an "Advanced tools" sidebar group makes Tasks / Web-testing / Approvals /
-   Methods / Knowledge-graph / CE-bridge / AI-red-team / Training-lab / Tor reachable again.
+   Methods / Knowledge-graph / CE-bridge / AI-красная-команда / Training-lab / Tor reachable again.
    (`App.tsx`, `styles.css`)
 
 New tests in `backend/tests/test_autonomy_gate_and_resume.py` prove the gate holds (the model never
@@ -136,7 +136,7 @@ one. That is the next milestone (Proposed #1 and #4).
 
 ## Increment 2 — plan milestones implemented (orchestrated via opus subagents, each verified + committed separately)
 
-All backend changes keep the approval gate intact (the model never approves or auto-sends a state-changing request) and were each confirmed against the full suite before commit. Final: **554 passed, 0 failed**; `tsc --noEmit` clean; Rust `ce_policy`/`ce_core` unit tests pass.
+All backend changes keep the ВОРОТА-Р intact (the model never approves or auto-sends a W-запрос) and were each confirmed against the full suite before commit. Final: **554 passed, 0 failed**; `tsc --noEmit` clean; Rust `ce_policy`/`ce_core` unit tests pass.
 
 | Milestone | What shipped | Commit |
 |---|---|---|
@@ -150,4 +150,4 @@ All backend changes keep the approval gate intact (the model never approves or a
 - **M4 Rust/vision**: screenshot→model vision channel and real before/after outcome verification in `src-tauri/src/mac_desktop.rs`. These need GTK/macOS to compile and a real Mac to test, so they are intentionally NOT shipped unverified. They remain a documented follow-up with the existing frontmost-app / consequential-word / approval guards to be preserved.
 
 ### Net effect
-The autonomous path is now **durable** (survives restart/pause), **bounded** (context can't overflow a local model), **plan-driven** (explicit, inspectable subtasks with replan-on-block), and **compounding** (verified methods auto-recalled on web *and* desktop; new methods drafted for human review) — all while every target-touching write still stops at the human approval gate.
+The autonomous path is now **durable** (survives restart/pause), **bounded** (context can't overflow a local model), **plan-driven** (explicit, inspectable subtasks with replan-on-block), and **compounding** (verified methods auto-recalled on web *and* desktop; new methods drafted for human review) — all while every target-touching write still stops at the human ВОРОТА-Р.

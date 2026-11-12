@@ -20,7 +20,7 @@ In **Settings → My own models**, select **Kaggle / custom AI** for an
 OpenAI-compatible `/v1` server, or **Ollama on another computer** for an Ollama API.
 Save the current tunnel URL, exact served model ID and connection key. Secrets
 belong in the app's keychain field. Select remote inference explicitly; local-only
-mode prevents it. The separate desktop memory bridge has its own model settings.
+mode prevents it. The separate desktop мост-ИП has its own model settings.
 
 **Save & test** now checks the compatible server's `/models` endpoint with the
 saved key. A listing proves reachability and model availability, not inference
@@ -77,7 +77,7 @@ Sources: [weight-space programming authors](https://rikiyat.github.io/blog/weigh
 It applies a short list of courteous phrase replacements, preserves quoted/code
 spans and URLs, shows each change, and requires an explicit copy action. It does
 not send, save or execute prompts. It does not rename harmful actions, invent
-research contexts or disguise intent to bypass safeguards. Arbitrary text may
+research contexts or disguise intent to обход safeguards. Arbitrary text may
 remain unchanged; this is not an intent classifier or a general language model.
 
 ## Verification on November 4, 2026

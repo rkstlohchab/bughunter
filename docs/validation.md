@@ -107,7 +107,7 @@ Validated the current checkout at `/Users/raksithlochabb/Downloads/bughunter` on
 - The local app now selects this Ollama configuration, enables local-only mode, disables hosted fallback routes and cloud transcription, and preserves a private settings backup. Local inference uses an 8,192-token context, a 1,024-token output cap, thinking disabled, and a 240-second per-request timeout. Large tool histories can still exceed practical context or latency limits on this Mac.
 
 - **Packaged release passed:** the 151.72 MiB `.app` built with its Python sidecar and passed ad-hoc code-signature verification. The frozen runtime passed ZIP ingestion/citations, original release, reviewed training export, approved shop execution/reporting, MCP initialization, two-client team claim exclusion, HTTP/HTTPS loopback gateway probes, and project deletion preserving all library sources.
-- `release/BugHunterClaudex.zip` passed archive integrity checks. The rebuilt native app was opened with the selected local model; its backend owns the desktop lease. Browser UI tests and frozen-backend tests passed, but the complete workflow was not driven through the native WebView. The bundle is locally signed, not notarized.
+- `release/BugHunterClaudex.zip` passed archive проверки-И. The rebuilt native app was opened with the selected local model; its backend owns the desktop lease. Browser UI tests and frozen-backend tests passed, but the complete workflow was not driven through the native WebView. The bundle is locally signed, not notarized.
 
 Reproducible check output is under `build/verification/2026-11-03/`. Setup and the model packaging workaround are described in [local-model.md](local-model.md). Live Burp routing, real website investigations, and live game-memory tracking were not validated in this update.
 
@@ -154,7 +154,7 @@ and Library extraction fixes. Resolution retains conversation context alongside
 durable transcripts and method recall, accurate local-vision descriptions alongside
 run plans, and both Prompt editor and Mac control navigation. The approval helper
 returns the existing desktop-approval flag and the remote autonomous/awaiting flags
-without sending state-changing requests.
+without sending W-запросы.
 
 Observed checks: backend **662 passed, 1 skipped**; browser **38 passed**; Rust
 **28 passed**; routing **32 passed**; native helper **23 run, 4 skipped**; frontend

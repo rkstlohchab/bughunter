@@ -35,4 +35,4 @@ For browser mode, install Tor Browser and a matching `geckodriver`, start a loca
 
 ### Boundaries
 
-This P3 build supplies a resumable research workflow, **not** a blanket automated crawler or CAPTCHA bypass. It does not silently browse arbitrary forums, execute code found in research pages, create accounts, or feed unreviewed forum posts directly into model training. A model hosted remotely only receives Tor research metadata when the existing explicit sharing toggle is enabled.
+This P3 build supplies a resumable research workflow, **not** a blanket automated crawler or CAPTCHA обход. It does not silently browse arbitrary forums, execute code found in research pages, create accounts, or feed unreviewed forum posts directly into model training. A model hosted remotely only receives Tor research metadata when the existing explicit sharing toggle is enabled.

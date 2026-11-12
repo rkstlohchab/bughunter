@@ -14,7 +14,7 @@ Business-rule validation is application-specific; valid syntax alone cannot esta
 
 ## Automated local cases
 
-The `/vulnerable/food-cart` and `/fixed/food-cart` pair covers menu-price substitution, addon-price substitution, delivery-fee removal, minimum-spend bypass, excluded bundles, repeated coupon entries, and negative quantities. Fixed calculations ignore client price fields, apply at most one eligible coupon, and reject invalid quantities. Every successful result declares the fixture identity, quote-only state, and absence of orders/payments. Results retain both major-unit totals and integer minor-unit totals.
+The `/vulnerable/food-cart` and `/fixed/food-cart` pair covers menu-price substitution, addon-price substitution, delivery-fee removal, minimum-spend обход, excluded bundles, repeated coupon entries, and negative quantities. Fixed calculations ignore client price fields, apply at most one eligible coupon, and reject invalid quantities. Every successful result declares the fixture identity, quote-only state, and absence of orders/payments. Results retain both major-unit totals and integer minor-unit totals.
 
 ## Boundaries of this example
 
