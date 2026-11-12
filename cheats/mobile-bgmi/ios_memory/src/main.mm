@@ -4,7 +4,9 @@
 // We spawn the socket-server thread + touch-injector hook immediately.
 
 #import <Foundation/Foundation.h>
-#import <UIKit/UIKit.h>
+#if !GAMELAB_MACOS_BUILD
+#  import <UIKit/UIKit.h>
+#endif
 #import <pthread.h>
 #include "common.h"
 

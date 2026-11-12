@@ -221,6 +221,11 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         // test targets + cheat terms
         'among us', 'amongus', 'innersloth', 'no cooldown', 'no-cooldown',
         'wallhack among', 'role reveal', 'fog off', 'see impostor',
+        // mac via PlayCover or Mac App Store sideload
+        'playcover', 'play cover', 'on my mac', 'in my mac', 'on mac',
+        'macos cheat', 'm1 mac', 'apple silicon', 'wallhack mac',
+        'mac app store', 'mac appstore', 'patched app', 'ad-hoc sign',
+        'insert_dylib', 'hardened runtime', 'library validation',
       ];
       const keywordHit = !!gamelabKeywords.find(k => lower.includes(k));
       if (explicitPrefix || keywordHit || activeGamelab) {
