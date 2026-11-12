@@ -137,8 +137,8 @@ driver + Kaggle training workflow, and the remaining polish.
   ``push_corpus`` when new data crosses a threshold. On by default
   with a 50-run trigger.
 - **Procedural promotion:** reuse ``skills.propose`` on successful
-  operator runs the same way AUTONOMY_UPGRADE did for the investigation
-  agent.
+  operator runs the same way the earlier autonomy increment did for
+  the investigation agent.
 - **Composition at serving:** Ollama supports a single ADAPTER slot
   today. For multi-adapter composition, either (a) merge-at-build
   (produce one adapter via weighted combination before load) or

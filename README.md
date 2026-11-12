@@ -16,12 +16,6 @@
 
 ---
 
-> **P7 integration release:** Open Settings → P7 Release readiness for preflight checks, explicit model/Burp/Tor probes, fixed local smoke suites, and a JSON evidence export. See [P7_PRODUCTION_INTEGRATION.md](P7_PRODUCTION_INTEGRATION.md).
-
-> **P6 reviewed skill memory:** source-bound, operator-reviewed skill cards with fixture evidence levels, recheck dates and read-only model recall. See [`P6_SKILL_MEMORY.md`](P6_SKILL_MEMORY.md).
-
-> **P3 research browser:** resumable, same-origin Tor browsing for operator-saved public/`.onion` sources, with manual CAPTCHA/login intervention and reviewed capture provenance. See [`P3_RESEARCH_BROWSER.md`](P3_RESEARCH_BROWSER.md).
-
 ## One-command Mac setup (recommended)
 
 After extracting this ZIP, open Terminal in the `bughunter` folder and run:
