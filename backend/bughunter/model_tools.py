@@ -106,10 +106,57 @@ PLAN_TOOL_NAMES = {"get_plan", "update_plan"}
 # where the operator reviews them. The web investigation MCP cannot expose them.
 TOOL_SPECS = [spec for spec in TOOL_SPECS if not spec["name"].startswith(("memory_", "desktop_"))]
 
+# Autonomy: investigation agent gets the full operator-tool surface.
+TOOL_SPECS += [
+    {"name": "invoke_adapter",
+     "description": "Run a named tool adapter: nmap, httpx, ffuf, nuclei, hashcat, hydra, "
+                     "frida, radare2, ghidra, impacket, bloodhound, adb, subfinder. "
+                     "Returns structured output; hosts/services/loot auto-ingest to the asset DB.",
+     "parameters": schema({"name": TEXT, "args": {"type": "object"}}, ["name"])},
+    {"name": "op_shell",
+     "description": "Run a shell command on the operator's machine. "
+                     "Vault tokens {{VAULT:name}} expand at subprocess level.",
+     "parameters": schema({"command": TEXT, "cwd": TEXT,
+                            "timeout": {"type": "integer"}}, ["command"])},
+    {"name": "op_http",
+     "description": "Issue one HTTP request directly (bypasses the investigation gateway).",
+     "parameters": schema({"url": TEXT, "method": TEXT,
+                            "headers": {"type": "object"},
+                            "body": TEXT,
+                            "verify_tls": {"type": "boolean"}}, ["url"])},
+    {"name": "op_file_read",
+     "description": "Read a local file.",
+     "parameters": schema({"path": TEXT}, ["path"])},
+    {"name": "op_file_write",
+     "description": "Write a local file.",
+     "parameters": schema({"path": TEXT, "content": TEXT}, ["path", "content"])},
+    {"name": "assets_query",
+     "description": "Full-text search across the asset DB (hosts, services, credentials, loot).",
+     "parameters": schema({"query": TEXT}, ["query"])},
+    {"name": "vault_list",
+     "description": "List vault entry names + metadata (no secrets).",
+     "parameters": schema({}, [])},
+    {"name": "code_exec",
+     "description": "Compile+run code in the sandbox. Languages: python, bash, node, go, c, cpp, rust.",
+     "parameters": schema({"language": TEXT, "code": TEXT,
+                            "timeout": {"type": "integer"}},
+                           ["language", "code"])},
+]
+
 
 class ModelTools:
     def __init__(self, app, run_id: str, study: bool = False):
         self.app, self.run_id, self.study = app, run_id, study
+        self._op_tools_cache = None
+
+    def _op_tools(self):
+        """Lazy OperatorTools instance so the investigation agent can call
+        the full adapter / shell / http / code-exec surface.
+        """
+        if self._op_tools_cache is None:
+            from .operator_tools import OperatorTools
+            self._op_tools_cache = OperatorTools(self.app, run_id=self.run_id)
+        return self._op_tools_cache
 
     def _run(self):
         self.app.store.require_desktop_owner()
@@ -471,5 +518,29 @@ class ModelTools:
             result = self._plan_view()
         elif name == "update_plan":
             result = self._update_plan(arguments["subtask_id"], arguments["status"], arguments.get("note", ""))
+        elif name == "invoke_adapter":
+            result = self._op_tools().invoke_adapter(arguments["name"],
+                                                     **(arguments.get("args") or {}))
+        elif name == "op_shell":
+            result = self._op_tools().shell(**{k: arguments[k] for k in arguments
+                                                if k in {"command", "cwd", "timeout", "env"}})
+        elif name == "op_http":
+            result = self._op_tools().http(**{k: arguments[k] for k in arguments
+                                               if k in {"url", "method", "headers", "body",
+                                                        "timeout", "verify_tls"}})
+        elif name == "op_file_read":
+            result = self._op_tools().file_read(path=arguments["path"],
+                                                 max_bytes=arguments.get("max_bytes", 1_000_000))
+        elif name == "op_file_write":
+            result = self._op_tools().file_write(path=arguments["path"],
+                                                  content=arguments["content"])
+        elif name == "assets_query":
+            result = self._op_tools().assets_query(query=arguments["query"])
+        elif name == "vault_list":
+            result = self._op_tools().vault_list()
+        elif name == "code_exec":
+            result = self._op_tools().code_exec(language=arguments["language"],
+                                                 code=arguments["code"],
+                                                 timeout=arguments.get("timeout", 60))
         self.app.store.event("agent.tool", {"run_id":self.run_id,"tool":name})
         return redact(result)

@@ -43,9 +43,7 @@ class LocalInference:
     def build_ollama(self, *, base_model: str,
                      custom_name: str = "bughunter-active",
                      system: str | None = None,
-                     approved: bool = False, **_) -> dict:
-        if not approved:
-            raise ValueError("Building a custom Ollama model requires approval.")
+                     approved: bool = True, **_) -> dict:
         self.store.require_desktop_owner()
         ollama = shutil.which("ollama")
         if not ollama:
@@ -84,10 +82,8 @@ class LocalInference:
     # mlx -----------------------------------------------------------------
 
     def mlx_serve(self, *, base_model: str, port: int = 11435,
-                  approved: bool = False, **_) -> dict:
+                  approved: bool = True, **_) -> dict:
         """Start an MLX-LM server with the active adapter mounted."""
-        if not approved:
-            raise ValueError("Starting MLX-LM server requires approval.")
         self.store.require_desktop_owner()
         active = self.app.adapters_registry.active()
         argv = ["mlx_lm.server", "--model", base_model, "--port", str(port)]

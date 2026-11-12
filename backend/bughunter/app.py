@@ -85,6 +85,9 @@ class Application:
         self.knowledge = KnowledgeService(self.store,start_worker=primary)
         self.knowledge.media_runtime = self.media
         self.policy = PolicyService(self.store)
+        # Autonomous mode: bind the store so classify_effect reads the flag.
+        from .policy import bind_autonomy_store as _bind_autonomy
+        _bind_autonomy(self.store)
         self.traffic = TrafficService(self.store)
         self.testing = TestingService(self.store,self.policy,self.knowledge)
         self.lab = LabService(self.store,self.policy,self.traffic)

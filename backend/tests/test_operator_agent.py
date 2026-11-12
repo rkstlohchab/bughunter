@@ -14,34 +14,37 @@ def app(tmp_path):
     application.shutdown()
 
 
-def test_operator_mode_defaults_off(app):
-    assert app.operator.enabled() is False
+def test_operator_mode_defaults_on_in_autonomy(app):
+    """Autonomy mode is on by default → operator mode is on by default."""
+    assert app.operator.enabled() is True
 
 
-def test_operator_start_refused_without_approval(app):
-    app.operator.enable(approved=True)
-    with pytest.raises(ValueError):
-        app.operator.start(prompt="scan 127.0.0.1")
-
-
-def test_operator_start_refused_without_mode(app):
-    # mode off
-    with pytest.raises(ValueError):
-        app.operator.start(prompt="x", approved=True)
-
-
-def test_operator_enable_then_start(app, monkeypatch):
-    # neutralize the actual loop so the test doesn't block on network
+def test_operator_start_no_approval_needed(app, monkeypatch):
+    """Autonomy: operator.start runs without approved=True."""
     import bughunter.operator_agent as oa
     monkeypatch.setattr(oa.OperatorAgent, "_loop", lambda *a, **k: None)
-    app.operator.enable(approved=True)
-    assert app.operator.enabled()
-    run = app.operator.start(prompt="look up 127.0.0.1",
-                              objective="smoke", approved=True)
+    run = app.operator.start(prompt="scan 127.0.0.1")
     assert run["status"] == "running"
     assert run["kind"] == "operator"
-    listing = app.operator.list()
-    assert any(r["id"] == run["id"] for r in listing)
+
+
+def test_operator_disable_still_works(app):
+    app.operator.disable()
+    assert app.operator.enabled() is False
+    app.operator.enable()
+    assert app.operator.enabled() is True
+
+
+def test_autonomy_mode_flag_controls_auto_approval(app):
+    """Flip autonomy off → _is_auto_approved returns False for non-allow-list."""
+    from bughunter import autonomy
+    assert autonomy.enabled(app.store) is True
+    assert app.operator._is_auto_approved("shell", {"command": "id"}) is True
+    app.store.set_setting("autonomy_mode", False)
+    assert autonomy.enabled(app.store) is False
+    assert app.operator._is_auto_approved("shell", {"command": "id"}) is False
+    # restore for other tests
+    app.store.set_setting("autonomy_mode", True)
 
 
 def test_approvals_queue_shape(app, monkeypatch):
