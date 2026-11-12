@@ -50,6 +50,9 @@ class OperatorTools:
         # GameLab adapters (operator-stack, no cross-plumbing to investigation)
         from .op_adapters import vision_esp, dma_memread, arduino_hid, kmbox
         from .op_adapters import bgmi_mobile, game_offsets, hwid_spoof
+        from .op_adapters import memory_esp, radar, combat, mobile_memory_esp
+        from .op_adapters import ios_memory_esp, among_us_cheat
+        from .op_adapters import playcover_memory_esp, mac_appstore_memory_esp
         self._adapter_registry.update({
             "nmap":         nmap_adapter.run,
             "httpx":        httpx_adapter.run,
@@ -65,13 +68,22 @@ class OperatorTools:
             "adb":          adb_adapter.run,
             "subfinder":    subfinder_adapter.run,
             # GameLab adapters
-            "vision_esp":   vision_esp.run,
-            "dma_memread":  dma_memread.run,
-            "arduino_hid":  arduino_hid.run,
-            "kmbox":        kmbox.run,
-            "bgmi_mobile":  bgmi_mobile.run,
-            "game_offsets": game_offsets.run,
-            "hwid_spoof":   hwid_spoof.run,
+            "vision_esp":          vision_esp.run,
+            "dma_memread":         dma_memread.run,
+            "arduino_hid":         arduino_hid.run,
+            "kmbox":               kmbox.run,
+            "bgmi_mobile":         bgmi_mobile.run,
+            "game_offsets":        game_offsets.run,
+            "hwid_spoof":          hwid_spoof.run,
+            # Universal memory-ESP pack
+            "memory_esp":          memory_esp.run,
+            "radar":               radar.run,
+            "combat":              combat.run,
+            "mobile_memory_esp":   mobile_memory_esp.run,
+            "ios_memory_esp":      ios_memory_esp.run,
+            "among_us_cheat":          among_us_cheat.run,
+            "playcover_memory_esp":    playcover_memory_esp.run,
+            "mac_appstore_memory_esp": mac_appstore_memory_esp.run,
         })
 
     def invoke_adapter(self, name: str, **kwargs) -> dict:

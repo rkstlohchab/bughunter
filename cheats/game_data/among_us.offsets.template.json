@@ -1,0 +1,26 @@
+{
+    "_notes": "Among Us Unity IL2CPP offsets. Stable per-release; drop in from Il2CppDumper output. The field names are version-stable; the numeric offsets drift per Among Us release.",
+    "offsets": {
+        "base_module": "GameAssembly.dylib",
+        "PlayerControl_AllPlayerControls": 0,
+        "PlayerControl_LocalPlayer": 0,
+        "PlayerControl.Data": 0,
+        "PlayerControl.MyPhysics": 0,
+        "PlayerControl.killTimer": 0,
+        "PlayerControl.Visible": 0,
+        "PlayerControl.PlayerId": 0,
+        "PlayerControl.inVent": 0,
+        "PlayerInfo.PlayerName": 0,
+        "PlayerInfo.IsImpostor": 0,
+        "PlayerInfo.IsDead": 0,
+        "PlayerInfo.ColorId": 0,
+        "PlayerPhysics.body": 0,
+        "Rigidbody2D.position": 52,
+        "ShipStatus_Instance": 0,
+        "ShipStatus.lightSystem": 0,
+        "LightSystem.PrimaryRadius": 0,
+        "Camera.main": 0,
+        "Camera.transform_pos": 56,
+        "Camera.orthographicSize": 244
+    }
+}

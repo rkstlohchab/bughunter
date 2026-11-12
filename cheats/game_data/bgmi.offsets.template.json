@@ -1,0 +1,29 @@
+{
+    "_notes": "Template. BGMI UE4 pointer chain inside libUE4.so. Per-build; rebuilds every 2-3 weeks when BGMI patches. The Zygisk module (cheats/mobile-bgmi/zygisk_memory) reads this file at client connect.",
+    "offsets": {
+        "module_name": "libUE4.so",
+        "UWorld": 0,
+        "OwningGameInstance": 0,
+        "LocalPlayers": 0,
+        "PlayerController": 0,
+        "AcknowledgedPawn": 0,
+        "PlayerCameraManager": 0,
+        "CameraCache_POV": 0,
+        "PersistentLevel": 0,
+        "Actors": 0,
+        "ActorsNum": 0,
+        "RootComponent": 0,
+        "RelativeLocation": 0,
+        "Health": 0,
+        "TeamIndex": 0,
+        "PlayerName": 0,
+        "Mesh": 0,
+        "BoneArray": 0,
+        "bone_0": 8, "bone_1": 7, "bone_2": 0,
+        "bone_3": 4, "bone_4": 3,
+        "bone_5": 11, "bone_6": 12, "bone_7": 13,
+        "bone_8": 20, "bone_9": 21, "bone_10": 22,
+        "bone_11": 51, "bone_12": 52, "bone_13": 53,
+        "bone_14": 55, "bone_15": 56, "bone_16": 57
+    }
+}

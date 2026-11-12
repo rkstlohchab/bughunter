@@ -51,12 +51,20 @@ GAME_PROFILES = {
         "notes": "Trust Factor is the silent killer. Behavioral opsec > tech.",
     },
     "bgmi": {
-        "label": "BGMI / PUBG Mobile",
+        "label": "BGMI / PUBG Mobile (Android)",
         "anticheat": "bgmi-ace",
         "platform": "android",
         "stacks_recommended": ["external-vision", "mobile-root"],
         "stacks_blocked": ["internal"],
-        "notes": "scrcpy + PC YOLO is the invisible path.",
+        "notes": "scrcpy + PC YOLO is the invisible path. On rooted phone, Zygisk memory ESP.",
+    },
+    "bgmi_ios": {
+        "label": "BGMI / PUBGM (iOS, non-jailbroken)",
+        "anticheat": "bgmi-ace",
+        "platform": "ios",
+        "stacks_recommended": ["ios-sideload"],
+        "stacks_blocked": ["internal", "external-vision"],
+        "notes": "Patched-IPA + dylib + AltStore sign. Memory ESP + in-process touch aim.",
     },
     "fortnite": {
         "label": "Fortnite",
@@ -138,7 +146,68 @@ GAME_PROFILES = {
         "stacks_blocked": [],
         "notes": "BE moderate aggression; per-server rules vary.",
     },
+    "among_us": {
+        "label": "Among Us (test target — no AC on mobile)",
+        "anticheat": "eac-light",
+        "platform": "cross",
+        "stacks_recommended": ["ios-sideload", "mobile-root", "external-vision", "dma-fpga"],
+        "stacks_blocked": [],
+        "notes": "Perfect first-run cheat target. Memory writes work on offline Freeplay unconditionally; online matchmade games have host-authoritative cooldown but client wallhack still works.",
+    },
 }
+
+FEATURE_MATRIX = {
+    "cs2":       {"engine": "source2",   "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": True},
+    "valorant":  {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "apex":      {"engine": "apex",      "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": True,
+                  "loot": True, "has_offsets_dumper": False},
+    "rust":      {"engine": "unity",     "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": True,
+                  "loot": True, "has_offsets_dumper": False},
+    "fortnite":  {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "r6_siege":  {"engine": "anvil",     "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "tarkov":    {"engine": "unity",     "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "cod_mw":    {"engine": "iw",        "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "pubg":      {"engine": "unreal",    "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "bgmi":      {"engine": "unreal_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "bgmi_ios":  {"engine": "unreal_ios",    "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "among_us":  {"engine": "unity_cross",   "esp": True, "radar": False,
+                  "aim": False, "trigger": False, "recoil": False,
+                  "loot": False, "has_offsets_dumper": True,
+                  "extras": ["no_cooldown", "fog_off", "role_reveal"]},
+    "cod_mobile":{"engine": "unreal_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": False, "has_offsets_dumper": False},
+    "free_fire": {"engine": "unity_mobile", "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+    "fivem":     {"engine": "rage",      "esp": True, "radar": True,
+                  "aim": True, "trigger": True, "recoil": True,
+                  "loot": False, "has_offsets_dumper": False},
+    "dayz":      {"engine": "enfusion",  "esp": True, "radar": True,
+                  "aim": True, "trigger": False, "recoil": False,
+                  "loot": True, "has_offsets_dumper": False},
+}
+
 
 STACKS = {
     "external-vision": {
@@ -180,6 +249,14 @@ STACKS = {
         "hardware": ["unlockable_phone"],
         "docs": "stacks/mobile-root.md",
         "setup_doc": "docs/game-lab/setup-bgmi.md",
+    },
+    "ios-sideload": {
+        "label": "iOS non-jailbroken — patched IPA + AltStore (memory ESP + in-proc aim)",
+        "lifespan_class": "days",
+        "cost_floor_usd": 0,
+        "hardware": ["iphone", "mac"],
+        "docs": "ios_memory/README.md",
+        "setup_doc": "docs/game-lab/setup-ios-bgmi.md",
     },
 }
 
@@ -224,9 +301,30 @@ class GameLabService:
     def dispatch(self, method: str, params: dict) -> Any:
         p = params or {}
         if method == "gamelab.list_games":
-            return {"games": [{"id": k, **v} for k, v in GAME_PROFILES.items()]}
+            return {"games": [{"id": k, **v,
+                                "features": FEATURE_MATRIX.get(k, {})}
+                               for k, v in GAME_PROFILES.items()]}
         if method == "gamelab.list_stacks":
             return {"stacks": [{"id": k, **v} for k, v in STACKS.items()]}
+        if method == "gamelab.feature_matrix":
+            return {"features": FEATURE_MATRIX}
+        if method == "gamelab.start_full_kit":
+            return self.start_full_kit(
+                project_id=p["project_id"],
+                features=p.get("features", {}),
+                hid=p.get("hid", {}),
+            )
+        if method == "gamelab.chat_start":
+            return self.chat_start(project_id=p.get("project_id"),
+                                    message=p["message"])
+        if method == "gamelab.chat_send":
+            return self.chat_send(run_id=p["run_id"], message=p["message"])
+        if method == "gamelab.chat_get":
+            return self.chat_get(run_id=p["run_id"])
+        if method == "gamelab.chat_list":
+            return {"runs": self.chat_list(project_id=p.get("project_id"))}
+        if method == "gamelab.chat_stop":
+            return self.chat_stop(run_id=p["run_id"])
         if method == "gamelab.hardware_check":
             return self.hardware_check(force=bool(p.get("force", False)))
         if method == "gamelab.create_project":
@@ -550,10 +648,134 @@ class GameLabService:
 
     # -------- AI guide ---------------------------------------------------
 
+    # -------- start_full_kit -----------------------------------------------
+
+    def start_full_kit(self, project_id: str, features: dict,
+                        hid: dict) -> dict:
+        """Start every enabled feature for a project in one call.
+
+        features = { "memory_esp": bool, "radar": bool, "aim": bool,
+                     "trigger": bool, "recoil": bool, "chams_mode": str,
+                     "draw_box"/"draw_snapline"/etc.: bool }
+        hid      = { "backend": "arduino"|"kmbox"|"adb",
+                     "arduino_port": str, "kmbox_endpoint": str,
+                     "adb_serial": str }
+        """
+        proj = self.store.get("cheat_project", project_id)
+        if not proj:
+            raise ValueError(f"no such project: {project_id}")
+        game = proj["game"]
+        feat = FEATURE_MATRIX.get(game, {})
+        if not feat.get("esp"):
+            raise ValueError(f"game {game} has no supported engine walker yet")
+        engine = feat.get("engine", "")
+        is_mobile_android = engine == "unreal_mobile" or engine == "unity_mobile"
+        is_mobile_ios = engine == "unreal_ios"
+        results: dict = {"project_id": project_id, "game": game,
+                         "steps": []}
+
+        # Pipeline 1: memory_esp (always on if asked). Route by platform:
+        # Android → mobile_memory_esp (adb forward + Zygisk)
+        # iOS     → ios_memory_esp     (iproxy forward + patched-IPA dylib)
+        # PC      → memory_esp         (DMA / RPM)
+        if features.get("memory_esp", True):
+            if is_mobile_ios:
+                adapter = "ios_memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "udid": hid.get("ios_udid"),
+                    "port": int(hid.get("ios_port", 65510)),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
+            elif is_mobile_android:
+                adapter = "mobile_memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "serial": hid.get("adb_serial"),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
+            else:
+                adapter = "memory_esp"
+                adapter_cfg = {
+                    "mode": "start",
+                    "game": game,
+                    "project_id": project_id,
+                    "reader_backend": _pick_reader_backend(game),
+                    "chams_mode": features.get("chams_mode", "team"),
+                    "features": {k: v for k, v in features.items()
+                                  if k.startswith("draw_")},
+                }
+            recipe = self.start_recipe(project_id=project_id,
+                                        adapter=adapter,
+                                        config=adapter_cfg)
+            results["steps"].append({"step": "memory_esp", "recipe": recipe})
+            shared_file = (recipe.get("last_result") or {}).get("shared_file")
+        else:
+            shared_file = None
+
+        # Pipeline 2: radar
+        if features.get("radar", True):
+            r_rec = self.start_recipe(project_id=project_id, adapter="radar",
+                                       config={"mode": "start",
+                                               "shared_file": shared_file,
+                                               "range_m": features.get("radar_range_m", 300.0)})
+            results["steps"].append({"step": "radar", "recipe": r_rec})
+
+        # Pipeline 3: combat aim
+        if features.get("aim", False) and feat.get("aim", True):
+            c_rec = self.start_recipe(project_id=project_id, adapter="combat",
+                                       config={
+                                           "mode": "start",
+                                           "feature": "aim",
+                                           "shared_file": shared_file,
+                                           "hid_backend": hid.get("backend", "arduino"),
+                                           "arduino_port": hid.get("arduino_port"),
+                                           "kmbox_endpoint": hid.get("kmbox_endpoint"),
+                                           "adb_serial": hid.get("adb_serial"),
+                                           "trigger_enabled": features.get("trigger", False),
+                                           "aim_smooth": features.get("aim_smooth", 0.42),
+                                           "miss_rate": features.get("miss_rate", 0.08),
+                                           "reaction_floor_ms": features.get("reaction_floor_ms", 180),
+                                           "fov_px": features.get("fov_px", 180.0),
+                                       })
+            results["steps"].append({"step": "combat_aim", "recipe": c_rec})
+
+        # Pipeline 4: recoil writer
+        if features.get("recoil", False) and feat.get("recoil", False):
+            r_rec = self.start_recipe(project_id=project_id, adapter="combat",
+                                       config={
+                                           "mode": "start",
+                                           "feature": "recoil",
+                                           "game": game,
+                                           "process_name": _default_process_name(game),
+                                           "reader_backend": _pick_reader_backend(game),
+                                       })
+            results["steps"].append({"step": "combat_recoil", "recipe": r_rec})
+
+        self._emit_timeline("start_full_kit",
+                            payload={"project_id": project_id, "game": game,
+                                     "step_count": len(results["steps"])})
+        return results
+
     def ask_guide(self, project_id: str | None, message: str) -> dict:
-        """Send a message to the GameLab AI guide. Loads the game-cheat-ops
-        runtime prompt + current project/hardware context, then kicks off
-        a fresh OperatorAgent run."""
+        """One-shot alias of chat_start — kept for the old UI button."""
+        return self.chat_start(project_id=project_id, message=message)
+
+    # -------- multi-turn chat with the guide ------------------------------
+
+    def chat_start(self, project_id: str | None, message: str) -> dict:
+        """Start a multi-turn thread with the GameLab guide. Loads the
+        game-cheat-ops runtime prompt + current project/hardware context,
+        then kicks off an OperatorAgent run. Use ``chat_send`` to continue
+        on the same run_id."""
         runtime_prompt = _load_runtime_prompt()
         ctx_lines = ["# GameLab session context", ""]
         if project_id:
@@ -568,7 +790,46 @@ class GameLabService:
         run = self.app.operator.start(prompt=full_prompt,
                                        objective=f"gamelab:{project_id or 'adhoc'}",
                                        approved=True)
-        return {"run_id": run.get("id"), "status": run.get("status")}
+        self._emit_timeline("chat_start",
+                            payload={"run_id": run.get("id"),
+                                     "project_id": project_id})
+        return {"run_id": run.get("id"), "status": run.get("status"),
+                "project_id": project_id}
+
+    def chat_send(self, run_id: str, message: str) -> dict:
+        """Continue an existing gamelab chat thread."""
+        rec = self.app.operator.send(id=run_id, message=message)
+        return {"run_id": run_id, "status": rec.get("status")}
+
+    def chat_get(self, run_id: str) -> dict:
+        """Fetch the operator-run record (transcript + status)."""
+        rec = self.app.operator.get(id=run_id)
+        if not rec:
+            return {"run_id": run_id, "status": "missing", "transcript": []}
+        return {
+            "run_id": run_id,
+            "status": rec.get("status"),
+            "turns_done": rec.get("turns_done", 0),
+            "transcript": rec.get("transcript", []),
+            "objective": rec.get("objective", ""),
+            "created_at": rec.get("created_at"),
+        }
+
+    def chat_list(self, project_id: str | None) -> list[dict]:
+        """List gamelab chats (filtered by project if asked)."""
+        runs = self.app.operator.list()
+        prefix = f"gamelab:{project_id}" if project_id else "gamelab:"
+        return [
+            {"id": r.get("id"), "objective": r.get("objective", ""),
+             "status": r.get("status"), "created_at": r.get("created_at"),
+             "turns_done": r.get("turns_done", 0)}
+            for r in runs
+            if str(r.get("objective", "")).startswith(prefix)
+        ]
+
+    def chat_stop(self, run_id: str) -> dict:
+        rec = self.app.operator.stop(id=run_id)
+        return {"run_id": run_id, "status": rec.get("status")}
 
     # -------- internals --------------------------------------------------
 
@@ -736,6 +997,31 @@ def _tail(d: dict) -> dict:
     """Trim adapter result for recipe log tail storage."""
     return {k: (v if not isinstance(v, (str, bytes)) else v[:1000])
             for k, v in d.items() if k not in ("stdout", "stderr")}
+
+
+def _pick_reader_backend(game: str) -> str:
+    """Default to DMA on PC, android bridge on mobile. iOS uses its own
+    adapter that still runs the ``android`` wire protocol under the hood
+    because the iOS dylib speaks the same JSON."""
+    if game in ("bgmi", "cod_mobile", "free_fire", "pubg_mobile"):
+        return "android"
+    if game in ("bgmi_ios",):
+        return "android"    # dylib speaks the same protocol
+    return "dma"
+
+
+def _default_process_name(game: str) -> str:
+    return {
+        "valorant": "VALORANT-Win64-Shipping.exe",
+        "cs2":      "cs2.exe",
+        "apex":     "r5apex.exe",
+        "rust":     "RustClient.exe",
+        "fortnite": "FortniteClient-Win64-Shipping.exe",
+        "r6_siege": "RainbowSix.exe",
+        "tarkov":   "EscapeFromTarkov.exe",
+        "cod_mw":   "ModernWarfare.exe",
+        "pubg":     "TslGame.exe",
+    }.get(game, "")
 
 
 def _load_runtime_prompt() -> str:

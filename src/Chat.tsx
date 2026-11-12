@@ -173,6 +173,107 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
     const message = text.trim();
     setSending(true); setError(''); setActiveTask(null);
     try {
+      // GameLab routing — silent. One chat, one textbox. If the message is a
+      // game-cheat / anticheat / mobile-cheat question, route to the GameLab
+      // guide (OperatorAgent with game-cheat-ops prompt). Otherwise keep the
+      // existing investigation flow. No slashes needed; dj just types.
+      //
+      // Routing signals (any one triggers):
+      //   - an open thread in sessionStorage (follow-up stays routed)
+      //   - a keyword in the message
+      //   - an explicit slash prefix (back-compat override)
+      //   - '/exit' or '/leave' drops out of a thread
+      const activeGamelab = sessionStorage.getItem('gamelab.run_id');
+      const lower = message.toLowerCase();
+      const isExit = lower === '/exit' || lower === '/leave';
+      if (isExit && activeGamelab) {
+        sessionStorage.removeItem('gamelab.run_id');
+        setText(''); setSending(false);
+        sendGuard.current = false;
+        return;
+      }
+      const explicitPrefix = ['/gamelab', '/cheat', '/esp', '/aim', '/bgmi',
+                               '/dma', '/valorant', '/cs2', '/apex', '/rust',
+                               '/fortnite', '/pubg', '/codm'].find(p =>
+        lower.startsWith(p + ' ') || lower === p);
+      const gamelabKeywords = [
+        // games
+        'valorant', 'cs2', 'cs:go', 'counter-strike', 'bgmi', 'pubg',
+        'pubgm', 'fortnite', 'apex', 'apex legends', 'rust', 'r6 ', 'siege',
+        'tarkov', 'cod ', 'warzone', 'modern warfare', 'free fire', 'dayz',
+        'fivem', 'cod mobile', 'cod-m', 'cod m', 'call of duty',
+        // cheat terms
+        'aimbot', ' esp', 'wallhack', 'wall hack', 'no-recoil', 'no recoil',
+        ' trigger bot', 'triggerbot', 'radar hack', 'hwid spoof', 'byovd',
+        ' dma ', 'kmbox', 'pcileech', 'memprocfs', 'kernel driver',
+        'manual map', 'hypervisor cheat', 'bypass anticheat', 'bypass ac',
+        'cheat for', 'cheat in', ' cheat ', ' hack ', 'mod menu',
+        // anticheats
+        'vanguard', 'battleye', 'easy anti-cheat', 'easyanticheat', ' eac ',
+        'vac ', 'trust factor', 'anogs', 'ace anticheat', 'ricochet',
+        // mobile tooling
+        'zygisk', 'magisk', 'scrcpy', 'shamiko', 'adb forward',
+        'rooted phone', 'rooted android', 'jailbreak',
+        // ios cheat tooling
+        'iphone', 'ipad', ' ios ', 'ios bgmi', 'altstore', 'sideload',
+        'sideloadly', 'altserver', 'patched ipa', ' ipa ', 'iproxy',
+        'usbmuxd', 'bgmi ios', 'bgmi on my iphone',
+        // test targets + cheat terms
+        'among us', 'amongus', 'innersloth', 'no cooldown', 'no-cooldown',
+        'wallhack among', 'role reveal', 'fog off', 'see impostor',
+        // mac via PlayCover or Mac App Store sideload
+        'playcover', 'play cover', 'on my mac', 'in my mac', 'on mac',
+        'macos cheat', 'm1 mac', 'apple silicon', 'wallhack mac',
+        'mac app store', 'mac appstore', 'patched app', 'ad-hoc sign',
+        'insert_dylib', 'hardened runtime', 'library validation',
+      ];
+      const keywordHit = !!gamelabKeywords.find(k => lower.includes(k));
+      if (explicitPrefix || keywordHit || activeGamelab) {
+        const body = explicitPrefix
+          ? message.slice(explicitPrefix.length).trim() || 'help me set up a cheat for this game'
+          : message;
+        try {
+          let runId = activeGamelab;
+          if (!runId) {
+            const started = await rpc<{ run_id: string; status: string }>(
+              'gamelab.chat_start', { project_id: projectId || null, message: body });
+            runId = started.run_id;
+            sessionStorage.setItem('gamelab.run_id', runId);
+          } else {
+            await rpc('gamelab.chat_send', { run_id: runId, message: body });
+          }
+          setText(''); setAttached([]); setSending(false);
+          // Poll the transcript so the Chat panel shows it
+          const poll = async () => {
+            try {
+              const g = await rpc<{ status: string;
+                                    transcript: Array<{ role: string; content: string }> }>(
+                'gamelab.chat_get', { run_id: runId });
+              // Render as a chat session shape the panel already knows
+              setSession({
+                id: `gamelab-${runId}`,
+                messages: g.transcript.map((t, i) => ({
+                  id: `${runId}-${i}`,
+                  role: t.role,
+                  text: typeof t.content === 'string' ? t.content : JSON.stringify(t.content),
+                })),
+                status: g.status,
+              } as unknown as Session);
+              if (g.status === 'running' || g.status === 'awaiting_approval') {
+                setTimeout(poll, 1500);
+              }
+            } catch (e) {
+              setError(`gamelab guide error: ${String(e)}`);
+            }
+          };
+          void poll();
+        } catch (e) {
+          setError(`GameLab guide: ${e instanceof Error ? e.message : String(e)}`);
+          setSending(false);
+        }
+        sendGuard.current = false;
+        return;
+      }
       if (session?.mapping_id && mappingActive(mapping.data?.workflow.status)) {
         const accepted = await mapping.reply(message, attached.map(a=>a.id));
         if (version !== scopeVersion.current) return;

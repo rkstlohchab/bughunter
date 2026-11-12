@@ -1,0 +1,24 @@
+{
+    "_notes": "Apex Legends — Source engine (Respawn). Per-build; refresh via DMA offset_scan.",
+    "offsets": {
+        "base_module": "r5apex.exe",
+        "dwEntityList": 0,
+        "dwLocalPlayer": 0,
+        "dwViewMatrix": 0,
+        "m_iSignifierName": 0,
+        "signifier_player": 0,
+        "signifier_loot": 0,
+        "m_iTeamNum": 0,
+        "m_iHealth": 0,
+        "m_iShields": 0,
+        "m_vecAbsOrigin": 0,
+        "m_szPlayerName": 0,
+        "m_BoneArray": 0,
+        "m_itemName": 0,
+        "Bones": { "head": 8, "neck": 7, "pelvis": 0, "spine_up": 4, "spine_lo": 3,
+                   "shoulder_l": 10, "elbow_l": 11, "hand_l": 12,
+                   "shoulder_r": 15, "elbow_r": 16, "hand_r": 17,
+                   "hip_l": 70, "knee_l": 71, "foot_l": 72,
+                   "hip_r": 74, "knee_r": 75, "foot_r": 76 }
+    }
+}

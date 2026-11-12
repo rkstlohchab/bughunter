@@ -1,0 +1,29 @@
+{
+    "_notes": "Template. UE4 pointer chain. Per-build; re-derive every patch via DMA offset_scan against signatures/valorant.sig.json.",
+    "offsets": {
+        "base_module": "VALORANT-Win64-Shipping.exe",
+        "GWorld": 0,
+        "OwningGameInstance": 0,
+        "LocalPlayers": 0,
+        "PlayerController": 0,
+        "AcknowledgedPawn": 0,
+        "PlayerCameraManager": 0,
+        "CameraCache.POV": 0,
+        "PersistentLevel": 0,
+        "Actors": 0,
+        "ActorsNum": 0,
+        "RootComponent": 0,
+        "RelativeLocation": 0,
+        "Health": 0,
+        "TeamIndex": 0,
+        "PlayerName": 0,
+        "Mesh": 0,
+        "BoneArray": 0,
+        "Actor.ClassName": 0,
+        "Bones": { "head": 8, "neck": 7, "pelvis": 0, "spine_up": 4, "spine_lo": 3,
+                   "shoulder_l": 11, "elbow_l": 12, "hand_l": 13,
+                   "shoulder_r": 20, "elbow_r": 21, "hand_r": 22,
+                   "hip_l": 51, "knee_l": 52, "foot_l": 53,
+                   "hip_r": 55, "knee_r": 56, "foot_r": 57 }
+    }
+}
