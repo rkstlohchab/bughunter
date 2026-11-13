@@ -14,7 +14,7 @@ from bughunter.store import Store
 @pytest.fixture
 def vision(tmp_path, monkeypatch):
     runtime = LocalMediaRuntime(Store(tmp_path / 'db'))
-    runtime.store.set_setting('local_media', {'vision_model': 'huihui_ai/qwen3-vl-abliterated:2b-instruct'})
+    runtime.store.set_setting('local_media', {'vision_model': 'huihui_ai/qwen3-vl-abliterated:2b-instruct', 'local_vision_low_memory':False})
     monkeypatch.setattr(runtime, 'start', lambda **kwargs: None)
     frames = []
     for index in range(5):
@@ -146,3 +146,63 @@ def test_http_quality_failure_is_exposed_to_callers_for_ocr_fallback(vision):
     transport(handler)
     with pytest.raises(ValueError, match='missing structured evidence'):
         runtime.vision(frames[0], 0)
+
+@pytest.mark.parametrize('detail,expected_edge',[(False,768),(True,1600)])
+def test_local_low_memory_profile_bounds_images_and_runner_options(vision,tmp_path,detail,expected_edge):
+    import io
+    from PIL import Image
+    runtime,_,transport=vision
+    runtime.configure({'local_vision_low_memory':True})
+    current=tmp_path/'current.png';previous=tmp_path/'previous.png'
+    Image.new('RGB',(2400,1200),'blue').save(current)
+    Image.new('RGB',(2400,1200),'red').save(previous)
+    sent=[]
+    def handler(request):
+        payload=json.loads(request.content);sent.append(payload)
+        if request.url.path=='/api/show':return httpx.Response(200,json={'capabilities':['vision']})
+        return httpx.Response(200,json={'message':{'content':'Visible facts: Blue scene.\nUncertain or missing evidence: No prior frame supplied.'}})
+    transport(handler)
+    runtime.vision(current,20,previous_frames=[{'path':previous,'time':10}],detail=detail)
+    payload=sent[-1];images=payload['messages'][0]['images']
+    assert len(images)==1
+    with Image.open(io.BytesIO(base64.b64decode(images[0]))) as image:
+        assert image.size==(expected_edge,expected_edge//2)
+    assert payload['options']['num_ctx']==4096
+    assert payload['options']['num_batch']==128
+    assert payload['options']['num_predict']==400
+    assert '(previous)' not in payload['messages'][0]['content']
+
+def test_codex_preserves_two_previous_images_under_low_memory_profile(vision,monkeypatch):
+    runtime,frames,_=vision
+    runtime.configure({'vision_provider':'codex_subscription','codex_vision_consent':True,'local_vision_low_memory':True})
+    sent=[]
+    class Session:
+        def __init__(self,**kwargs):pass
+        def __enter__(self):return self
+        def __exit__(self,*args):pass
+        def run(self,*args,**kwargs):
+            sent.extend(kwargs['images'])
+            return 'Visible facts: Three chronological frames.\nUncertain or missing evidence: No narration.'
+    monkeypatch.setattr('bughunter.codex_subscription.CodexSession',Session)
+    runtime.vision(frames[4],40,previous_frames=[{'path':frames[2],'time':20},{'path':frames[3],'time':30}])
+    assert sent==[frames[2],frames[3],frames[4]]
+
+
+def test_connection_diagnostic_asks_for_image_content_without_tutorial_assumptions(vision):
+    runtime,frames,transport=vision
+    sent=[]
+    def handler(request):
+        if request.url.path=='/api/show':
+            return httpx.Response(200,json={'capabilities':['vision']})
+        sent.append(json.loads(request.content))
+        return httpx.Response(200,json={'message':{'content':
+            'Visible facts: Red square on the left, blue circle on the right.\n'
+            'Uncertain or missing evidence: None for these shapes.'}})
+    transport(handler)
+    runtime.vision(frames[0],0,diagnostic=True)
+    prompt=sent[0]['messages'][0]['content']
+    assert 'connection diagnostic' in prompt
+    assert 'geometric shape' in prompt and 'left or right' in prompt
+    assert 'Analyze this software tutorial' not in prompt
+    assert 'red' not in prompt and 'blue' not in prompt
+    assert len(sent[0]['messages'][0]['images'])==1

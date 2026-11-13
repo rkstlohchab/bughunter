@@ -7,7 +7,7 @@
     {
       "filename": "commerce-pricing.md",
       "title": "Commerce pricing and discount validation",
-      "sha256": "c0b4aa8273970b26371bd0822e1d8d5c1f103f6cf2d658bb0b7d8542a2259cda",
+      "sha256": "efe6516068c4ef1742502299d22fdd206e963cc4b7b4df24b4f6a7fd88ecfd04",
       "references": [
         "https://wstg.owasp.org/latest/4-Web_Application_Security_Testing/10-Business_Logic/10-Payment_Functionality/"
       ]
@@ -15,7 +15,7 @@
     {
       "filename": "food-ordering.md",
       "title": "Food-ordering methods and reproducible fixture",
-      "sha256": "75f95b94b7a5710c957195f5f775e54857efca545d0617e99ebfa8adc330411f",
+      "sha256": "cb8bf49739de240d6aa4bc209c8df35b4428f19ddf61abca9861311bf1d6bf58",
       "references": [
         "https://owasp.github.io/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic/01-Business_Logic_Data_Validation"
       ]
@@ -32,7 +32,7 @@
     {
       "filename": "graphql-classification.md",
       "title": "GraphQL transport and effect classification",
-      "sha256": "8a4267e982d39dbe19d21160cd8ff036fb0da70e97edc37c572f3fa83e3f727d",
+      "sha256": "85d79568a8ab1eb6bc5ca3c9bf0047462061e05f55566dbd02a5992785a851e3",
       "references": [
         "https://http-spec.graphql.org/draft/"
       ]
@@ -40,7 +40,7 @@
     {
       "filename": "injection-and-rendering.md",
       "title": "Injection hypotheses and browser evidence",
-      "sha256": "cbc62e707843200c5ab638555f66dc71cc41dab7914c6d4e19946e376b316735",
+      "sha256": "20403ad58b0b63a58649c39b21cf17e4fa65cd9150b2258cdf536e933cbde3fe",
       "references": [
         "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
         "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
@@ -57,7 +57,7 @@
     {
       "filename": "races-and-case-studies.md",
       "title": "Race conditions, workflow states, and published cases",
-      "sha256": "97af9082d11eec9bfeb39055d998636e660f8f770991f30a8bd46b570aa14ceb",
+      "sha256": "89f73893457c2f853c8ddd6bcc089c5a10e847f9213aa9c74e43308b647b34e7",
       "references": [
         "https://portswigger.net/research/smashing-the-state-machine",
         "https://docs.gitlab.com/releases/patches/patch-release-gitlab-16-7-2-released/"
@@ -75,7 +75,7 @@
     {
       "filename": "pe-projection-observability.md",
       "title": "PE evidence, projection math, and observation limits",
-      "sha256": "9b98a50445c1758ce6f0ba4f964385515b544eaf8d75f5847b9bf8d86e5be022",
+      "sha256": "4357e88eee3b08bee094a45259758546ea077b7cb5c664fad3c43f4fe11ab752",
       "references": [
         "https://learn.microsoft.com/en-us/windows/win32/debug/pe-format",
         "https://learn.microsoft.com/en-us/windows/win32/direct3d9/viewports-and-clipping",

@@ -61,3 +61,29 @@ def test_corrupted_bundle_is_rejected_before_import(knowledge, tmp_path, monkeyp
     monkeypatch.setattr('bughunter.reference_pack.PACK_DIR', bundle)
     with pytest.raises(ValueError, match='checksum mismatch'): import_pack(knowledge)
     assert not knowledge.store.list('source')
+
+def test_manifest_covers_every_bundled_document_and_matches_content():
+    import hashlib
+    manifest = json.loads((PACK_DIR / 'manifest.json').read_text())
+    assert len(manifest['documents']) == 10
+    assert {entry['filename'] for entry in manifest['documents']} == {path.name for path in PACK_DIR.glob('*.md')}
+    for entry in manifest['documents']:
+        raw = (PACK_DIR / entry['filename']).read_bytes()
+        assert hashlib.sha256(raw).hexdigest() == entry['sha256'], entry['filename']
+        text = raw.decode('utf-8')
+        assert text.splitlines()[0] == '# ' + entry['title']
+        assert all(url in text for url in entry['references'])
+
+
+def test_fresh_primary_application_seeds_reference_pack(tmp_path):
+    from bughunter.app import Application
+    from bughunter.reference_pack import SEED_KEY
+    app = Application(tmp_path / 'fresh-primary', primary=True)
+    try:
+        seeded = app.store.setting(SEED_KEY)
+        assert seeded['version'] == 1
+        assert len(seeded['source_ids']) == 10
+        assert all(app.store.get('source', source_id)['reference_pack'] == 'workbench-methods-v1'
+                   for source_id in seeded['source_ids'])
+    finally:
+        app.close()

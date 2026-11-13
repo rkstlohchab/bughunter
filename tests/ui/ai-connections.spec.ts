@@ -71,6 +71,7 @@ test('failed Full Disk Access probe does not claim a denied grant or show proces
   });
   await page.goto('/');
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('tab',{name:'Computer & apps',exact:true}).click();
   const panel=page.getByLabel('Mac permissions');
   await expect(panel.getByText('Granted',{exact:true})).toHaveCount(2);
   await expect(panel.getByText('Check in macOS Settings',{exact:true})).toBeVisible();

@@ -100,3 +100,31 @@ The JSON report retains 34 paired commerce/food requests and their receipts,
 retrieval probes, and the isolated database. It does not test external websites,
 payments, or concurrent coupon redemption. Native lifecycle tests use Mach API
 doubles and do not establish real target-process compatibility.
+
+### Progressive course evidence and review
+
+Speech uses atomic ten-minute SRT checkpoints keyed by source bytes/stat and model
+bytes. Each completed chunk becomes searchable immediately, including after a
+later chunk fails. `sources.prepare_audio` (`{"id":"source_…"}`) runs this speech
+pass synchronously for a local source and leaves `stage=audio_complete`,
+`status=partial`; the normal source worker subsequently reuses those checkpoints
+and performs visual processing. It refuses an already processing source.
+
+Adaptive scene detection uses ten-minute windows in `scene-cuts-v2.json`; each
+window records completion or its error. Retry reuses completed windows and retries
+gaps. Threshold, source hash/stat, duration and scan version identify the cache.
+Old bulk scan files do not establish completion. `scene_coverage`,
+`speech_coverage`, and `media_coverage` describe completed work and missing evidence;
+a timeout is never reported as a successfully empty scene scan.
+
+`knowledge.reject` (`{"id":"chunk_…","reason":"…"}`) retains the passage and
+its original text, records an audit event, removes active keyword/vector retrieval,
+and marks generated graph assertions inactive. Frame timeline entries are archived
+in `rejected-<chunk_id>.json`; the final extraction cache is invalidated. Original
+media is retained. Source detail includes inactive records for audit. Reprocessing
+never reactivates an identical rejected passage. Changed visual context/provider/
+model/evidence generation supersedes older generated passages while preserving
+manual corrections and their learned references. All chunks of one current frame
+remain active together. A frame explicitly described as unreadable receives at
+most one additional attempt at up to 2000px; its image hash makes the checkpoint
+resolution aware. Provider failures preserve completed evidence and fail the pass.

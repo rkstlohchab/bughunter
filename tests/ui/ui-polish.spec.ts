@@ -40,7 +40,7 @@ test('all web testing sections are visible, with actual model rather than hard-c
 test('dark mode is the default and theme switch works in Settings', async ({page}) => {
   await stub(page); await page.goto('/');
   await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
-  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('tab',{name:'General',exact:true}).click();
   await page.getByRole('button',{name:'Light mode'}).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme','light');
   await page.reload();

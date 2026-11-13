@@ -66,3 +66,14 @@ for (const [message, expected] of [
 ]) {
   test(`cited mapping workflow: ${message}`, () => assert.equal(wantsMappingResearch(message), expected));
 }
+
+const {wantsHarnessTask,wantsGameLab}=moduleContext.exports;
+for(const message of ['Install scrcpy on my computer','Open Notepad on Windows','Control my Linux desktop','/task check source progress']){
+ test(`shared task harness: ${message}`,()=>assert.equal(wantsHarnessTask(message),true));
+}
+for(const message of ['What apps can you control?','Study my local AI course','Set up local AI and a vision model on my Mac']){
+ test(`ordinary learning/question: ${message}`,()=>assert.equal(wantsHarnessTask(message),false));
+}
+for(const message of ['COD Android ESP','Set up CODM ESP','Help me remove cooldown for Among Us']){
+ test(`game setup stays out of APK-only workflow: ${message}`,()=>assert.equal(wantsGameLab(message),true));
+}

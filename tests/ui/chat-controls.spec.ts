@@ -37,6 +37,7 @@ test('Settings checks the native process, refreshes grants on return, and has no
   });
   await page.goto('/');
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Settings',exact:true}).click();
+  await page.getByRole('tab',{name:'Computer & apps',exact:true}).click();
   const panel=page.locator('.permission-checks');
   await expect(panel.getByText('Granted',{exact:true})).toHaveCount(1);
   await expect(panel.getByText('Not granted to this app',{exact:true})).toHaveCount(1);

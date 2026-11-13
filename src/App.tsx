@@ -1,4 +1,9 @@
+import ResourceModelPicker, {ResourceModelEditor,analysisModelLabel} from './ResourceModelPicker';
+import type {AnalysisModel} from './ResourceModelPicker';
+import ResourceQuality from './ResourceQuality';
+import MediaAI from './MediaAI';
 import SettingsView from './SettingsView';
+import type {SettingsSection} from './SettingsView';
 import PromptEditor from './PromptEditor';
 import { Status, Button, Field, Empty, Modal, Code, DetailItem } from './components';
 import SimpleHome from './SimpleHome';
@@ -16,10 +21,12 @@ import { VaultPanel } from './VaultPanel';
 import TrainingLab from './TrainingLab';
 import TorResearch from './TorResearch';
 import MacAutopilotPanel from './MacAutopilotPanel';
-import { KnowledgeTransfer, SourceLearning } from './Learning';
+import { KnowledgeTransfer, SourceLearning, isActivePassage } from './Learning';
 import SourceProgress from './SourceProgress';
+import SourceControls from './SourceControls';
 import GameLab from './GameLab';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {useLiveSources} from './useLiveSources';
 import type { FormEvent } from 'react';
 import { AppWindow, Cpu, Activity, ArrowDownToLine, ArrowUpRight, BookOpen, Check, CircleHelp, Code2, FileText, FlaskConical, FolderOpen, GitFork, Hexagon, ListChecks, LoaderCircle, MessageSquare, Moon, Network, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Sun, Target, Trash2, Upload, Wrench, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -74,12 +81,16 @@ function errorMessage(error: unknown) { return error instanceof Error ? error.me
 export default function App() {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [page, setPage] = useState<Page>('Chat');
+  const [settingsEntry,setSettingsEntry]=useState<SettingsSection>('ai');
+  const navigate=(next:Page,section:SettingsSection='ai')=>{if(next==='Settings')setSettingsEntry(section);setPage(next);};
   const [chatPrompt, setChatPrompt] = useState<{id:number;text:string}|null>(null);
   const [controlBusy,setControlBusy] = useState(false);
   const controlVersion = useRef(0);
   const [toolQuery,setToolQuery] = useState('');
   const [memoryHandoff, setMemoryHandoff] = useState<{ id: number; text: string } | null>(null);
-  const [data, setData] = useState<Collections>(EMPTY);
+  const [workspace, setData] = useState<Collections>(EMPTY);
+  const liveSources=useLiveSources();
+  const data=useMemo(()=>({...workspace,sources:liveSources.sources}),[workspace,liveSources.sources]);
   const [showProjectPicker, setShowProjectPicker] = useState(false);
   const [projectTitle, setProjectTitle] = useState('');
   const [projectUrl, setProjectUrl] = useState('');
@@ -94,13 +105,17 @@ export default function App() {
   const [revision, setRevision] = useState(0);
   const [dark, setDark] = useState(localStorage.getItem('bughunter.theme') !== 'light');
   const refresh = useCallback(async () => {
-    const entries = Object.keys(EMPTY) as (keyof Collections)[];
-    const results = await Promise.allSettled(entries.map(key => rpc(`${key}.list`)));
-    const projectsResult = results[0];
-    if (projectsResult.status === 'rejected') setConnectionError(errorMessage(projectsResult.reason)); else setConnectionError('');
-    setData(prev => { const next = { ...prev }; results.forEach((result, index) => { if (result.status === 'fulfilled') next[entries[index]] = asList(result.value); }); return next; });
-    setLoading(false);
-  }, []);
+    void liveSources.refresh();
+    const entries = (Object.keys(EMPTY) as (keyof Collections)[]).filter(key=>key!=='sources');
+    await Promise.allSettled(entries.map(async key=>{
+      try{
+        const value=await rpc(`${key}.list`);
+        setData(prev=>({...prev,[key]:asList(value)}));
+        if(key==='projects')setConnectionError('');
+      }catch(reason){if(key==='projects')setConnectionError(errorMessage(reason));}
+      finally{if(key==='projects')setLoading(false);}
+    }));
+  }, [liveSources.refresh]);
   useEffect(() => { refresh(); const timer = setInterval(refresh, 5000); return () => clearInterval(timer); }, [refresh, revision]);
   useEffect(() => { const version=controlVersion.current;rpc('system.status').then(value=>{if(version===controlVersion.current)setSystem(value);}).catch(() => {}); }, [revision]);
   useEffect(() => { document.documentElement.dataset.theme = dark ? 'dark' : 'light'; localStorage.setItem('bughunter.theme', dark ? 'dark' : 'light'); }, [dark]);
@@ -110,14 +125,14 @@ export default function App() {
   useEffect(() => { if (notice && !notice.error) { const timer = setTimeout(() => setNotice(null), 6500); return () => clearTimeout(timer); } }, [notice]);
   const perform: Execute = useCallback(async (label, fn, success) => {
     const operation = Symbol(label); operations.current.set(operation, label); setBusy(label); setNotice(null);
-    try { const result = await fn(); await refresh(); if (success) setNotice({ text: success, error: false }); setRevision(v => v + 1); return result; }
+    try { const result = await fn(); void refresh(); if (success) setNotice({ text: success, error: false }); setRevision(v => v + 1); return result; }
     catch (error) { setNotice({ text: errorMessage(error), error: true }); return undefined; }
     finally { operations.current.delete(operation); setBusy([...operations.current.values()].at(-1) || ''); }
   }, [refresh]);
   const scoped = useMemo(() => ({ ...data, sources: data.sources.filter(r => !projectId || !r.project_id || r.project_id === projectId), traffic: data.traffic.filter(r => !projectId || r.project_id === projectId), tests: data.tests.filter(r => !projectId || r.project_id === projectId), actions: data.actions.filter(r => !projectId || r.project_id === projectId), findings: data.findings.filter(r => !projectId || r.project_id === projectId), runs: data.runs.filter(r => r.kind === 'study' || !projectId || r.project_id === projectId) }), [data, projectId]);
   const selectExistingOrCreatedProject = async (id: string) => { await refresh(); setProjectId(id); };
   const approvals = scoped.actions.filter(pending).length;
-  const shared = { data: scoped, projectId, perform, busy, revision, navigate: setPage };
+  const shared = { data: scoped, projectId, perform, busy, revision, navigate, stopped: !!system.emergency_stop, sourcesError:liveSources.error };
   return <div className={`app-shell ${page === 'Chat' ? 'chat-home' : ''}`}>
     <a href="#main-content" className="skip-link">Skip to workspace</a>
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Hexagon size={30} /><Network size={15} /></div><div><strong>BugHunter<span>Claudex</span></strong><small>Research workbench</small></div></div>
@@ -133,7 +148,7 @@ export default function App() {
       <div className="topbar-controls"><button type="button" className="topbar-action" aria-label="Tools" aria-haspopup="dialog" onClick={() => setToolsOpen(true)}><Wrench size={17}/><span>Tools</span></button><button type="button" className="topbar-action" onClick={() => { refresh(); setRevision(v => v + 1); }} aria-label="Refresh workspace"><RefreshCw size={16}/><span>Refresh</span></button><Button className="global-stop" variant={system.emergency_stop ? '' : 'danger'} disabled={controlBusy} onClick={async () => {
           const stopped=!system.emergency_stop;controlVersion.current++;setControlBusy(true);
           if(stopped){setSystem(old=>({...old,emergency_stop:true}));window.dispatchEvent(new Event('bughunter-stop-all'));}
-          try{const result=await rpc<Row>(stopped?'system.stop':'system.resume');setSystem(old=>({...old,emergency_stop:stopped}));setRevision(v=>v+1);setNotice({text:result.message||(stopped?'Stop requested.':'Ready for new tasks.'),error:!!result.cancellation_errors?.length});}
+          try{const result=await rpc<Row>(stopped?'system.stop':'system.resume');setSystem(old=>({...old,emergency_stop:stopped}));if(!stopped)window.dispatchEvent(new Event('bughunter-resume-all'));setRevision(v=>v+1);setNotice({text:result.message||(stopped?'Stop requested.':'Ready for new tasks.'),error:!!result.cancellation_errors?.length});}
           catch(e){setNotice({text:`${stopped?'Stop could not be fully confirmed':'Resume failed'}: ${errorMessage(e)}`,error:true});}
           finally{setControlBusy(false);}
         }}>{controlBusy ? (system.emergency_stop?'Stopping…':'Resuming…') : system.emergency_stop ? 'Resume tasks' : 'Stop all'}</Button></div>
@@ -170,7 +185,7 @@ export default function App() {
           {page === 'Tests' && <Tests {...shared}/>}
           {page === 'Approvals' && <Approvals {...shared}/>}
           {page === 'Findings' && <Findings {...shared}/>}
-          {page === 'Settings' && <Settings perform={perform} busy={busy} revision={revision} projectId={projectId} projects={data.projects} system={system} onSystemChange={setSystem}/>}
+          {page === 'Settings' && <Settings initialSection={settingsEntry} perform={perform} busy={busy} revision={revision} projectId={projectId} projects={data.projects} system={system} onSystemChange={setSystem}/>}
         </>}
       </main>
       {toolsOpen && <Modal title="Tools" wide onClose={() => setToolsOpen(false)}>
@@ -194,37 +209,72 @@ export default function App() {
   </div>;
 }
 
-export type Shared = { data: Collections; projectId: string; perform: Execute; busy: string; revision: number; navigate: (page: Page) => void };
+export type Shared = { stopped?: boolean; sourcesError?:string; data: Collections; projectId: string; perform: Execute; busy: string; revision: number; navigate: (page: Page,section?:SettingsSection) => void };
 
-function Library({ data, perform, busy, revision, projectId }: Shared) {
-  const [showImport, setShowImport] = useState(false); const [importMode, setImportMode] = useState('files'); const [path, setPath] = useState(''); const [websiteUrl, setWebsiteUrl] = useState(''); const [downloadMedia, setDownloadMedia] = useState(false); const [chunkCorrection, setChunkCorrection] = useState<Row | null>(null); const [chunkText, setChunkText] = useState(''); const [files, setFiles] = useState<File[]>([]); const [selected, setSelected] = useState<Row | null>(null); const [query, setQuery] = useState(''); const [results, setResults] = useState<Row[] | null>(null); const [deleteId, setDeleteId] = useState('');
-  const openSource = (id: string) => perform('Opening source', () => rpc('sources.get', { id })).then(value => value && setSelected(value));
+function Library({ data, perform, busy, revision, projectId, navigate, stopped, sourcesError }: Shared) {
+  const [showImport, setShowImport] = useState(false); const [importMode, setImportMode] = useState('files'); const [path, setPath] = useState(''); const [websiteUrl, setWebsiteUrl] = useState(''); const [downloadMedia, setDownloadMedia] = useState(false); const [chunkCorrection, setChunkCorrection] = useState<Row | null>(null); const [chunkText, setChunkText] = useState(''); const [files, setFiles] = useState<File[]>([]); const [selectedDetail, setSelected] = useState<Row | null>(null); const [query, setQuery] = useState(''); const [results, setResults] = useState<Row[] | null>(null); const [deleteId, setDeleteId] = useState('');
+  const [suppliedText,setSuppliedText]=useState('');
+  const [importModel,setImportModel]=useState<AnalysisModel|null>(null);
+  const [checked,setChecked]=useState<string[]>([]);
+  const [batchIds,setBatchIds]=useState<string[]|null>(null);
+  const [batchModel,setBatchModel]=useState<AnalysisModel|null>(null);
+  const [modelNotice,setModelNotice]=useState('');
+  const [detailError,setDetailError]=useState('');
+  const detailRequest=useRef(0);
+  const selectedId=selectedDetail?.source?.id||selectedDetail?.id;
+  const liveSource=data.sources.find(source=>source.id===selectedId);
+  const selected=selectedDetail?{...selectedDetail,...liveSource}:null;
+  const detailVersion=JSON.stringify([liveSource?.status,liveSource?.chunk_count,liveSource?.analysis_model,liveSource?.error,revision]);
+  useEffect(()=>{
+    if(!selectedId)return;let active=true;const request=detailRequest.current;
+    void rpc<Row>('sources.get',{id:selectedId}).then(value=>{
+      if(active&&request===detailRequest.current){setSelected(value);setDetailError('');}
+    }).catch(reason=>{if(active)setDetailError(errorMessage(reason));});
+    return()=>{active=false;};
+  },[selectedId,detailVersion]);
+  const visibleIds=data.sources.map(source=>String(source.id));
+  const checkedIds=checked.filter(id=>visibleIds.includes(id));
+  const sourcePassages = asList(selected?.chunks || selected?.passages);
+  const activePassages = sourcePassages.filter(isActivePassage);
+  const withdrawnPassages = sourcePassages.filter(passage => !isActivePassage(passage));
+  const openSource=useCallback(async(id:string)=>{
+    const request=++detailRequest.current;setDetailError('');
+    try{const value=await rpc<Row>('sources.get',{id});if(request===detailRequest.current)setSelected(value);return value;}
+    catch(reason){if(request===detailRequest.current)setDetailError(errorMessage(reason));return undefined;}
+  },[]);
   function chooseFiles(selected: File[]) { setFiles(selected); setPath(''); setWebsiteUrl(''); }
   const youtube = /^https:\/\/(?:www\.|m\.)?(?:youtube\.com|youtu\.be)\//i.test(websiteUrl);
   async function importSource(e: FormEvent) {
     e.preventDefault();
+    if(importModel&&!importModel.model)return;
     const value = await perform('Importing sources', async () => {
-      if (websiteUrl) return rpc('sources.import', { url: websiteUrl, download_media: downloadMedia, language: 'en', project_id: projectId || null });
+      if (importMode==='text') return rpc('sources.import',{filename:'supplied-notes.txt',content_base64:await fileBase64(new File([suppliedText],'supplied-notes.txt',{type:'text/plain'})),project_id:projectId||null,analysis_model:importModel});
+      if (websiteUrl) return rpc('sources.import', { url: websiteUrl, download_media: downloadMedia, language: 'en', project_id: projectId || null, analysis_model: importModel });
       if (files.length) {
         const imported = [];
         for (const file of files) {
           if (file.size > 64 * 1024 * 1024) throw new Error(`${file.name} exceeds the 64 MiB upload limit. Use its absolute file path instead; any earlier files are already queued.`);
-          imported.push(await rpc('sources.import', { filename: file.name, content_base64: await fileBase64(file), project_id: projectId || null }));
+          imported.push(await rpc('sources.import', { filename: file.name, content_base64: await fileBase64(file), project_id: projectId || null, analysis_model: importModel }));
         }
         return imported;
       }
-      if (path.toLowerCase().endsWith('.zip')) return rpc('courses.import', {path,project_id:projectId||null});
-      return rpc('sources.import', { path, copy_original: false, project_id: projectId || null });
+      if (path.toLowerCase().endsWith('.zip')) return rpc('courses.import', {path,project_id:projectId||null,analysis_model:importModel});
+      return rpc('sources.import', { path, copy_original: false, project_id: projectId || null, analysis_model: importModel });
     }, 'Resources queued for ingestion. The library will show parsed content and any unsupported files.');
-    if (value !== undefined) { setShowImport(false); setFiles([]); setPath(''); setWebsiteUrl(''); }
+    if (value !== undefined) { setShowImport(false); setFiles([]); setPath(''); setWebsiteUrl(''); setSuppliedText(''); }
   }
 
   return <><div className="knowledge-intro"><div><h2>Library</h2><p>Search your saved references and review their citations. Adding sources builds searchable knowledge; it does not train your model.</p></div></div>
+    {sourcesError&&<p role="status" className="error-text">Live resource updates interrupted. Showing the last received state; retrying automatically. {sourcesError}</p>}
+    {detailError&&<p role="status" className="error-text">Source details could not refresh. Retrying when the resource changes. {detailError}</p>}
     <Learnings revision={revision} onOpenSource={openSource}/>
     <div className="toolbar"><form className="search" onSubmit={e => { e.preventDefault(); perform('Searching knowledge', () => rpc('knowledge.search', { query, limit: 20, project_id: projectId || null })).then(v => v && setResults(asList(v))); }}><Search size={17}/><input aria-label="Search knowledge" placeholder="Ask your library or search a technique…" value={query} onChange={e => setQuery(e.target.value)}/>{results && <button type="button" aria-label="Clear search" onClick={() => { setResults(null); setQuery(''); }}><X size={15}/></button>}<button type="submit" disabled={!query.trim()}>Search</button></form><Button variant="primary" icon={Upload} onClick={() => setShowImport(true)}>Upload / add link</Button></div>
-    {results !== null ? <section className="surface"><div className="section-title"><h2>{results.length} matching passages</h2><Button onClick={() => setResults(null)}>Back to library</Button></div>{results.length ? <div className="passages">{results.map((hit, i) => <article key={hit.id || i} className="passage"><button className="source-citation" onClick={() => hit.source_id && openSource(hit.source_id)}><BookOpen size={14}/>{hit.title || hit.source_title || 'Source'}<span>{pretty(hit.locator || hit.citation)}</span></button><p>{hit.text || hit.content}</p>{hit.score != null && <small>Relevance {Number(hit.score).toFixed(3)}</small>}</article>)}</div> : <Empty icon={Search} title="No matching passages" description="Try a different term, or import a resource that covers this topic."/>}</section> : <section className="surface"><div className="section-title"><div><h2>Your files</h2><p>{data.sources.length} imported sources. Ready means extraction finished; Partial means a step needs attention. Open a resource for details.</p></div><span className="quiet-badge"><FolderOpen size={14}/>Stored locally</span></div>{!data.sources.length ? <Empty icon={BookOpen} title="Build your research memory" description="Import a book, lesson, or exploit write-up. The workbench preserves citations and connects related concepts."><Button icon={Upload} onClick={() => setShowImport(true)}>Import your first resource</Button></Empty> : <div className="table-scroll"><table><thead><tr><th>Resource</th><th>Type</th><th>Status</th><th>Added</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.sources.map(source => <tr key={source.id}><td><button className="table-title" onClick={() => openSource(source.id)}><FileText size={18}/><div><strong>{source.title || source.filename}</strong>{source.error && <small className="error-text">{source.error}</small>}</div></button></td><td>{source.media_type || source.type || 'Document'}</td><td><Status value={source.status}/><SourceProgress status={source.status} progress={source.media_progress}/></td><td className="muted nowrap">{shortDate(source.created_at)}</td><td><div className="row-actions">{['ready', 'error', 'failed', 'partial', 'incomplete'].includes(source.status) && <button aria-label={source.url ? 'Refresh website source' : 'Reprocess resource'} className="icon-button" onClick={() => perform('Retrying ingestion', () => rpc('sources.retry', { id: source.id }))}><RefreshCw size={15}/></button>}<button aria-label={`Delete ${source.title || source.filename}`} className="icon-button" onClick={() => setDeleteId(source.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}</section>}
-    {showImport && <Modal title="Add to knowledge" onClose={() => setShowImport(false)}><form onSubmit={importSource}><div className="import-tabs" role="group" aria-label="Import method">{[['files','Upload files'],['url','Paste a link'],['path','Large course / folder']].map(([value,label]) => <Button key={value} variant={importMode === value ? 'primary' : ''} onClick={() => {setImportMode(value);setFiles([]);setPath('');setWebsiteUrl('');}}>{label}</Button>)}</div>{importMode === 'files' && <label className="file-drop" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();chooseFiles(Array.from(e.dataTransfer.files));}}><Upload size={25}/><strong>{files.length ? `${files.length} files selected` : 'Choose files or drop them here'}</strong><span>Documents, ZIPs, images, text/code, audio, or video · up to 64 MiB each</span><input type="file" multiple onChange={e => chooseFiles(Array.from(e.target.files || []))}/></label>}{importMode === 'path' && <><Field label="Absolute file path" hint="A file or folder up to 500 files, 32 GiB per file. Large course ZIPs are processed progressively and can resume after interruption. Keep the original ZIP in place until import finishes."><input value={path} onChange={e => setPath(e.target.value)} placeholder="/Users/you/Courses"/></Field><p className="muted">Keep these files in place until extraction finishes. Check the extracted text and warnings before deleting your originals.</p></>}{importMode === 'url' && <><Field label="Public link" hint="Supports public YouTube videos, playlists and channels (first 50 videos per import), web pages, and direct files. Instagram profiles and restricted sites cannot be reliably bulk imported."><input type="url" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://youtube.com/watch?v=... or https://example.com/article"/></Field>{youtube && <label className="checkbox"><input type="checkbox" checked={downloadMedia} onChange={e => setDownloadMedia(e.target.checked)}/><span>Also download the video to extract audio and sample screen images.</span></label>}</>}<div className="form-actions"><Button onClick={() => setShowImport(false)}>Cancel</Button><Button type="submit" variant="primary" icon={Upload} disabled={!!busy || (!path && !files.length && !websiteUrl)}>Import resource</Button></div></form></Modal>}
-    {selected && <Modal title={selected.source?.title || selected.title || 'Source details'} wide onClose={() => setSelected(null)}><Status value={selected.source?.status || selected.status}/><SourceLearning source={selected} perform={perform} busy={busy} onChange={() => openSource(selected.id)}/><DetailItem label="Import error" value={selected.error || selected.source?.error}/><DetailItem label="Needs attention" value={selected.warnings}/><DetailItem label="Extraction notes" value={selected.extraction_notes}/><DetailItem label="Detected format" value={selected.detected_format}/><DetailItem label="Source URL" value={selected.downloaded_url || selected.url}/><DetailItem label="Retrieved at" value={selected.fetched_at}/>{selected.import_items?.length > 0 && <details className="import-results"><summary>Archive results ({selected.import_items.length} entries)</summary><Code value={selected.import_items}/></details>}{asList(selected.chunks || selected.passages).length > 0 && <section className="knowledge-reader"><h3>Document content</h3><p className="muted">This is one imported source. The app divides it into passages internally for search; those passages aren't separate documents.</p><div className="knowledge-reader-text">{asList(selected.chunks || selected.passages).map((chunk) => String(chunk.text || chunk.content || '')).join('\n\n')}</div><details className="knowledge-reader-edits"><summary>Edit a specific passage ({asList(selected.chunks || selected.passages).length})</summary>{asList(selected.chunks || selected.passages).map((chunk, i) => <article className="passage" key={chunk.id || i}><small>Part {i+1}</small><p>{chunk.text || chunk.content}</p><Button onClick={() => { setChunkCorrection(chunk); setChunkText(chunk.text || chunk.content || ''); }}>Correct this part</Button></article>)}</details></section>}{!selected.chunks && !selected.passages && <Code value={selected}/>}</Modal>}
+    {checkedIds.length>0&&<div className="toolbar"><span>{checkedIds.length} resources selected</span><Button disabled={!!busy} onClick={()=>{setBatchIds([...checkedIds]);setBatchModel(null);}}>Choose model</Button><Button onClick={()=>setChecked([])}>Clear selection</Button></div>}
+    {modelNotice&&<p role="status">{modelNotice}</p>}
+    {batchIds&&<Modal title="Choose model for selected resources" onClose={()=>setBatchIds(null)}><p>Apply to {batchIds.length} selected resources.</p><ResourceModelPicker value={batchModel} onChange={setBatchModel} disabled={!!busy}/><p className="muted">New frame analysis and study use the saved choice. Existing citations keep their original provenance; extraction will not restart.</p><div className="form-actions"><Button onClick={()=>setBatchIds(null)}>Cancel</Button><Button variant="primary" disabled={!!busy||!!batchModel&&!batchModel.model} onClick={()=>perform('Saving resource models',()=>rpc('sources.models',{ids:batchIds,analysis_model:batchModel})).then(value=>{if(value!==undefined){setBatchIds(null);setModelNotice('Models saved for the selected resources. New work uses this choice; existing citations keep their original provenance.');}})}>Save selected models</Button></div></Modal>}
+    {results !== null ? <section className="surface"><div className="section-title"><h2>{results.length} matching passages</h2><Button onClick={() => setResults(null)}>Back to library</Button></div>{results.length ? <div className="passages">{results.map((hit, i) => <article key={hit.id || i} className="passage"><button className="source-citation" onClick={() => hit.source_id && openSource(hit.source_id)}><BookOpen size={14}/>{hit.title || hit.source_title || 'Source'}<span>{pretty(hit.locator || hit.citation)}</span></button><p>{hit.text || hit.content}</p>{hit.score != null && <small>Relevance {Number(hit.score).toFixed(3)}</small>}</article>)}</div> : <Empty icon={Search} title="No matching passages" description="Try a different term, or import a resource that covers this topic."/>}</section> : <section className="surface"><div className="section-title"><div><h2>Your files</h2><p>{data.sources.length} imported sources. Ready means extraction finished; Partial means a step needs attention. Open a resource for details.</p></div><span className="quiet-badge"><FolderOpen size={14}/>Stored locally</span></div>{!data.sources.length ? <Empty icon={BookOpen} title="Build your research memory" description="Import a book, lesson, or exploit write-up. The workbench preserves citations and connects related concepts."><Button icon={Upload} onClick={() => setShowImport(true)}>Import your first resource</Button></Empty> : <div className="table-scroll"><table><thead><tr><th><input type="checkbox" aria-label="Select all resources" checked={visibleIds.length>0&&checkedIds.length===visibleIds.length} onChange={event=>setChecked(event.target.checked?visibleIds:[])}/></th><th>Resource</th><th>Type</th><th>Status</th><th>Analysis model</th><th>Added</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.sources.map(source => <tr key={source.id}><td><input type="checkbox" aria-label={`Select ${source.title || source.filename}`} checked={checkedIds.includes(source.id)} onChange={event=>setChecked(current=>event.target.checked?[...current,source.id]:current.filter(id=>id!==source.id))}/></td><td><button className="table-title" onClick={() => openSource(source.id)}><FileText size={18}/><div><strong>{source.title || source.filename}</strong>{source.error && <small className="error-text">{source.error}</small>}</div></button></td><td>{source.media_type || source.type || 'Document'}</td><td><Status value={source.media_control==='pause'&&['queued','processing'].includes(source.status)?'paused':source.status}/><SourceProgress status={source.status} paused={source.media_control==='pause'} progress={source.media_progress}/><SourceControls source={source} stopped={stopped} disabled={!!busy}/></td><td><div className="resource-model-cell"><span>{analysisModelLabel(source.analysis_model)}</span><button type="button" className="button" disabled={!!busy} aria-label={`Change model for ${source.title || source.filename}`} onClick={()=>{setBatchIds([source.id]);setBatchModel(source.analysis_model||null);}}>Change model</button></div></td><td className="muted nowrap">{shortDate(source.created_at)}</td><td><div className="row-actions">{['ready', 'error', 'failed', 'partial', 'incomplete'].includes(source.status) && <button aria-label={source.url ? 'Refresh website source' : 'Reprocess resource'} className="icon-button" onClick={() => perform('Retrying ingestion', () => rpc('sources.retry', { id: source.id }))}><RefreshCw size={15}/></button>}<button aria-label={`Delete ${source.title || source.filename}`} className="icon-button" onClick={() => setDeleteId(source.id)}><Trash2 size={15}/></button></div></td></tr>)}</tbody></table></div>}</section>}
+    {showImport && <Modal title="Add to knowledge" onClose={() => setShowImport(false)}><form onSubmit={importSource}><ResourceModelPicker value={importModel} onChange={setImportModel} disabled={!!busy}/><div className="import-tabs" role="group" aria-label="Import method">{[['files','Upload files'],['url','Paste a link'],['path','Large course / folder'],['text','Paste text']].map(([value,label]) => <Button key={value} variant={importMode === value ? 'primary' : ''} onClick={() => {setImportMode(value);setFiles([]);setPath('');setWebsiteUrl('');}}>{label}</Button>)}</div>{importMode==='text'&&<Field label="Resource text" hint="Saved as a cited text resource."><textarea rows={8} value={suppliedText} onChange={event=>setSuppliedText(event.target.value)}/></Field>}{importMode === 'files' && <label className="file-drop" onDragOver={e => e.preventDefault()} onDrop={e => {e.preventDefault();chooseFiles(Array.from(e.dataTransfer.files));}}><Upload size={25}/><strong>{files.length ? `${files.length} files selected` : 'Choose files or drop them here'}</strong><span>Documents, ZIPs, images, text/code, audio, or video · up to 64 MiB each</span><input type="file" multiple onChange={e => chooseFiles(Array.from(e.target.files || []))}/></label>}{importMode === 'path' && <><Field label="Absolute file path" hint="A file or folder up to 500 files, 32 GiB per file. Large course ZIPs are processed progressively and can resume after interruption. Keep the original ZIP in place until import finishes."><input value={path} onChange={e => setPath(e.target.value)} placeholder="/Users/you/Courses"/></Field><p className="muted">Keep these files in place until extraction finishes. Check the extracted text and warnings before deleting your originals.</p></>}{importMode === 'url' && <><Field label="Public link" hint="Supports public YouTube videos, playlists and channels (first 50 videos per import), web pages, and direct files. Instagram profiles and restricted sites cannot be reliably bulk imported."><input type="url" value={websiteUrl} onChange={e => setWebsiteUrl(e.target.value)} placeholder="https://youtube.com/watch?v=... or https://example.com/article"/></Field>{youtube && <label className="checkbox"><input type="checkbox" checked={downloadMedia} onChange={e => setDownloadMedia(e.target.checked)}/><span>Also download the video to extract audio and sample screen images.</span></label>}</>}<div className="form-actions"><Button onClick={() => setShowImport(false)}>Cancel</Button><Button type="submit" variant="primary" icon={Upload} disabled={!!busy || !!importModel&&!importModel.model || (importMode==='text'?!suppliedText.trim():!path && !files.length && !websiteUrl)}>Import resource</Button></div></form></Modal>}
+    {selected && <Modal title={selected.source?.title || selected.title || 'Source details'} wide onClose={() => {detailRequest.current++;setSelected(null);}}><SourceProgress status={selected.status} paused={selected.media_control==='pause'} progress={selected.media_progress}/><Status value={selected.media_control==='pause'&&['queued','processing'].includes(selected.status)?'paused':selected.source?.status || selected.status}/><SourceControls source={data.sources.find(source=>source.id===(selected.source?.id||selected.id))||selected.source||selected} stopped={stopped} disabled={!!busy} onChange={()=>void openSource(selected.source?.id||selected.id)}/><ResourceModelEditor key={selected.source?.id || selected.id} sourceId={selected.source?.id || selected.id} value={selected.source?.analysis_model || selected.analysis_model || null} effective={selected.source?.effective_analysis_model || selected.effective_analysis_model} disabled={!!busy} onSaved={()=>openSource(selected.source?.id || selected.id)}/><ResourceQuality sourceId={selected.source?.id || selected.id}/>{/video|audio|mp4|mov|mkv|m4a|webm|wav|mp3/i.test(`${selected.source?.media_type || selected.media_type || ''} ${selected.source?.filename || selected.filename || ''}`) && <MediaAI tasksStopped={stopped} sources={[data.sources.find(source => source.id === (selected.source?.id || selected.id)) || selected.source || selected]} initialSourceId={selected.source?.id || selected.id} onOpenSettings={() => navigate('Settings','learning')}/>}<SourceLearning source={selected} perform={perform} busy={busy} onChange={() => openSource(selected.id)}/><DetailItem label="Import error" value={selected.error || selected.source?.error}/><DetailItem label="Needs attention" value={selected.warnings}/><DetailItem label="Extraction notes" value={selected.extraction_notes}/><DetailItem label="Detected format" value={selected.detected_format}/><DetailItem label="Source URL" value={selected.downloaded_url || selected.url}/><DetailItem label="Retrieved at" value={selected.fetched_at}/>{selected.import_items?.length > 0 && <details className="import-results"><summary>Archive results ({selected.import_items.length} entries)</summary><Code value={selected.import_items}/></details>}{activePassages.length > 0 && <section className="knowledge-reader"><h3>Document content</h3><p className="muted">This is one imported source. The app divides it into passages internally for search; those passages aren't separate documents.</p><div className="knowledge-reader-text">{activePassages.map((chunk) => String(chunk.text || chunk.content || '')).join('\n\n')}</div><details className="knowledge-reader-edits"><summary>Edit a specific passage ({activePassages.length})</summary>{activePassages.map((chunk, i) => <article className="passage" key={chunk.id || i}><small>Part {i+1}</small><p>{chunk.text || chunk.content}</p><Button onClick={() => { setChunkCorrection(chunk); setChunkText(chunk.text || chunk.content || ''); }}>Correct this part</Button></article>)}</details></section>}{withdrawnPassages.length > 0 && <details className="withdrawn-descriptions"><summary>Withdrawn descriptions (audit history) · {withdrawnPassages.length}</summary><p className="muted">These descriptions are excluded from search, study, correction, and training examples. They remain here as audit history.</p>{withdrawnPassages.map((chunk, i) => <article className="passage" key={chunk.id || i}><small>{chunk.locator || chunk.id}</small><p>{chunk.text || chunk.content}</p><p className="muted">Review status: {chunk.review_status || 'withdrawn'}</p>{chunk.review_reason && <p className="muted">Reason: {chunk.review_reason}</p>}</article>)}</details>}{!selected.chunks && !selected.passages && <Code value={selected}/>}</Modal>}
     {chunkCorrection && <Modal title="Correct source passage" wide onClose={() => setChunkCorrection(null)}><Field label="Corrected text" hint="The source and correction history remain traceable."><textarea rows={12} value={chunkText} onChange={e => setChunkText(e.target.value)}/></Field><div className="form-actions"><Button onClick={() => setChunkCorrection(null)}>Cancel</Button><Button variant="primary" onClick={() => perform('Saving correction', () => rpc('knowledge.correct', { id: chunkCorrection.id, text: chunkText }), 'Passage corrected.').then(value => { if (value) { setChunkCorrection(null); setSelected(null); } })}>Save correction</Button></div></Modal>}
     {deleteId && <Modal title="Delete this resource?" onClose={() => setDeleteId('')}><p>Remove the source, its searchable passages, and knowledge assertions that no longer have supporting sources.</p><div className="form-actions"><Button onClick={() => setDeleteId('')}>Keep resource</Button><Button variant="danger" onClick={() => perform('Deleting source', () => rpc('sources.delete', { id: deleteId }), 'Resource deleted.').then(() => setDeleteId(''))}>Delete resource</Button></div></Modal>}
   </>;
@@ -376,6 +426,6 @@ function Findings({ data, projectId, perform, busy }: Shared) {
   </>;
 }
 
-function Settings({perform,busy,revision,projectId,system,onSystemChange}: {perform:Execute;busy:string;revision:number;projectId:string;projects:Row[];system:Row;onSystemChange:(value:Row)=>void}) {
-  return <SettingsView perform={perform} busy={busy} revision={revision} projectId={projectId} system={system} onSystemChange={onSystemChange}/>;
+function Settings({perform,busy,revision,projectId,system,onSystemChange,initialSection}: {initialSection:SettingsSection;perform:Execute;busy:string;revision:number;projectId:string;projects:Row[];system:Row;onSystemChange:(value:Row)=>void}) {
+  return <SettingsView initialSection={initialSection} perform={perform} busy={busy} revision={revision} projectId={projectId} system={system} onSystemChange={onSystemChange}/>;
 }

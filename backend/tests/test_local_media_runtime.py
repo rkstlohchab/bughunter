@@ -13,9 +13,10 @@ from bughunter.knowledge import KnowledgeService
 def test_local_media_defaults_are_lightweight_and_local(tmp_path, monkeypatch):
     runtime = LocalMediaRuntime(Store(tmp_path))
     monkeypatch.setattr(runtime, "_ollama_tags", lambda: ["qwen3-vl:2b"])
+    monkeypatch.setattr("bughunter.media_models.discover", lambda: [])
     status = runtime.status()
     assert status["config"]["vision_model"] == "qwen3-vl:2b"
-    assert status["vision_ready"] is True
+    assert status["vision_ready"] is False  # Installed tags require an actual image test.
     assert runtime.whisper_path().parent == tmp_path / "models"
     assert runtime.config()["frame_interval"] >= 2
     assert runtime.config()["max_frames"] == 0

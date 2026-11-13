@@ -1,13 +1,13 @@
 import {test,expect} from '@playwright/test';
 import {chatFixture} from './chat-fixture';
 
-test('chat retries progress errors and keeps the final result with recorded activity',async({page})=>{
+test('chat retries progress errors and keeps the final reply while execution receipts stay out of Chat',async({page})=>{
   const state=await chatFixture(page,{failOnce:true}); await page.goto('/');
   await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain the saved evidence');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
-  await page.getByText('Activity and results (1)',{exact:true}).click();
-  await expect(page.getByText('Retrieved 3 cited passages.',{exact:true})).toBeVisible();
+  await expect(page.getByText('Activity and results (1)',{exact:true})).toHaveCount(0);
+  await expect(page.getByText('Retrieved 3 cited passages.',{exact:true})).toHaveCount(0);
   expect(state.calls.filter(c=>c.method==='chat.agent')).toHaveLength(1);
   expect(state.failed).toBe(true);
   const download=page.waitForEvent('download');
@@ -28,14 +28,14 @@ test('reopening an active conversation restores polling and supports stopping',a
   await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeEnabled();
 });
 
-test('chat passes uploaded source IDs to the agent and rejects more than six files',async({page})=>{
+test('chat passes private reference IDs to the agent and rejects more than six files',async({page})=>{
   const state=await chatFixture(page);await page.goto('/');
   await page.getByLabel('Attach files',{exact:true}).setInputFiles({name:'notes.txt',mimeType:'text/plain',buffer:Buffer.from('Source fixture')});
   await expect(page.getByText('notes.txt',{exact:true})).toBeVisible();
   await page.getByRole('textbox',{name:'Message',exact:true}).fill('Explain my attachment');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   await expect(page.getByText('Here is the verified result.',{exact:true})).toBeVisible();
-  expect(state.calls.find(c=>c.method==='chat.agent')?.params.source_ids).toEqual(['source_attached']);
+  expect(state.calls.find(c=>c.method==='chat.agent')?.params.attachment_ids).toEqual(['chatref_attached']);
   const imports=state.calls.filter(c=>c.method==='sources.import').length;
   await page.getByLabel('Attach files',{exact:true}).setInputFiles(Array.from({length:7},(_,i)=>({name:`note-${i}.txt`,mimeType:'text/plain',buffer:Buffer.from('text')})));
   await expect(page.getByRole('alert')).toContainText('up to six');

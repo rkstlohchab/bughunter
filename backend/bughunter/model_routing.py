@@ -125,7 +125,7 @@ class ModelRoutes:
             yield candidate
 
 
-def request_claude_subscription(messages, system, model='opus'):
+def request_claude_subscription(messages, system, model='opus', reasoning_effort=None):
     """Use the locally authenticated subscription CLI for text-only reasoning.
 
     No Claude Code tools or filesystem workspace are exposed to this call.
@@ -149,9 +149,11 @@ def request_claude_subscription(messages, system, model='opus'):
     # silently change a desktop planner's decision. No shell=True.
     with tempfile.TemporaryDirectory(prefix='bh-claude-chat-') as workspace:
         try:
+            args=[executable, '--print', '--output-format', 'text', '--tools', '',
+                  '--model', model, '--system-prompt', system]
+            if reasoning_effort:args+=['--effort',reasoning_effort]
             result = subprocess.run(
-                [executable, '--print', '--output-format', 'text', '--tools', '',
-                 '--model', model, '--system-prompt', system],
+                args,
                 input=prompt, text=True, stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE, timeout=150, cwd=workspace,
                 env=subscription_env(), check=False,
@@ -172,9 +174,13 @@ def request_chat(candidate, messages, system, max_output, estimated_input):
     provider = candidate['provider']
     if provider == 'codex':
         from .codex_subscription import complete
-        return complete(messages, system, candidate['model'])
+        return complete(messages, system, candidate['model'],**({'reasoning_effort':candidate['reasoning_effort']} if candidate.get('reasoning_effort') else {}))
     if provider == 'claude_code':
-        return request_claude_subscription(messages, system, candidate.get('model', 'opus'))
+        return request_claude_subscription(messages, system, candidate.get('model', 'opus'),
+            **({'reasoning_effort':candidate['reasoning_effort']} if candidate.get('reasoning_effort') else {}))
+    if provider=='gemini_cli':
+        from .gemini_subscription import complete
+        return complete(messages,system,candidate['model'],candidate.get('reasoning_effort',''))
     if provider not in SELF_HOSTED_PROVIDERS and not candidate.get('pricing_confirmed'):
         raise ValueError('Paid fallback model pricing is not confirmed.')
     if provider not in SELF_HOSTED_PROVIDERS:
@@ -193,6 +199,7 @@ def request_chat(candidate, messages, system, max_output, estimated_input):
     base = candidate.get('base_url') or {
         'ollama':'http://127.0.0.1:11434','openai':'https://api.openai.com/v1',
         'anthropic':'https://api.anthropic.com','deepseek':'https://api.deepseek.com',
+        'gemini':'https://generativelanguage.googleapis.com/v1beta/openai',
     }.get(provider, '')
     if not base:
         raise ValueError('The model base URL is missing.')
@@ -209,6 +216,7 @@ def request_chat(candidate, messages, system, max_output, estimated_input):
         endpoint = base + '/v1/messages' if not base.endswith('/v1') else base + '/messages'
         headers = {'x-api-key':key,'anthropic-version':'2023-06-01'}
         payload = {'model':candidate['model'],'system':system,'messages':incoming,'max_tokens':max_output}
+        if candidate.get('reasoning_effort'):payload['output_config']={'effort':candidate['reasoning_effort']}
     elif provider in {'ollama','remote_ollama'}:
         endpoint = base + '/api/chat'
         payload = {'model':candidate['model'],'messages':messages,'options':{'num_predict':max_output},'stream':False}
@@ -217,6 +225,8 @@ def request_chat(candidate, messages, system, max_output, estimated_input):
     else:
         endpoint = base + ('/v1/chat/completions' if provider=='crucible' else '/chat/completions')
         payload = {'model':candidate['model'],'messages':messages,'max_tokens':max_output,'stream':False}
+        if provider in {'openai','gemini'} and candidate.get('reasoning_effort'):
+            payload['reasoning_effort']=candidate['reasoning_effort']
     with httpx.Client(timeout=candidate.get("ollama_timeout_seconds", 240) if provider == "ollama" else 210, follow_redirects=False, trust_env=False) as client:
         response = client.post(endpoint,headers=headers,json=payload)
         response.raise_for_status()

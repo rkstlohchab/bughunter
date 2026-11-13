@@ -95,10 +95,10 @@ def test_utf8_probe_can_end_in_the_middle_of_a_character(knowledge):
     assert ingest(knowledge,"unicode.md","a"*8191+"é coupon")["status"] == "ready"
 
 
-def test_executable_is_recorded_but_never_parsed_as_code_or_run(knowledge):
+def test_malformed_executable_is_rejected_before_static_analysis(knowledge):
     source = ingest(knowledge,"sample.exe",b"MZ executable file")
     assert source["status"] == "error"
-    assert "never executed" in source["error"]
+    assert "Truncated executable" in source["error"]
 
 
 def test_word_paragraph_citations_and_macro_ignoring(knowledge):

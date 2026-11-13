@@ -28,6 +28,7 @@ def archive(tmp_path):
         z.writestr('01 - Introduction.md', 'Step 1: Open the offline test program.\nStep 2: Click the run button.\nFinally verify its output.')
         z.writestr('02 - Scan.py', '# source text\nprint("hello")')
         z.writestr('empty.exe', b'MZ'+b'\x00'*64)
+        z.writestr('unsupported.dat',b'\0\0\0\0')
     return path
 
 
@@ -45,22 +46,24 @@ def test_course_zip_is_resumable_and_per_member_sources(setup,tmp_path):
     batch=k.courses.import_archive(str(archive(tmp_path)))
     result=finish(k,batch['id'])
     assert result['status']=='complete', result.get('errors')
-    assert result['imported_sources']==2
+    assert result['imported_sources']==3
     assert any(i['state']=='skipped' for i in result['items'])
     duplicate=k.courses.import_archive(str(tmp_path/'course.zip'))
     assert duplicate['duplicate'] is True
     assert len(k.courses.list_batches())==1
     ids=[i['source_id'] for i in result['items'] if i.get('source_id')]
-    assert len(ids)==2
+    assert len(ids)==3
     assert all(k.store.get('source',id)['course_batch_id']==batch['id'] for id in ids)
     for id in ids:
-        assert k.process_source(id)['status'] in ('ready','partial')
+        extracted=k.process_source(id)
+        if extracted['filename']=='empty.exe':assert extracted['status']=='error' and 'PE signature' in extracted['error']
+        else:assert extracted['status'] in ('ready','partial')
     assert any('hello' in row['text'] for id in ids for row in k.get_source(id)['chunks'])
     assert any('Step 1' in row['text'] for id in ids for row in k.get_source(id)['chunks'])
     assert k.procedures.list(source_id=ids[0]) or k.procedures.list(source_id=ids[1])
     k.courses._update(batch['id'],status='interrupted')
     k.courses.run_archive(batch['id'])
-    assert k.courses.status(batch['id'])['imported_sources']==2
+    assert k.courses.status(batch['id'])['imported_sources']==3
 
 
 def test_procedures_cite_verbatim_source_and_are_unverified(setup,tmp_path):
@@ -198,7 +201,9 @@ def test_frames_stop_at_video_duration_and_keep_audio_tail(setup,tmp_path,monkey
     monkeypatch.setattr('bughunter.media_sampling.scene_cuts',cuts)
     monkeypatch.setattr(runtime,'checkpoint',lambda *_args:None)
     monkeypatch.setattr(runtime,'vision',lambda _path,stamp,**kwargs:f'Frame at {stamp}')
-    segments,notes=k._extract_media(tmp_path/'lesson.mp4',artifacts,source,transcript=speech)
+    media=tmp_path/'lesson.mp4'
+    media.write_bytes(b'local video fixture')
+    segments,notes=k._extract_media(media,artifacts,source,transcript=speech)
     assert scene_bounds==[expected_end]
     assert sampled and all(t<expected_end for t in sampled)
     assert max(s['end'] for s in segments if s['modality']=='vision')==expected_end

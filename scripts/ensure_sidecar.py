@@ -4,6 +4,7 @@ A successful one-shot setup builds the sidecar. This hook is useful if the user
 edits backend code later and runs only `npm run desktop:build`.
 """
 from pathlib import Path
+import platform
 import subprocess
 import sys
 
@@ -15,7 +16,8 @@ def sidecar_out() -> Path:
     triple = subprocess.check_output(["rustc", "--print", "host-tuple"], text=True).strip()
     if not triple:
         raise RuntimeError("rustc did not return a host triple")
-    return ROOT / "src-tauri" / "binaries" / f"bughunter-backend-{triple}"
+    suffix='.exe' if platform.system()=='Windows' else ''
+    return ROOT / "src-tauri" / "binaries" / f"bughunter-backend-{triple}{suffix}"
 
 
 def needs_rebuild(output: Path) -> bool:
@@ -38,7 +40,7 @@ def main() -> None:
     if not needs_rebuild(output):
         print(f"Backend sidecar ready: {output.name}")
         return
-    python = BACKEND / ".venv" / "bin" / "python"
+    python = BACKEND / (".venv/Scripts/python.exe" if platform.system()=='Windows' else ".venv/bin/python")
     if not python.exists():
         raise SystemExit("Backend environment missing. Run 'bash setup-mac.sh' once first.")
     print("Preparing updated Python backend for the Tauri bundle...")

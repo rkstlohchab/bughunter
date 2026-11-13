@@ -71,9 +71,17 @@ def test_invalid_media_is_rejected_before_account_or_thread_requests(tmp_path, m
 
 def test_unsupported_effort_does_not_start_request(monkeypatch):
     session, calls, _ = session_fixture(monkeypatch)
-    with pytest.raises(ValueError, match='medium'):
+    with pytest.raises(ValueError, match='effort'):
         session.run('model', 's', 'p', reasoning_effort='unknown')
     assert not calls
+
+
+@pytest.mark.parametrize('effort',['low','high','xhigh','max','ultra'])
+def test_supported_chat_effort_is_forwarded_without_changing_tools(monkeypatch,effort):
+    session, calls, sent=session_fixture(monkeypatch)
+    session.run('requested-model','system','text',reasoning_effort=effort)
+    assert sent[0]['params']['effort']==effort
+    assert next(params for method,params in calls if method=='thread/start')['dynamicTools']==[]
 
 
 def test_callback_interrupts_wait_and_send_without_writing():

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { rpc, asList, pretty } from './api';
 
 type Entry = { id: string; name: string; kind: string; notes?: string;

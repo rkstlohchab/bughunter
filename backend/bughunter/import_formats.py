@@ -81,7 +81,10 @@ def detect_format(path: Path, filename: str | None = None) -> str:
             if suffix == ".epub": return ".epub"
         return ".zip"
     if head.startswith(b"\xd0\xcf\x11\xe0"): return "legacy-office"
-    if head.startswith((b"\x7fELF",b"MZ",b"\xcf\xfa\xed\xfe",b"\xfe\xed\xfa")): return "executable"
+    if head.startswith((b"\x7fELF",b"MZ",b"\xcf\xfa\xed\xfe",b"\xce\xfa\xed\xfe",b"\xfe\xed\xfa")): return "executable"
+    if head[:4] in {b'\xca\xfe\xba\xbe',b'\xbe\xba\xfe\xca',b'\xca\xfe\xba\xbf',b'\xbf\xba\xfe\xca'} and len(head)>=8:
+        endian='big' if head[:4] in {b'\xca\xfe\xba\xbe',b'\xca\xfe\xba\xbf'} else 'little'
+        if 1<=int.from_bytes(head[4:8],endian)<=32:return 'executable'
     if head.startswith((b"\x89PNG\r\n",b"\xff\xd8\xff",b"GIF87a",b"GIF89a",b"II*\x00",b"MM\x00*",b"BM")) or head[:4] == b"RIFF" and head[8:12] == b"WEBP": return ".image"
     if suffix in IMAGE_EXTENSIONS: return ".image"
     if suffix in MEDIA_EXTENSIONS: return suffix

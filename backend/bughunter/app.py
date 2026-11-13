@@ -83,8 +83,9 @@ class Application:
         self.provider_models = ProviderModels(self.store)
         self.model_routes = ModelRoutes(self.store)
         self.media = LocalMediaRuntime(self.store)
-        self.knowledge = KnowledgeService(self.store,start_worker=primary)
-        self.knowledge.media_runtime = self.media
+        self.knowledge = KnowledgeService(self.store,start_worker=primary,media_runtime=self.media)
+        from .library_context import LibraryContext
+        self.library=LibraryContext(self.knowledge)
         self.policy = PolicyService(self.store)
         # Autonomous mode: bind the store so classify_effect reads the flag.
         from .policy import bind_autonomy_store as _bind_autonomy
@@ -117,7 +118,7 @@ class Application:
         self.autopilot = Autopilot(self)
         self.desktop_planner = DesktopPlanner(self)
         self.burp_history = BurpHistory(self)
-        self.tool_installer = ToolInstaller(self.store)
+        self.tool_installer = ToolInstaller(self.store,recover=primary)
         self.chat = ChatService(self.store, self.settings, self.knowledge, self.agent_jobs, self.tasks, self.model_routes, self.research)
         self.mapping_chat = MappingChat(self)
         self.team = TeamService(self.store)
@@ -139,6 +140,23 @@ class Application:
         self.operator = OperatorAgent(self)
         # GameLab (operator-stack parallel; no cross-plumbing to investigation)
         self.gamelab = GameLabService(self)
+        from .harness import HarnessService
+        self.harness = HarnessService(self,recover=primary)
+        from .conversation_memory import ConversationMemory
+        self.conversation_memory=ConversationMemory(self.store,settings=self.settings.get if primary else None)
+        from .background_workers import BackgroundWorkers
+        self.background_workers=BackgroundWorkers(self,recover=primary)
+        from .voice import VoiceService
+        self.voice=VoiceService(self.store)
+        from .plugins import PluginService
+        self.plugins=PluginService(self.store)
+        from .chat_attachments import ChatAttachments
+        self.chat_attachments=ChatAttachments(self)
+        from .browser_workspace import BrowserWorkspaces
+        self.browser_workspaces=BrowserWorkspaces(self.store,recover=primary)
+        from .rea import ReaService
+        from .agent_skills import AgentSkills
+        self.rea=ReaService(self.store);self.agent_skills=AgentSkills()
         self.memory = None
         try:
             import platform as _plat
@@ -172,6 +190,21 @@ class Application:
         if not isinstance(method,str) or not isinstance(params or {},dict):
             raise ValueError("Invalid RPC request.")
         p = params or {}
+        if method.startswith('plugins.'):
+            return self.plugins.dispatch(method,p)
+        if method.startswith('chat.attachments.'):
+            return self.chat_attachments.dispatch(method,p)
+        if method.startswith('memory.chat.'):
+            return self.conversation_memory.dispatch(method,p)
+        if method.startswith('voice.'):
+            return self.voice.dispatch(method,p)
+        if method.startswith('rea.'):
+            return self.rea.dispatch(method,p)
+        if method=='system.apps':
+            from .app_inventory import inventory
+            return inventory(**p)
+        if method.startswith('harness.'):
+            return self.harness.dispatch(method,p)
         # --- Forge / operator stack namespaces --------------------------
         if method.startswith("forge."):
             return self.forge.dispatch(method, p)
@@ -228,14 +261,16 @@ class Application:
         if method.startswith("media."):
             return self.media.dispatch(method, p)
         if method == "models.available":
-            return self.available_models()
+            return self.available_models(bool(p.get('refresh')))
         if method == "models.discover":
             return self.provider_models.discover(**p)
+        if method == 'models.analysis':
+            return self.analysis_models(bool(p.get('refresh')))
         if method == "settings.connections":
             settings = self.settings.get()
             return {**self.store.setting('provider_connections', {}), settings['provider']: settings}
         if method == "models.select":
-            return self.select_model(str(p.get("provider","")), str(p.get("model","")))
+            return self.select_model(str(p.get("provider","")), str(p.get("model","")),p.get('reasoning_effort'))
         if method.startswith('models.routes'):
             return self.model_routes.dispatch(method,p)
         if method.startswith('memory.engine.'):
@@ -374,6 +409,7 @@ class Application:
             return self.stop_all()
         if method == "system.resume":
             self.store.set_setting("emergency_stop",False)
+            self.harness.desktop.reset()
             return {"resumed":True,"message":"New tasks are enabled. Stopped work is not restarted."}
         if method == "events.list":
             return self.store.events(**p)
@@ -439,6 +475,8 @@ class Application:
         "claude_code": {"label": "Claude subscription", "kind": "subscription",
                         "models": ["opus", "sonnet", "haiku"]},
         "codex": {"label": "ChatGPT subscription", "kind": "subscription", "models": []},
+        'gemini_cli':{'label':'Google AI subscription','kind':'subscription','models':[]},
+        'gemini':{'label':'Gemini API','kind':'api','models':['gemini-3.8-flash','gemini-3.7-flash','gemini-3.1-pro-preview']},
         "anthropic": {"label": "Anthropic API", "kind": "api",
                       "models": ["claude-sonnet-4-5", "claude-opus-4-1", "claude-haiku-4-5"]},
         "openai": {"label": "OpenAI API", "kind": "api",
@@ -451,7 +489,7 @@ class Application:
         "crucible": {"label": "On-device (CrucibleLLM)", "kind": "local", "models": []},
     }
 
-    def available_models(self) -> dict:
+    def available_models(self, refresh=False) -> dict:
         """List model providers for the chat picker: which are ready to use now,
         which need a key/sign-in added, and the models each offers."""
         settings = self.settings.get()
@@ -472,19 +510,18 @@ class Application:
         out = []
         for provider, meta in self.PROVIDER_CATALOG.items():
             ready, needs, models = False, "", list(meta["models"])
-            if provider == "claude_code":
-                ready = bool(self._claude_cache.get("subscription_ready"))
-                needs = "" if ready else "Sign in: run  claude auth login  in Terminal."
-            elif provider == "codex":
-                status = self.provider_models.discover('codex')
+            options=[]
+            if provider in {'claude_code','codex','gemini_cli'}:
+                status = self.provider_models.discover(provider,refresh=True) if refresh else self.provider_models.discover(provider)
                 ready = bool(status.get('ok'))
-                models = [m['id'] for m in status.get('models', [])]
+                options = status.get('models', [])
+                models = [m['id'] for m in options]
                 needs = '' if ready else status['detail']
             elif provider == "ollama":
                 models = ollama_models or meta["models"]
                 ready = ollama_running and bool(models)
                 needs = "" if ready else ("Start Ollama and pull a model." if not models else "Start Ollama from Settings.")
-            elif provider in {"anthropic", "openai", "deepseek", "remote_ollama", "openai_compatible"}:
+            elif provider in {"anthropic", "openai",'gemini', "deepseek", "remote_ollama", "openai_compatible"}:
                 ready = bool(creds.get(provider))
                 needs = "" if ready else "Add an API key in Settings."
                 if provider == "openai_compatible" and settings.get("api_base_url"):
@@ -496,18 +533,31 @@ class Application:
             catalog = catalogs.get(provider, {})
             from .provider_models import DEFAULT_URLS
             endpoint = (profile.get('api_base_url') or DEFAULT_URLS.get(provider, '')).rstrip('/')
-            if provider not in {'codex', 'claude_code'} and catalog.get('api_base_url') == endpoint:
-                models = [m['id'] for m in catalog.get('models', [])]
+            if provider not in {'codex','claude_code','gemini_cli','ollama'} and ready and (refresh or not catalog.get('ok') or catalog.get('api_base_url')!=endpoint):
+                discovered=self.provider_models.discover(provider,api_base_url=profile.get('api_base_url',''),refresh=refresh)
+                if discovered.get('ok'):catalog={**discovered,'api_base_url':endpoint}
+                else:needs=discovered.get('detail','Could not refresh this model list.')
+            if provider not in {'codex', 'claude_code','gemini_cli'} and catalog.get('api_base_url') == endpoint:
+                options=catalog.get('models', [])
+                models = [m['id'] for m in options]
             if provider in {'openai_compatible', 'remote_ollama'} and not profile.get('api_base_url'):
                 ready, needs = False, 'Set your server address and connection key in Settings.'
             if profile.get('model') and profile['model'] not in models:
                 models = [profile['model'], *models]
+                resolved=next((item for item in options if profile['model'] in item.get('aliases',[])),None)
+                if resolved:
+                    options=[{**resolved,'id':profile['model'],'label':resolved['label']+' (latest alias)'},*options]
+            from .model_effort import decorate
+            option_map={option['id']:option for option in options}
+            options=[decorate(provider,option_map.get(model,{'id':model,'label':model})) for model in models]
             out.append({"provider": provider, "label": meta["label"], "kind": meta["kind"],
                         "ready": ready, "needs": needs, "models": models,
+                        "model_options": options,
                         "active": provider == active_provider})
-        return {"providers": out, "active": {"provider": active_provider, "model": active_model}}
+        return {"providers": out, "active": {"provider": active_provider, "model": active_model,
+                'reasoning_effort':settings.get('reasoning_effort','')}}
 
-    def select_model(self, provider: str, model: str) -> dict:
+    def select_model(self, provider: str, model: str, reasoning_effort=None) -> dict:
         """Switch the active chat model. Fills in safe defaults so a subscription or
         local model never trips the paid-API pricing confirmation."""
         if provider not in PROVIDERS:
@@ -515,6 +565,9 @@ class Application:
         settings = self.settings.get()
         profile = self.store.setting('provider_connections', {}).get(provider, {})
         patch = {**profile, "provider": provider, "model": model}
+        patch['reasoning_effort']=(settings.get('reasoning_effort','') if (provider,model)==(settings['provider'],settings['model'])
+                                  else profile.get('reasoning_effort','') if profile.get('model')==model else '')
+        if reasoning_effort is not None:patch['reasoning_effort']=reasoning_effort
         if not str(model or '').strip():
             raise ValueError('Choose a model.')
         if provider != settings.get('provider'):
@@ -523,15 +576,29 @@ class Application:
             # A provider credential must never follow a custom endpoint from the
             # previously selected provider.
             patch['api_base_url'] = profile.get('api_base_url', '')
-            if provider in {'anthropic', 'openai', 'deepseek'}:
+            if provider in {'anthropic', 'openai', 'deepseek','gemini'}:
                 patch['pricing_confirmed'] = bool(profile.get('pricing_confirmed')) and profile.get('model') == model
         from .providers import LOCAL_PROVIDERS as _LOCAL, SELF_HOSTED_PROVIDERS as _SELF
         patch['local_only'] = provider in _LOCAL
-        if provider in {'anthropic', 'openai', 'deepseek'} and model != settings.get('model'):
+        if provider in {'anthropic', 'openai', 'deepseek','gemini'} and model != settings.get('model'):
             patch['pricing_confirmed'] = bool(profile.get('pricing_confirmed')) and profile.get('model') == model
-        if provider in {"claude_code", "codex"} or provider in _LOCAL or provider in _SELF:
+        if provider in {"claude_code", "codex",'gemini_cli'} or provider in _LOCAL or provider in _SELF:
             patch["pricing_confirmed"] = True
         return self.settings.save({**settings, **patch})
+
+    def analysis_models(self,refresh=False):
+        catalog=self.available_models(refresh)
+        from .source_models import CHAT_PROVIDERS
+        for provider in catalog['providers']:
+            if provider['provider'] not in CHAT_PROVIDERS:
+                provider.update(ready=False,needs='Available for chat; frame analysis is not supported by this connection.')
+        local=self.media.dispatch('media.catalog',{})
+        ollama=next(p for p in catalog['providers'] if p['provider']=='ollama')
+        models=local.get('vision_models',[])
+        ollama.update(models=[m['id'] for m in models],model_options=[{'id':m['id'],'label':m.get('label') or m.get('name') or m['id'],
+            'detail':('Installed' if m.get('installed') else 'Download required')+' · '+str(round(m.get('download_bytes',0)/1024**3,1))+' GiB',
+            'effort':{'levels':[],'source':'unreported'}} for m in models],ready=True,needs='')
+        return catalog
 
     def stop_all(self):
         # Latch first: slow cancellation/OS calls must never leave new work enabled.
@@ -539,11 +606,19 @@ class Application:
         self.store.set_setting('stop_generation', self.store.setting('stop_generation',0)+1)
         from .codex_subscription import cancel_all
         cancel_all()
+        from .gemini_subscription import cancel_all as cancel_gemini
+        cancel_gemini()
         errors = []
         def attempt(label, operation):
             try: operation()
             except Exception as exc: errors.append({'task': label, 'error': str(exc)[:220]})
         attempt('requests', self.policy.stop)
+        attempt('chat and desktop harness',self.harness.stop_all)
+        for workflow in self.store.list('workflow_run'):
+            if workflow.get('status')=='running':attempt(workflow['id'],lambda row=workflow:self.workflows.stop(id=row['id']))
+        for recipe in self.store.list('cheat_recipe'):
+            if recipe.get('status')=='running':
+                attempt(recipe['id'],lambda row=recipe:self.gamelab.stop_recipe(row['id']))
         if self.store.setting('burp_audit_active',False):
             attempt('Burp audit', lambda: self.burp_history.dispatch('burp.audit.stop', {'approved':True}))
         attempt('mapping research', self.memory_mappings.stop_all)
@@ -568,6 +643,9 @@ class Application:
                 attempt(experiment['id'], lambda row=experiment: self.knowledge.experiments.stop(row['id']))
         attempt('course imports', self.knowledge.courses.cancel_all)
         attempt('tool installation', self.tool_installer.cancel_all)
+        attempt('local voice', self.voice.cancel_all)
+        attempt('plugin connections',self.plugins.cancel_all)
+        attempt('background browsers',self.browser_workspaces.cancel_all)
         attempt('media setup', self.media.cancel_setup)
         attempt('source processing', self.knowledge.cancel_pending)
         if self.memory:
@@ -845,10 +923,26 @@ class Application:
         return {"id":id,"deleted":True,"removed":counts,"library_preserved":True,"exported_files_preserved":True}
 
     def shutdown(self):
+        self.rea.cancel_all()
+        self.conversation_memory.close()
+        # Mark shutdown before cancelling provider transports so checkpoints requeue,
+        # while explicit Stop All remains a separate cancelled state.
+        self.knowledge._stop.set()
+        if self.primary:self.harness.stop_all()
+        else:
+            # A temporary RPC/MCP client must not stop another desktop's tasks.
+            self.harness.desktop.cancel_all()
+            for id,thread in list(self.operator._runs.items()):
+                if thread.is_alive():self.operator.stop(id=id)
         if self.primary:
             from .codex_subscription import cancel_all
             cancel_all()
+            from .gemini_subscription import cancel_all as cancel_gemini
+            cancel_gemini()
         self.tool_installer.cancel_all()
+        self.voice.cancel_all()
+        self.plugins.cancel_all()
+        self.browser_workspaces.shutdown()
         self.memory_mappings.stop_all()
         self.readiness_p7.shutdown()
         try: self.capabilities.shutdown()

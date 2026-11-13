@@ -54,7 +54,9 @@ test('model selection supports keyboard navigation and long names without overfl
   await expect(trigger).toHaveAttribute('title', 'Local model · compact-model');
   await trigger.click();
   await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('End');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('ArrowRight');
   await expect(page.getByRole('menuitem', {name: 'Configure Custom provider'})).toBeFocused();
   await page.keyboard.press('Escape');
   // Restore the long label to check truncation in both desktop and narrow layouts.
@@ -65,7 +67,7 @@ test('model selection supports keyboard navigation and long names without overfl
     await page.setViewportSize({width, height: 778});
     await trigger.click();
     await page.keyboard.press('ArrowRight');
-    const menu = await page.locator('#chat-model-menu').boundingBox();
+    const menu = await page.locator('.provider-model-menu').boundingBox();
     expect(menu).not.toBeNull();
     expect(menu!.x).toBeGreaterThanOrEqual(0);
     expect(menu!.x + menu!.width).toBeLessThanOrEqual(width);

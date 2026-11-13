@@ -1,3 +1,11 @@
+import MediaAI from './MediaAI';
+import HarnessSettings from './HarnessSettings';
+import ReaSettings from './ReaSettings';
+import VoiceSettings from './VoiceSettings';
+import MemorySettings from './MemorySettings';
+import PluginsSettings from './PluginsSettings';
+import ModelEffort from './ModelEffort';
+import type {ModelOption} from './ModelEffort';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Activity, CheckCircle2, CircleAlert, CircleDot, KeyRound, Monitor, Moon, Network, ShieldCheck, Sun, Wrench } from 'lucide-react';
 import { rpc } from './api';
@@ -6,14 +14,18 @@ import type { RecordData as Row } from './api';
 import { Button, Field } from './components';
 import { AI_PROVIDERS as PROVIDERS, categoryFor, isSubscription } from './aiProviders';
 import type { Category } from './aiProviders';
+import type { KeyboardEvent } from 'react';
+
+const SETTINGS_SECTIONS=[['ai','AI connections'],['computer','Computer & apps'],['personal','Voice & memory'],['plugins','Plugins'],['learning','Video & learning'],['general','General']] as const;
+export type SettingsSection=typeof SETTINGS_SECTIONS[number][0];
 
 type Execute = (label: string, fn: () => Promise<any>, success?: string) => Promise<any>;
-const needsKey = (id: string) => !['codex', 'claude_code', 'ollama', 'crucible'].includes(id);
+const needsKey = (id: string) => !['codex', 'claude_code','gemini_cli', 'ollama', 'crucible'].includes(id);
 const usesBaseUrl = (id: string) => !isSubscription(id);
 const defaultModel: Record<string, string> = {claude_code: 'sonnet'};
-type ModelOption = {id: string; label: string; default?: boolean};
 
-function AutoSetup() {
+function AutoSetup({platform}:{platform?:string}) {
+  const isMac=!platform||platform==='Darwin';
   const [data, setData] = useState<Row | null>(null);
   const [busy, setBusy] = useState('');
   const [permissions, setPermissions] = useState<Row | null>(null);
@@ -21,6 +33,7 @@ function AutoSetup() {
   const checking = useRef(false);
   const mounted = useRef(true);
   const refreshPermissions = useCallback(async () => {
+    if(!isMac)return;
     if (checking.current) return;
     if (!(window as any).__TAURI_INTERNALS__) {
       setPermissionError('Open the desktop app to check macOS permissions. Browser previews cannot check them.');
@@ -32,7 +45,7 @@ function AutoSetup() {
       if (mounted.current) { setPermissions(value); setPermissionError(''); }
     } catch (e) { if (mounted.current) setPermissionError(String(e)); }
     finally { checking.current = false; }
-  }, []);
+  }, [isMac]);
   async function run(install: boolean) {
     setBusy(install ? 'Setting up everything…' : 'Checking…');
     try { setData(await rpc<Row>('system.autosetup', { install_missing: install })); }
@@ -62,7 +75,7 @@ function AutoSetup() {
         <div className="autosetup-body"><strong>{s.label}</strong><p>{s.detail}</p></div>
         {String(s.action || '').startsWith('open:') && <Button onClick={() => void open(String(s.action).split(':')[1])}>Open settings</Button>}
       </div>)}</div>
-      <div className="permission-checks" aria-label="Mac permissions">
+      {isMac&&<div className="permission-checks" aria-label="Mac permissions">
         <h3>Mac permissions</h3><p className="muted">Checked for this running desktop app. These are needed only for tasks that use them.</p>
         {permissionError && <p role="status">{permissionError}</p>}
         {([['full_disk','Full Disk Access','Reading protected files'],['screen_recording','Screen Recording','Capturing the screen'],['accessibility','Accessibility','Reading and controlling an app']] as const).map(([key,label,reason]) => {
@@ -70,12 +83,21 @@ function AutoSetup() {
           return <div className={`autosetup-row ${value===true?'done':''}`} key={key}><span className="autosetup-mark">{mark(value===true?'done':value===false?'needs_you':'optional')}</span><div className="autosetup-body"><strong>{label}</strong><p>{reason}</p><span role="status">{status}</span></div>{value!==true&&<Button onClick={()=>void open(key)}>Open settings</Button>}</div>;
         })}
         {permissions && <p className="muted autosetup-note">Changes refresh when you return here. macOS does not provide a reliable Full Disk Access status check. If you already enabled it, you do not need to grant it again; relaunch the app if a file still cannot be opened.</p>}
-      </div>
+      </div>}
     </div>
   </section>;
 }
 
-export default function SettingsView({ perform, busy, revision }: { perform: Execute; busy: string; revision: number; projectId: string; system: Row; onSystemChange: (value: Row) => void }) {
+export default function SettingsView({ perform, busy, revision, system, initialSection='ai' }: { perform: Execute; busy: string; revision: number; projectId: string; system: Row; onSystemChange: (value: Row) => void; initialSection?:SettingsSection }) {
+  const [activeSection,setActiveSection]=useState<SettingsSection>(initialSection);
+  const [visited,setVisited]=useState<SettingsSection[]>([initialSection]);
+  function selectSection(id:SettingsSection){setActiveSection(id);setVisited(previous=>previous.includes(id)?previous:[...previous,id]);}
+  useEffect(()=>{selectSection(initialSection);},[initialSection]);
+  function sectionKeys(event:KeyboardEvent<HTMLButtonElement>,index:number){
+    const count=SETTINGS_SECTIONS.length;
+    const next=event.key==='Home'?0:event.key==='End'?count-1:event.key==='ArrowRight'?(index+1)%count:event.key==='ArrowLeft'?(index+count-1)%count:null;
+    if(next===null)return;event.preventDefault();const id=SETTINGS_SECTIONS[next][0];selectSection(id);document.getElementById(`settings-tab-${id}`)?.focus();
+  }
   const [settings, setSettings] = useState<Row>({ provider: 'claude_code', model: 'sonnet' });
   const [category, setCategory] = useState<Category>('subscription');
   const [initialized, setInitialized] = useState(false);
@@ -128,7 +150,7 @@ export default function SettingsView({ perform, busy, revision }: { perform: Exe
   function selectProvider(id: string) {
     if (id === provider) return;
     modelRequest.current++; setModelOptions([]); setModelDetail(''); setCustomModel(false);
-    setSettings(prev => ({...prev, provider: id, model: defaultModel[id] || '', api_base_url: '',
+    setSettings(prev => ({...prev, provider: id, model: defaultModel[id] || '', reasoning_effort:'',api_base_url: '',
       local_only: id === 'ollama' || id === 'crucible', pricing_confirmed: false,
       input_price_per_million: 0, output_price_per_million: 0, ...connections[id]}));
     setSecret(''); setProbe(null);
@@ -139,6 +161,8 @@ export default function SettingsView({ perform, busy, revision }: { perform: Exe
     if (test && value) setProbe(value);
   }
   return <div className="settings-clean">
+    <div className="settings-categories" role="tablist" aria-label="Settings categories">{SETTINGS_SECTIONS.map(([id,label],index)=><button key={id} id={`settings-tab-${id}`} type="button" role="tab" aria-selected={activeSection===id} aria-controls={`settings-${id}`} tabIndex={activeSection===id?0:-1} onKeyDown={event=>sectionKeys(event,index)} onClick={()=>selectSection(id)}>{label}</button>)}</div>
+    <section id="settings-ai" role="tabpanel" hidden={activeSection!=='ai'} className="settings-category" aria-labelledby="settings-tab-ai"><h2>AI connections</h2><p className="muted">Models, subscriptions and API connections.</p>
     <section className="surface settings-card">
       <div className="section-title"><div><h2>Connect your AI</h2><p>Add the models you want. Switch between them any time from the picker in Chat.</p></div><Network size={20} /></div>
       <div className="settings-card-body">
@@ -152,15 +176,16 @@ export default function SettingsView({ perform, busy, revision }: { perform: Exe
         </div>
         <form onSubmit={e => { e.preventDefault(); void save(false); }}>
           {selected && <p className="muted settings-mode-note">Selected: {selected.name}</p>}
-          {isSubscription(provider) && <p className="settings-mode-note">{provider === 'codex' ? <>Uses your ChatGPT sign-in in Codex. To connect another account, run <code>codex login</code> in Terminal, then refresh models. Your plan’s usage limits apply.</> : <>Uses your Claude Code sign-in. Run <code>claude auth login</code> if you have not connected it.</>}</p>}
+          {isSubscription(provider) && <p className="settings-mode-note">{provider === 'codex' ? <>Uses your ChatGPT sign-in in Codex. To connect another account, run <code>codex login</code> in Terminal, then refresh models. Your plan’s usage limits apply.</> : provider==='gemini_cli'?<>Uses your Google account through Gemini CLI. Sign in to <code>gemini</code> with your Google AI Pro account, then refresh. API-key access has separate quota and billing.</>: <>Uses your Claude Code sign-in. Run <code>claude auth login</code> if you have not connected it.</>}</p>}
           <Field label="Model" hint="Choose from the models this connection reports.">
-            <select aria-label="Model" value={customModel ? '__custom__' : settings.model || ''} onChange={e => {if (e.target.value === '__custom__') setCustomModel(true); else {setCustomModel(false); setSettings({...settings, model:e.target.value, pricing_confirmed: false});}}} required>
+            <select aria-label="Model" value={customModel ? '__custom__' : settings.model || ''} onChange={e => {if (e.target.value === '__custom__') setCustomModel(true); else {setCustomModel(false); setSettings({...settings, model:e.target.value, reasoning_effort:'',pricing_confirmed: false});}}} required>
               <option value="" disabled>{loadingModels ? 'Loading models…' : 'Choose a model'}</option>
               {settings.model && !modelOptions.some(m => m.id === settings.model) && <option value={settings.model}>{settings.model} (saved)</option>}
-              {modelOptions.map(m => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {modelOptions.map(m => <option key={m.id} value={m.id}>{m.label||m.id}</option>)}
               <option value="__custom__">Enter a custom model…</option>
             </select>
           </Field>
+          <ModelEffort info={modelOptions.find(model=>model.id===settings.model)?.effort} value={settings.reasoning_effort} onChange={reasoning_effort=>setSettings({...settings,reasoning_effort})} disabled={!!busy||loadingModels}/>
           {customModel && <Field label="Custom model identifier"><input value={settings.model || ''} onChange={e => setSettings({...settings, model:e.target.value, pricing_confirmed:false})} required placeholder="Exact identifier supplied by your provider" /></Field>}
           <div className="model-discovery"><Button disabled={loadingModels} onClick={() => void loadModels(true)}>Refresh models</Button><p role="status">{modelDetail}</p></div>
           {usesBaseUrl(provider) && <Field label="Server address" hint={provider === 'openai_compatible' ? 'For Kaggle, paste the tunnel URL ending in /v1.' : 'Leave empty to use the provider default, if supported.'}><input type="text" aria-label="Server address" value={settings.api_base_url || ''} onChange={e => setSettings({ ...settings, api_base_url: e.target.value })} placeholder={provider === 'openai_compatible' ? 'https://your-tunnel.ngrok-free.app/v1' : provider === 'ollama' ? 'http://127.0.0.1:11434' : 'Provider URL'} /></Field>}
@@ -172,12 +197,23 @@ export default function SettingsView({ perform, busy, revision }: { perform: Exe
         </form>
       </div>
     </section>
-
-    <AutoSetup />
-
+    </section>
+    <section id="settings-computer" role="tabpanel" hidden={activeSection!=='computer'} className="settings-category" aria-labelledby="settings-tab-computer"><h2>Computer & apps</h2><p className="muted">Device permissions, desktop control and app installation.</p>
+    {visited.includes('computer')&&<><AutoSetup platform={system.platform}/><HarnessSettings stopped={!!system.emergency_stop}/><ReaSettings stopped={!!system.emergency_stop}/></>}
+    </section>
+    <section id="settings-personal" role="tabpanel" hidden={activeSection!=='personal'} className="settings-category" aria-labelledby="settings-tab-personal"><h2>Voice & memory</h2><p className="muted">How your assistant listens and learns about you.</p>
+    {visited.includes('personal')&&<><VoiceSettings stopped={!!system.emergency_stop}/><MemorySettings/></>}
+    </section>
+    <section id="settings-plugins" role="tabpanel" hidden={activeSection!=='plugins'} className="settings-category" aria-labelledby="settings-tab-plugins"><h2>Plugins</h2><p className="muted">Connect the services your tasks use.</p>
+    {visited.includes('plugins')&&<PluginsSettings stopped={!!system.emergency_stop}/>}
+    </section>
+    <section id="settings-learning" role="tabpanel" hidden={activeSection!=='learning'} className="settings-category" aria-labelledby="settings-tab-learning"><h2>Video & learning</h2><p className="muted">Analysis models and resource processing.</p>
+    {visited.includes('learning')&&<MediaAI sources={[]} mode="settings" tasksStopped={!!system.emergency_stop}/>}
+    </section>
+    <section id="settings-general" role="tabpanel" hidden={activeSection!=='general'} className="settings-category" aria-labelledby="settings-tab-general"><h2>General</h2><p className="muted">Appearance and backups.</p>
     <section className="surface settings-card appearance-card" aria-label="Appearance settings"><div className="section-title"><div><h2>Appearance</h2><p>Choose the theme you prefer. Remembered on this device.</p></div><Monitor size={20} /></div><div className="appearance-options" role="group" aria-label="Appearance"><button className={appearance === 'dark' ? 'active' : ''} aria-pressed={appearance === 'dark'} onClick={() => setTheme('dark')}><Moon size={18} /> Dark mode</button><button className={appearance === 'light' ? 'active' : ''} aria-pressed={appearance === 'light'} onClick={() => setTheme('light')}><Sun size={18} /> Light mode</button></div></section>
 
     <section className="surface settings-card"><div className="section-title"><div><h2>Back up your work</h2><p>Save your projects, conversations and history before changing versions.</p></div><ShieldCheck size={20} /></div><div className="settings-card-body"><p className="muted">Creates a private ZIP on this Mac. API keys in your keychain are not included.</p><Button disabled={!!busy} onClick={async () => { const result = await perform('Creating backup', () => rpc<Row>('system.backup.create'), 'Backup created.'); if (result?.path) setLastBackup(result.path); }}>Create backup</Button>{lastBackup && <p role="status" className="muted">Saved to: <code className="backup-path">{lastBackup}</code></p>}</div></section>
-
+    </section>
   </div>;
 }

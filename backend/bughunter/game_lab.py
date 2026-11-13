@@ -299,6 +299,9 @@ class GameLabService:
     # -------- RPC dispatch -------------------------------------------------
 
     def dispatch(self, method: str, params: dict) -> Any:
+        if method=='gamelab.setup':
+            from .gamelab_setup import inspect_setup
+            return inspect_setup(self.app)
         p = params or {}
         if method == "gamelab.list_games":
             return {"games": [{"id": k, **v,
@@ -461,6 +464,8 @@ class GameLabService:
 
     def start_recipe(self, project_id: str, adapter: str,
                       config: dict) -> dict:
+        self.store.require_desktop_owner()
+        if self.store.setting('emergency_stop',False):raise ValueError('Tasks are stopped. Use Resume tasks first.')
         proj = self.store.get("cheat_project", project_id)
         if not proj:
             raise ValueError(f"no such project: {project_id}")
@@ -502,8 +507,10 @@ class GameLabService:
         adapter = rec.get("adapter")
         tools = OperatorTools(self.app, run_id=recipe_id)
         try:
-            tools.invoke_adapter(name=adapter, mode="stop",
-                                 pid=rec.get("pid"))
+            # Cleanup remains available after the global execution latch closes.
+            cleanup=tools._adapter_registry.get(adapter)
+            if not cleanup:raise ValueError('No cleanup adapter exists.')
+            cleanup(self.app,mode='stop',pid=rec.get('pid'))
             rec["status"] = "stopped"
         except Exception as exc:
             rec["status"] = "error"
@@ -787,7 +794,7 @@ class GameLabService:
         ctx_lines.append("# Operator message")
         ctx_lines.append(message)
         full_prompt = runtime_prompt + "\n\n---\n\n" + "\n".join(ctx_lines)
-        run = self.app.operator.start(prompt=full_prompt,
+        run = self.app.operator.start(prompt=message,context=full_prompt.split('# Operator message')[0],
                                        objective=f"gamelab:{project_id or 'adhoc'}",
                                        approved=True)
         self._emit_timeline("chat_start",
@@ -810,7 +817,7 @@ class GameLabService:
             "run_id": run_id,
             "status": rec.get("status"),
             "turns_done": rec.get("turns_done", 0),
-            "transcript": rec.get("transcript", []),
+            "transcript": [m for m in rec.get('transcript',[]) if m.get('role') in {'user','assistant'} and m.get('content') and not m.get('tool_calls')],
             "objective": rec.get("objective", ""),
             "created_at": rec.get("created_at"),
         }

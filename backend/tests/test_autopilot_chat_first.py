@@ -106,8 +106,11 @@ def test_tool_installer_requires_explicit_approval_and_allowlist(env,monkeypatch
     service=ToolInstaller(store)
     with pytest.raises(ValueError,match='approve'):
         service.install('ffmpeg')
-    with pytest.raises(ValueError,match='approved installation'):
+    with pytest.raises(ValueError,match='supported package'):
         service.install('freeform-tool',approved=True)
     monkeypatch.setattr('bughunter.tool_installer.platform.system',lambda:'Linux')
-    with pytest.raises(ValueError,match='macOS'):
+    monkeypatch.setattr('bughunter.tool_installer.executable',lambda name:None)
+    plan=service.plan('ffmpeg')
+    assert plan['platform']=='Linux' and not plan['ready_to_install']
+    with pytest.raises(ValueError,match='Linux'):
         service.install('ffmpeg',approved=True)

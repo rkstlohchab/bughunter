@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { rpc, asList, pretty } from './api';
 
 type Run = { id: string; status: string; prompt: string; objective: string;

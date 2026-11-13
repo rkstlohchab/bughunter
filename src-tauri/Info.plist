@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>BugHunterClaudex uses the microphone when you turn on local voice input in Chat. Audio is processed locally and is not saved. Stop listening or Stop all turns it off.</string>
   <key>NSAppleEventsUsageDescription</key>
   <string>BugHunterClaudex can control the Mac application you explicitly select during a time-limited task. You can stop it at any time.</string>
   <key>NSScreenCaptureUsageDescription</key>

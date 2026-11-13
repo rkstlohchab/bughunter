@@ -73,6 +73,34 @@ def test_interrupt_discards_partial_and_resumes_completed_chunks(speech, monkeyp
     assert calls[0][calls[0].index('-ss') + 1] == '600'
 
 
+def test_whisper_waits_for_the_shared_local_inference_lease_and_stop_cancels_wait(speech,monkeypatch):
+    import threading
+    from bughunter.inference_gate import local_inference
+    service,source,_,artifacts,calls,invoke=speech
+    extracted=threading.Event()
+    original=service._run
+    def run(args,timeout):
+        result=original(args,timeout)
+        if args[0]=='ffmpeg':extracted.set()
+        return result
+    monkeypatch.setattr(service,'_run',run)
+    errors=[]
+    def transcribe():
+        try:invoke(duration=5)
+        except Exception as error:errors.append(error)
+    with local_inference():
+        worker=threading.Thread(target=transcribe)
+        worker.start()
+        assert extracted.wait(2)
+        assert all(call[0]!='whisper' for call in calls)
+        service.store.set_setting('emergency_stop',True)
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+    assert len(errors)==1 and isinstance(errors[0],InterruptedError)
+    assert not list(artifacts.rglob('chunk-*.srt'))
+    assert not list(artifacts.rglob('*.wav'))
+
+
 def test_bad_transcript_never_becomes_complete(speech, monkeypatch):
     service, _, _, artifacts, _, invoke = speech
     normal = service._run

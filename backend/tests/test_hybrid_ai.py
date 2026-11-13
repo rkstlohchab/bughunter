@@ -80,7 +80,8 @@ def test_vision_checks_local_weights_before_uploading(tmp_path, monkeypatch, inf
     original = httpx.AsyncClient
     monkeypatch.setattr("bughunter.local_media.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     image = tmp_path / "sample.jpg"
-    image.write_bytes(b"private-image")
+    from PIL import Image
+    Image.new("RGB", (16,16), "blue").save(image)
     with pytest.raises(ValueError):
         runtime.vision(image, 0)
     assert [str(r.url) for r in calls] == [OLLAMA_HOST + "/api/show"]
@@ -108,7 +109,8 @@ def test_vision_sends_media_only_to_verified_loopback_model(tmp_path, monkeypatc
     original = httpx.AsyncClient
     monkeypatch.setattr("bughunter.local_media.httpx.AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(handle), **kwargs))
     image = tmp_path / "sample.jpg"
-    image.write_bytes(b"private-image")
+    from PIL import Image
+    Image.new("RGB", (16,16), "blue").save(image)
     assert runtime.vision(image, 1) == "Visible facts: A menu is visible.\nUncertain or missing evidence: No click verified."
     assert [r.url.host for r in seen] == ["127.0.0.1", "127.0.0.1"]
     assert "images" not in json.loads(seen[0].content)

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { rpc, asList, pretty } from './api';
+import { useEffect, useState } from 'react';
+import { rpc, asList } from './api';
 
 type Host = { id: string; ip?: string; hostname?: string; os_hint?: string;
               project_id?: string; last_seen?: string };

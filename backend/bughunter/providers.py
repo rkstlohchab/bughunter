@@ -25,6 +25,7 @@ from .store import new_id
 
 DEFAULT_SETTINGS = {
     "provider":"claude_code", "model":"opus", "api_base_url":"",
+    "reasoning_effort":"",
     "api_budget_usd":25.0, "input_price_per_million":10.0, "output_price_per_million":50.0,
     "pricing_confirmed":False, "max_agent_turns":20, "run_timeout_seconds":1800,
     "embedding_model":"nomic-embed-text", "embedding_base_url":"http://127.0.0.1:11434", "use_local_embeddings":False,
@@ -42,8 +43,8 @@ def ollama_inference_options(settings, max_output):
             "think": bool(settings.get("ollama_thinking", False))}
 
 K_MAX_CUSTOM_PROMPT_CHARS = 8000
-SUBSCRIPTION_PROVIDERS = {"claude_code", "codex"}
-PROVIDERS = SUBSCRIPTION_PROVIDERS | {"anthropic","openai","ollama","openai_compatible","crucible","remote_ollama","deepseek"}
+SUBSCRIPTION_PROVIDERS = {"claude_code", "codex",'gemini_cli'}
+PROVIDERS = SUBSCRIPTION_PROVIDERS | {"anthropic","openai",'gemini',"ollama","openai_compatible","crucible","remote_ollama","deepseek"}
 # Providers that run on hardware you control: no API key, no per-token billing.
 # "crucible" is CrucibleLLM, an on-device OpenAI-compatible server on your iPad/iPhone.
 LOCAL_PROVIDERS = {"ollama","crucible"}
@@ -536,6 +537,10 @@ def probe_provider(settings: dict) -> dict:
         present = any(m['id'] == model for m in status['models'])
         return {"ok": status['ready'] and present, "provider": provider,
                 "detail": status['detail'] if not status['ready'] or present else "Choose a model from the ChatGPT dropdown."}
+    if provider=='gemini_cli':
+        from .gemini_subscription import connection_status
+        status=connection_status()
+        return {'ok':status['ready'],'provider':provider,'detail':status['detail']}
     if provider == "claude_code":
         try:
             status = claude_status()
@@ -614,6 +619,8 @@ class ProviderSettings:
         data = {**self.get(), **{k:v for k,v in params.items() if k in allowed}}
         if data["provider"] not in PROVIDERS:
             raise ValueError("Unsupported model provider.")
+        from .model_effort import validate as validate_effort
+        data['reasoning_effort']=validate_effort(data['provider'],data.get('model'),data.get('reasoning_effort',''),self.store)
         if data["provider"] == "crucible" and not str(data.get("model") or "").strip():
             data["model"] = "local"
         for k in ("api_budget_usd","input_price_per_million","output_price_per_million"):
@@ -649,7 +656,7 @@ class ProviderSettings:
             elif url.scheme == "http" and url.hostname not in {"127.0.0.1","localhost","::1"}:
                 raise ValueError("Use HTTPS for a remote model endpoint.")
         profiles = self.store.setting('provider_connections', {})
-        profiles[data['provider']] = {k: data[k] for k in ('provider', 'model', 'api_base_url',
+        profiles[data['provider']] = {k: data[k] for k in ('provider', 'model', 'reasoning_effort', 'api_base_url',
             'pricing_confirmed', 'api_budget_usd', 'input_price_per_million', 'output_price_per_million', 'local_only')}
         self.store.set_setting('provider_connections', profiles)
         self.store.set_setting("settings",data)
@@ -723,7 +730,7 @@ class RunManager:
             self._launch(run)
         return run
 
-    def start_agent(self,prompt,project_id=None,source_ids=None,conversation_context=''):
+    def start_agent(self,prompt,project_id=None,source_ids=None,conversation_context='',web_search_mode='auto',agent_settings=None):
         """Chat-driven agent work obeys the same global stop latch as other tasks."""
         if self.store.setting('emergency_stop', False):
             raise ValueError('Tasks are stopped. Use Resume tasks in the top bar.')
@@ -745,6 +752,8 @@ class RunManager:
                 raise ValueError("The agent is already working on a task. Wait for it to finish.")
             run = self.store.put("run",{"stop_generation":generation,"kind":"agent","autonomous":True,"project_id":project_id,
                 "prompt":prompt,"source_ids":source_ids or [],
+                "web_search_mode":web_search_mode,
+                "agent_settings":agent_settings or {},
                 "conversation_context":redact_text(str(conversation_context))[:32000],
                 "provider":settings["provider"],"model":settings["model"],"status":"starting","summary":"",
                 "events":[],"error":None,"api_cost_usd":0,"request_count":0,"settings_snapshot":settings})
@@ -760,7 +769,8 @@ class RunManager:
         if source.get("status") not in {"ready","partial"} or not source.get("chunk_count"):
             raise ValueError("Finish importing and indexing this source before studying it.")
         generation = self.store.setting('stop_generation',0)
-        settings = self.app.settings.get()
+        from .source_models import study_settings
+        settings = study_settings(self.app.settings.get(), source,self.store)
         pages = max(1, (int(source.get("chunk_count",0)) + SOURCE_PAGE - 1) // SOURCE_PAGE)
         # Give the run enough turns to page through the whole course (~2 calls/page plus headroom), capped at the ceiling.
         settings = {**settings, "max_agent_turns": min(100, max(int(settings["max_agent_turns"]), pages * 2 + 6))}
@@ -789,6 +799,10 @@ class RunManager:
             status = claude_status()
             if not status.get("subscription_ready"):
                 raise ValueError("Claude Code must be signed in with your Claude subscription. Run claude auth login in your terminal.")
+        elif settings['provider']=='gemini_cli':
+            from .gemini_subscription import connection_status
+            status=connection_status()
+            if not status['ready']:raise ValueError(status['detail'])
         elif settings["provider"] not in LOCAL_PROVIDERS:
             if settings["provider"] not in SELF_HOSTED_PROVIDERS and not settings.get("pricing_confirmed"):
                 raise ValueError("Confirm the selected model's input/output prices in Settings before starting a billed API run.")
@@ -883,6 +897,8 @@ class RunManager:
                 summary = self._claude(run,stop)
             elif run["provider"] == "codex":
                 summary = self._codex(run, stop)
+            elif run['provider']=='gemini_cli':
+                summary=self._gemini(run,stop)
             else:
                 summary = self._api(run,stop)
             pending = any(a.get("status") in {"pending_approval","approved","ready"} for a in self.store.list("action",run_id=id))
@@ -912,7 +928,34 @@ class RunManager:
             prompt += '\nContinue from recorded actions and evidence; do not repeat completed requests.\nPrevious summary:\n' + run.get('summary', '')
         with CodexSession(stop=stop, timeout=settings['run_timeout_seconds']) as session:
             return session.run(run['model'], system, prompt, specs, tools.call,
-                lambda kind, text: self._log(run['id'], kind, text), settings['max_agent_turns'])
+                lambda kind, text: self._log(run['id'], kind, text), settings['max_agent_turns'],
+                **({'reasoning_effort':settings['reasoning_effort']} if settings.get('reasoning_effort') else {}))
+
+    def _gemini(self,run,stop):
+        from .gemini_subscription import GeminiSession
+        study=run.get('kind')=='study';settings=run['settings_snapshot']
+        tools=ModelTools(self.app,run['id'],study=study)
+        specs=[s for s in TOOL_SPECS if s['name'] in STUDY_TOOL_NAMES] if study else TOOL_SPECS
+        system=effective_system_prompt(STUDY_PROMPT if study else AGENT_PROMPT,custom_prompt_for(settings))
+        system+='\n'+fallback_tool_protocol(specs)
+        history=[{'role':'user','content':redact_text(run['prompt'])}]
+        def check():
+            if stop.is_set() or self.store.setting('emergency_stop',False):raise InterruptedError('Gemini stopped.')
+        deadline=time.monotonic()+settings['run_timeout_seconds']
+        with GeminiSession(run['model'],settings.get('reasoning_effort',''),check,
+                           min(240,settings['run_timeout_seconds'])) as session:
+            for _ in range(settings['max_agent_turns']):
+                check()
+                if time.monotonic()>=deadline:return 'Paused at the configured time limit.'
+                answer=session.run(system,json.dumps(redact(history),ensure_ascii=False))
+                call=parse_fallback_call(answer)
+                if not call:self._log(run['id'],'assistant',answer);return answer
+                if call['tool'] not in {s['name'] for s in specs}:raise ValueError('Gemini requested an unavailable app tool.')
+                self._log(run['id'],'tool',call['tool'])
+                value=tools.call(call['tool'],call['arguments'])
+                history.extend([{'role':'assistant','content':answer},
+                                {'role':'user','content':'App tool result: '+json.dumps(redact(value),default=str)[:100000]}])
+        return 'Paused at the configured turn limit.'
 
     def _claude(self,run,stop):
         id = run["id"]
@@ -938,6 +981,10 @@ class RunManager:
                 "--disable-slash-commands","--no-chrome","--permission-mode","dontAsk",
                 "--allowedTools",",".join(f"mcp__bughunter__{s['name']}" for s in active_specs),
                 "--append-system-prompt-file",str(prompt_path),"--model",run["model"]]
+        if run["settings_snapshot"].get("source_analysis_model"):
+            if run['settings_snapshot'].get('reasoning_effort'):args+=['--effort',run['settings_snapshot']['reasoning_effort']]
+        elif run['settings_snapshot'].get('reasoning_effort'):
+            args += ['--effort',run['settings_snapshot']['reasoning_effort']]
         if run.get("session_id"):
             args += ["--resume",run["session_id"]]
         prompt = "Continue the current investigation using action results now available. " + run["prompt"] if run.get("resuming") else run["prompt"]
@@ -1211,7 +1258,7 @@ class RunManager:
         # On-device models have small context windows; reserving less output avoids
         # "prompt too long" refusals from CrucibleLLM on an 8K-token context.
         maximum_output = 1024 if provider == "crucible" else 4096
-        base = settings.get("api_base_url") or {"openai":"https://api.openai.com/v1","anthropic":"https://api.anthropic.com","ollama":"http://127.0.0.1:11434","deepseek":"https://api.deepseek.com"}.get(provider,"")
+        base = settings.get("api_base_url") or {"openai":"https://api.openai.com/v1","anthropic":"https://api.anthropic.com","ollama":"http://127.0.0.1:11434","deepseek":"https://api.deepseek.com","gemini":"https://generativelanguage.googleapis.com/v1beta/openai"}.get(provider,"")
         if not base:
             raise ValueError("Configure this provider's API base URL.")
         if provider == "crucible":
@@ -1239,6 +1286,11 @@ class RunManager:
         # prompt-level protocol; deepseek-chat keeps native function calling.
         native_tools = provider != "crucible" and not (provider == "deepseek" and "reasoner" in str(settings.get("model","")).lower())
         with httpx.Client(timeout=settings.get("ollama_timeout_seconds", 240) if provider == "ollama" else 90,follow_redirects=False,trust_env=False) as client:
+            if provider == "ollama":
+                from .inference_gate import GatedClient
+                def check_local_stop():
+                    if stop.is_set() or self.store.setting("emergency_stop",False): raise InterruptedError()
+                client = GatedClient(client, check_local_stop)
             if provider in {"ollama","remote_ollama"}:
                 capabilities = client.post(base.rstrip("/")+"/api/show",json={"model":settings["model"]},headers={"Authorization":f"Bearer {key}"} if key else {})
                 capabilities.raise_for_status()
@@ -1288,12 +1340,16 @@ class RunManager:
                 if provider == "openai":
                     # Preserve native Responses output items, including reasoning state, across tool turns.
                     body = {"model":settings["model"],"instructions":system,"input":messages,"tools":[{"type":"function",**s} for s in active_specs],"max_output_tokens":maximum_output,"store":False}
+                    if settings.get('reasoning_effort'):body['reasoning']={'effort':settings['reasoning_effort']}
                     response = client.post(base.rstrip("/")+"/responses",headers={"Authorization":f"Bearer {key}"},json=body)
                 elif provider == "anthropic":
                     body = {"model":settings["model"],"system":system,"messages":messages,"tools":[{"name":s["name"],"description":s["description"],"input_schema":s["parameters"]} for s in active_specs],"max_tokens":maximum_output}
+                    if settings.get('reasoning_effort'):body['output_config']={'effort':settings['reasoning_effort']}
                     response = client.post(base.rstrip("/")+"/v1/messages",headers={"x-api-key":key,"anthropic-version":"2023-06-01"},json=body)
                 else:
                     body = {"model":settings["model"],"messages":[{"role":"system","content":system}]+messages,"tools":tooldefs,"stream":False}
+                    if provider=='gemini' and settings.get('reasoning_effort'):
+                        body['reasoning_effort']=settings['reasoning_effort']
                     if provider == "ollama":
                         body.update(ollama_inference_options(settings, maximum_output))
                     elif provider == "remote_ollama":
@@ -1307,7 +1363,7 @@ class RunManager:
                 if response.status_code == 429:
                     # Operator-opt-in silent provider fallback (capabilities toggle).
                     from .capabilities import resolve_fallback_provider
-                    alt = resolve_fallback_provider(self.app.store, provider, "rate_limit")
+                    alt = None if settings.get("source_analysis_model") else resolve_fallback_provider(self.app.store, provider, "rate_limit")
                     if alt and alt in PROVIDERS:
                         self._log(run["id"], "info", f"Rate limit on {provider}; switching to {alt} per fallback chain.")
                         provider = alt
@@ -1319,7 +1375,7 @@ class RunManager:
                     return "Paused at the provider rate limit."
                 if response.status_code >= 500:
                     from .capabilities import resolve_fallback_provider
-                    alt = resolve_fallback_provider(self.app.store, provider, "server_error")
+                    alt = None if settings.get("source_analysis_model") else resolve_fallback_provider(self.app.store, provider, "server_error")
                     if alt and alt in PROVIDERS:
                         self._log(run["id"], "info", f"Server error {response.status_code} on {provider}; switching to {alt}.")
                         provider = alt

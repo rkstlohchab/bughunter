@@ -2,12 +2,8 @@
 // Lives alongside Investigation / OperatorMode / Team panels. Not part of
 // the investigation-agent surface.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  gameLab,
-  GameId, StackId,
-  GameProfile, StackProfile,
-  Project, Recipe, Recommendation, HardwareInventory,
-} from './gameLabApi';
+import { gameLab } from './gameLabApi';
+import type { GameId, StackId, GameProfile, StackProfile, Project, Recommendation, HardwareInventory } from './gameLabApi';
 import GameLabChat from './GameLabChat';
 
 type View = 'overview' | 'new' | 'project';
@@ -118,7 +114,7 @@ function Overview({ projects, hw, onOpen }: {
 
 // ---- New project --------------------------------------------------------
 
-function NewProject({ games, stacks, hw, onCreated }: {
+function NewProject({ games, hw, onCreated }: {
   games: GameProfile[]; stacks: StackProfile[]; hw: HardwareInventory;
   onCreated: (p: Project) => void;
 }) {

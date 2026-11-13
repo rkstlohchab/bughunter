@@ -76,10 +76,12 @@ class CodexSession:
         for key, value in CONFIG.items():
             # JSON scalar/empty collection values are also valid TOML.
             args += ['-c', key + '=' + json.dumps(value)]
+        from .process_runtime import cli_argv
+        args=cli_argv(args)
         try:
             self.process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL, text=True, cwd=self.workspace.name,
-                env=env, start_new_session=True, bufsize=1)
+                env=env, bufsize=1, **({'creationflags':subprocess.CREATE_NEW_PROCESS_GROUP} if os.name=='nt' else {'start_new_session':True}))
             with _LOCK:
                 _ACTIVE.add(self)
             self._reader = threading.Thread(target=self._read, daemon=True)
@@ -144,14 +146,18 @@ class CodexSession:
         for _ in range(10):
             result = self.call('model/list', {'limit': 100, 'cursor': cursor})
             rows.extend({'id': r['model'], 'label': r.get('displayName') or r['model'],
-                         'default': bool(r.get('isDefault'))} for r in result.get('data', []))
+                         'default': bool(r.get('isDefault')),
+                         'effort':{'levels':[option['reasoningEffort'] for option in r.get('supportedReasoningEfforts',[])],
+                                   'default':r.get('defaultReasoningEffort'),'source':'provider_catalog',
+                                   'detail':'Reported by your signed-in Codex account.'}}
+                        for r in result.get('data', []) if not r.get('hidden'))
             cursor = result.get('nextCursor')
             if not cursor:
                 return rows
         raise ValueError('Codex model catalog exceeded the page limit.')
 
     def run(self, model, system, prompt, specs=(), tool_handler=None, log=None, max_calls=20,
-            *, images=None, reasoning_effort=None):
+            *, images=None, reasoning_effort=None, final_only=False):
         self._check_cancelled()
         # Validated against codex-cli 0.166.0 generated TurnStartParams schema:
         # UserInput.localImage has a path; effort is the turn-level override.
@@ -166,8 +172,8 @@ class CodexSession:
                 if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= 10 * 1024 * 1024:
                     raise ValueError('Each frame must be a regular file of at most 10 MiB.')
                 image_inputs.append({'type': 'localImage', 'path': str(path.resolve(strict=True))})
-        if reasoning_effort is not None and reasoning_effort != 'medium':
-            raise ValueError('The optional media reasoning effort must be medium.')
+        if reasoning_effort is not None and reasoning_effort not in {'none','minimal','low','medium','high','xhigh','max','ultra'}:
+            raise ValueError('Choose a supported reasoning effort level.')
         if not self.account()['ready']:
             raise ValueError('Sign in with your ChatGPT account using codex login, then refresh models.')
         # Verify that no inherited MCP connector can be invoked by this thread.
@@ -223,6 +229,7 @@ class CodexSession:
                     mime = value.get('media_type', 'image/jpeg')
                     content.append({'type': 'inputImage', 'imageUrl': f'data:{mime};base64,{image}'})
                 self.send({'id': event['id'], 'result': {'contentItems': content, 'success': success}})
+                deadline=time.monotonic()+self.timeout
                 if log:
                     log('tool', name)
             elif method == 'item/completed' and data.get('threadId') == thread:
@@ -238,21 +245,15 @@ class CodexSession:
                     raise ValueError(redact_text(message))
                 if not replies:
                     raise ValueError('ChatGPT returned no readable reply.')
-                return '\n\n'.join(replies)
+                return replies[-1] if final_only else '\n\n'.join(replies)
 
     def __exit__(self, *_):
         with _LOCK:
             _ACTIVE.discard(self)
         if self.process:
             if self.process.poll() is None:
-                try:
-                    os.killpg(self.process.pid, signal.SIGTERM)
-                    self.process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    os.killpg(self.process.pid, signal.SIGKILL)
-                    self.process.wait(timeout=2)
-                except ProcessLookupError:
-                    pass
+                from .process_runtime import terminate
+                terminate(self.process)
             for pipe in (self.process.stdin, self.process.stdout):
                 if pipe:
                     pipe.close()
@@ -272,7 +273,7 @@ def connection_status():
         return {'ready': False, 'models': [], 'detail': redact_text(str(exc))}
 
 
-def complete(messages, system, model):
+def complete(messages, system, model, reasoning_effort=None):
     prompt = '\n\n'.join(f"{m['role']}: {m['content']}" for m in messages if m['role'] != 'system')
     with CodexSession(timeout=180) as session:
-        return session.run(model, system, prompt)
+        return session.run(model, system, prompt,**({'reasoning_effort':reasoning_effort} if reasoning_effort else {}))

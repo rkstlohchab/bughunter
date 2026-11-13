@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 def main():
-    python = ROOT/"backend/.venv/bin/python"
+    python = ROOT/("backend/.venv/Scripts/python.exe" if platform.system()=="Windows" else "backend/.venv/bin/python")
     if not python.exists():
         raise SystemExit("Run python3 scripts/setup.py first.")
     triple = subprocess.check_output(["rustc","--print","host-tuple"],text=True).strip()
@@ -19,9 +19,12 @@ def main():
     command += ['--add-data', f"{ROOT/'backend/bughunter/assets/retired_prompt_hashes.json'}:bughunter/assets"]
     references = ROOT/'backend/bughunter/assets/reference_pack'
     command += ['--add-data', f'{references}:bughunter/assets/reference_pack']
+    command += ['--add-data', f"{ROOT/'backend/bughunter/assets/agent_skills'}:bughunter/assets/agent_skills"]
     for package in ("sqlite_vec","mitmproxy","mitmproxy_rs","yt_dlp","playwright","selenium","keyring","certifi","pymupdf","ddgs"):
         command += ["--collect-all",package]
-    command += ["--hidden-import","keyring.backends.macOS","--hidden-import","bughunter.mac_memory",str(ROOT/"scripts/sidecar_entry.py")]
+    if platform.system()=="Darwin":command += ["--hidden-import","keyring.backends.macOS","--hidden-import","bughunter.mac_memory"]
+    elif platform.system()=="Windows":command += ["--hidden-import","keyring.backends.Windows"]
+    command += [str(ROOT/"scripts/sidecar_entry.py")]
     subprocess.run(command,cwd=ROOT,check=True)
     extension = ".exe" if platform.system()=="Windows" else ""
     source = ROOT/f"build/sidecar/bughunter-backend{extension}"

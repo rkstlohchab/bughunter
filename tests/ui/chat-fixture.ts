@@ -34,6 +34,7 @@ export async function chatFixture(page: Page, options: {completeAfter?: number; 
     }
     if (method==='chat.delete') {state.chats=state.chats.filter(c=>c.id!==params.id);result={deleted:true};}
     if (method==='chat.export') result={filename:'conversation.json',content:JSON.stringify(state.chats)};
+    if(method==='chat.attachments.add')result={id:'chatref_attached',filename:params.filename,title:params.filename,kind:'text',has_images:false};
     if (method==='sources.import') result={id:'source_attached',filename:params.filename,status:'ready',chunk_count:1};
     if (method==='autopilot.plan') result={workflow: /knowledge base/i.test(params.message)?'knowledge_check':/app checks/i.test(params.message)?'app_checks':'chat',missing:[]};
     if (method==='chat.autopilot') {

@@ -18,7 +18,7 @@ def _file_digest(path):
     return digest.hexdigest()
 
 
-def transcribe_chunks(service, runtime, source, path, artifacts, duration, ffmpeg, whisper, model):
+def transcribe_chunks(service, runtime, source, path, artifacts, duration, ffmpeg, whisper, model, publish=None):
     """Only a successfully returned Whisper process can promote a chunk SRT.
 
     Old full-file WAV/SRT/JSON artifacts have no completion marker and are never
@@ -71,8 +71,12 @@ def transcribe_chunks(service, runtime, source, path, artifacts, duration, ffmpe
                         raise ValueError(f'Audio chunk {index + 1} is empty or malformed.')
                     if abs(wav.getnframes() / wav.getframerate() - length) > 1:
                         raise ValueError(f'Audio chunk {index + 1} does not cover the requested duration.')
-                service._run([whisper, '-m', str(model), '-f', str(audio), '-osrt',
-                              '-of', str(partial.with_suffix('')), '-l', 'auto', '-nt'], 7200)
+                from .inference_gate import local_inference
+                # Hosted imports may run concurrently; Whisper shares the same
+                # local model lease as chat/vision on memory-limited machines.
+                with local_inference(lambda:service._check_cancelled(source['id'])):
+                    service._run([whisper, '-m', str(model), '-f', str(audio), '-osrt',
+                                  '-of', str(partial.with_suffix('')), '-l', 'auto', '-nt'], 7200)
                 service._check_cancelled(source['id'])
                 if not partial.exists():
                     raise ValueError(f'Whisper did not write transcript chunk {index + 1}.')
@@ -92,6 +96,8 @@ def transcribe_chunks(service, runtime, source, path, artifacts, duration, ffmpe
         finally:
             audio.unlink(missing_ok=True)
             partial.unlink(missing_ok=True)
-        service._update(source['id'], media_progress={'phase': 'speech', 'completed': index + 1, 'analyzed': index + 1,
+        if publish:
+            publish(list(segments))
+        service._update(source['id'], speech_coverage={'completed': index + 1, 'total': total, 'seconds': start + length, 'duration': duration}, media_progress={'phase': 'speech', 'completed': index + 1, 'analyzed': index + 1,
                         'total': total, 'timestamp': start + length, 'duration': duration})
     return segments

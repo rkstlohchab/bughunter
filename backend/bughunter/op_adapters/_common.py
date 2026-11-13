@@ -4,12 +4,22 @@ from __future__ import annotations
 import shutil
 import subprocess
 import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
 
 class ToolMissing(RuntimeError):
     pass
+
+_CONTEXT=ContextVar('operator_process_context',default=(None,None))
+
+@contextmanager
+def command_context(run_id,check):
+    token=_CONTEXT.set((run_id,check))
+    try:yield
+    finally:_CONTEXT.reset(token)
 
 
 def locate(binary: str, hint: str = "") -> str:
@@ -27,11 +37,10 @@ def run_cmd(argv: list[str], *, cwd: str | None = None,
             env: dict | None = None) -> dict:
     start = time.time()
     try:
-        proc = subprocess.run(
-            argv, cwd=cwd, env=env,
-            capture_output=True, text=True, timeout=timeout, input=stdin,
-        )
-    except subprocess.TimeoutExpired as exc:
+        from ..process_runtime import run
+        run_id,check=_CONTEXT.get()
+        proc = run(argv,cwd=cwd,env=env,timeout=timeout,input=stdin,run_id=run_id,check=check)
+    except TimeoutError:
         return {
             "command": " ".join(argv),
             "exit_code": -1, "stdout": "", "stderr": f"timeout after {timeout}s",
@@ -40,9 +49,9 @@ def run_cmd(argv: list[str], *, cwd: str | None = None,
         }
     return {
         "command": " ".join(argv),
-        "exit_code": proc.returncode,
-        "stdout": (proc.stdout or "")[:200_000],
-        "stderr": (proc.stderr or "")[:40_000],
+        "exit_code": proc['exit_code'],
+        "stdout": proc['stdout'][:200_000],
+        "stderr": proc['stderr'][:40_000],
         "duration_ms": int((time.time() - start) * 1000),
     }
 

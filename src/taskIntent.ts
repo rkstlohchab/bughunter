@@ -43,3 +43,30 @@ export function wantsMacControl(message: string): boolean {
   if (/\b(?:click|type|select|scroll|press)\b.{0,90}\b(?:button|menu|tab|window|text field|on screen|in the app)\b/i.test(request)) return true;
   return false;
 }
+
+/** Shared desktop harness entry point on macOS, Windows and Linux. */
+export function wantsHarnessTask(message:string):boolean {
+ const text=message.trim();
+ if (/^\/task(?:\s|$)/i.test(text))return true;
+ if (/\b(?:reverse[- ]engineer|decompile|disassemble)\b|\b(?:use|run)\s+(?:rea|reverse engineer anything)\b/i.test(text)&&!/^(?:how|why|what|explain|describe)\b/i.test(text))return true;
+ if (/^(?:how|why|what|where|when|can|could|would|should|explain|describe|tell me|is it|does it)\b/i.test(text))return false;
+ if (/\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model))\b/i.test(text))return false;
+ if (wantsMacControl(text))return true;
+ if (/\b(?:install|download|uninstall|update)\b.{0,90}\b(?:app|apps|application|software|tool|tools|scrcpy|adb|ffmpeg|agent-desktop|ollama)\b/i.test(text))return true;
+ if (/\b(?:open|launch|start|control|operate|automate|click|type|scroll|press|select)\b.{0,100}\b(?:windows|linux|ubuntu|notepad|file explorer|my pc|my laptop|my computer|desktop|application)\b/i.test(text))return true;
+ return false;
+}
+
+/** Game threads continue only in their originating conversation scope. */
+export function gameLabPrefix(message: string): string | undefined {
+  return ['/gamelab','/cheat','/esp','/aim','/bgmi','/dma','/valorant','/cs2','/apex','/rust','/fortnite','/pubg','/codm'].find(prefix => message.toLowerCase() === prefix || message.toLowerCase().startsWith(prefix+' '));
+}
+export function wantsGameLab(message: string, scopedThread = false): boolean {
+  if (gameLabPrefix(message) || /\bgamelab\b/i.test(message)) return true;
+  // Learning and local model setup remain ordinary chat even after a game thread.
+  if (/\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model)|ollama|whisper|learn rust|rust programming)\b/i.test(message)) return false;
+  if (scopedThread) return true;
+  const game = /\b(?:cod|codm|call of duty|valorant|cs2|counter-strike|bgmi|pubg|fortnite|apex legends|tarkov|warzone|among us|dayz|fivem|rust game)\b/i;
+  const mechanic = /\b(?:aimbot|esp|wallhack|triggerbot|cheat|no recoil|mod menu|anticheat|anti-cheat|remove cooldown|cooldown removal)\b/i;
+  return game.test(message) && mechanic.test(message);
+}

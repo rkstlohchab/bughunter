@@ -8,7 +8,7 @@ _PTS = re.compile(r'pts_time:\s*(-?\d+(?:\.\d+)?)')
 
 
 def scene_cuts(ffmpeg: str, path: str, duration: float, threshold: float = 0.30,
-               max_events: int = 1200, run=None) -> list[float]:
+               max_events: int = 1200, run=None, *, start=0, strict=False) -> list[float]:
     """Find low-resolution scene changes across the recording, with a hard timeout.
 
     FFmpeg exits nonzero for files that cannot be decoded; that is a soft failure
@@ -18,14 +18,16 @@ def scene_cuts(ffmpeg: str, path: str, duration: float, threshold: float = 0.30,
     # Decoding for a scene pass is CPU-intensive; analyze one scaled frame every
     # 2s and cap runtime. The detector never invents timestamps when it times out.
     command = [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
-        '-i', path, '-an', '-vf', f'fps=1/2,scale=320:-2,select=gt(scene\\,{threshold}),showinfo',
+        '-ss', str(start), '-i', path, '-t', str(duration), '-an', '-vf', f'fps=1/2,scale=320:-2,select=gt(scene\\,{threshold}),showinfo',
         '-f', 'null', '-']
     try:
         timeout = min(1200, max(75, duration/3))
         done = (run(command, timeout) if run else
                 subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                stderr=subprocess.PIPE, timeout=timeout, check=False))
-        if done.returncode: return []
+        if done.returncode:
+            if strict: raise ValueError(f'FFmpeg scene scan exited {done.returncode}')
+            return []
         times = []
         stderr = done.stderr if isinstance(done.stderr, str) else done.stderr.decode('utf-8','replace')
         for match in _PTS.finditer(stderr):
@@ -37,6 +39,7 @@ def scene_cuts(ffmpeg: str, path: str, duration: float, threshold: float = 0.30,
     except InterruptedError:
         raise
     except (OSError, subprocess.TimeoutExpired, ValueError):
+        if strict: raise
         return []
 
 
@@ -64,3 +67,39 @@ def plan_frames(duration: float, interval: float, max_frames: int = 0,
             selected.append(t)
         planned=sorted(set(selected))
     return planned
+
+
+def scan_windows(ffmpeg, path, duration, checkpoint, identity, *, threshold=.30,
+                 run, progress=None, check=None):
+    """Commit only successfully decoded ten-minute windows; retry recorded gaps."""
+    import json
+    import math
+    from .media_context import save_json
+    identity = {**identity, 'version': 2, 'window_seconds': 600, 'threshold': threshold}
+    try:
+        saved = json.loads(checkpoint.read_text())
+    except (OSError, ValueError):
+        saved = {}
+    windows = saved.get('windows', {}) if saved.get('identity') == identity else {}
+    total = math.ceil(duration / 600)
+    gaps = []
+    for index in range(total):
+        if check: check()
+        start, length = index * 600, min(600, duration-index*600)
+        slot = str(index)
+        if windows.get(slot, {}).get('status') != 'complete':
+            try:
+                relative = scene_cuts(ffmpeg, path, length, threshold=threshold, run=run, start=start, strict=True)
+                times = [round(start+t,2) for t in relative]
+                windows[slot] = {'status':'complete', 'start':start, 'end':start+length, 'times':times}
+            except InterruptedError:
+                raise
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
+                windows[slot] = {'status':'error', 'start':start, 'end':start+length, 'error':str(exc)[:300]}
+            save_json(checkpoint, {'identity':identity, 'windows':windows})
+        if windows[slot]['status'] != 'complete': gaps.append(windows[slot])
+        if progress:
+            progress({'phase':'scene_scan', 'completed':sum(w.get('status')=='complete' for w in windows.values()),
+                      'analyzed':index+1, 'total':total, 'timestamp':start+length, 'duration':duration, 'gaps':gaps[:]})
+    times = sorted(set(t for w in windows.values() if w.get('status')=='complete' for t in w['times']))
+    return times[:1200], gaps

@@ -63,7 +63,7 @@ def test_speech_is_searchable_before_visual_scan_and_frame_context_is_published(
     out = service.store.root / 'artifacts' / s['id']; out.mkdir()
     media = tmp_path / 'lesson.mp4'; media.write_bytes(b'media')
     runtime = LocalMediaRuntime(service.store)
-    runtime.configure(dict(frame_interval=2, max_frames=3))
+    runtime.configure(dict(frame_interval=2, max_frames=3, local_vision_low_memory=False))
     service.media_runtime = runtime
     speech = [dict(text='Open the response editor.', locator='00:00:00', start=0, end=6, modality='transcript')]
     def run(args, timeout=1800):

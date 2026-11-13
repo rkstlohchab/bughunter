@@ -281,7 +281,11 @@ class Distiller:
         if provider_cfg.get("local_only") and provider not in {"ollama", "crucible"}:
             return
         chunks = self._pick_chunks(max_chunks, domain_filter)
+        generation=self.store.setting('stop_generation',0)
+        def check():
+            if self.store.setting('emergency_stop',False) or generation!=self.store.setting('stop_generation',0):raise InterruptedError('Dataset generation stopped.')
         for chunk in chunks:
+            check()
             prompt = (
                 "You are preparing supervised training data for a security research "
                 "assistant. Given the passage below, write ONE realistic operator "
@@ -291,7 +295,9 @@ class Distiller:
                 f"PASSAGE:\n{chunk.get('text','')[:4000]}"
             )
             try:
-                response = provider_api.simple_completion(provider_cfg, prompt, max_tokens=800)
+                response = provider_api.simple_completion(provider_cfg, prompt, max_tokens=800,check=check)
+                check()
+            except InterruptedError:raise
             except Exception:
                 continue
             parsed = _parse_json_block(response)
@@ -382,6 +388,10 @@ class LearningForge:
               limits: dict | None = None,
               name: str | None = None) -> dict:
         self.store.require_desktop_owner()
+        generation=self.store.setting('stop_generation',0)
+        def check():
+            if self.store.setting('emergency_stop',False) or generation!=self.store.setting('stop_generation',0):raise InterruptedError('Corpus preparation stopped.')
+        check()
         include = include or ["traces", "errors", "repo"]
         limits = limits or {}
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -401,6 +411,7 @@ class LearningForge:
         domain_counts: dict[str, int] = {}
 
         def emit_sft(p: SFTPair, writer):
+            check()
             if p.hash in seen_hashes:
                 return
             seen_hashes.add(p.hash)
@@ -409,6 +420,7 @@ class LearningForge:
             domain_counts[p.domain] = domain_counts.get(p.domain, 0) + 1
 
         def emit_dpo(p: DPOPair, writer):
+            check()
             if p.hash in seen_hashes:
                 return
             seen_hashes.add(p.hash)
@@ -434,12 +446,14 @@ class LearningForge:
                             max_chunks=limits.get("distill", 200),
                             domain_filter=distill_domain):
                         emit_sft(p, sft_w)
+                except InterruptedError:raise
                 except Exception as exc:
                     # distillation is optional — never block the build
                     (bundle_dir / "distill_error.txt").write_text(repr(exc))
 
         # split a holdout from the training set for valid.jsonl
         self._split_holdout(sft_path, valid_path, ratio=0.05)
+        check()
 
         manifest = {
             "id": bundle_id,

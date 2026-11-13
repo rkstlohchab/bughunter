@@ -87,6 +87,7 @@ class WorkflowEngine:
               spec: dict | None = None, inputs: dict | None = None,
               approved: bool = True, operator_mode: bool = True, **_) -> dict:
         self.store.require_desktop_owner()
+        if self.store.setting('emergency_stop',False):raise ValueError('Tasks are stopped. Use Resume tasks first.')
         if spec is None:
             wf = self.get(id=workflow_id) if workflow_id else None
             if not wf:
@@ -101,6 +102,7 @@ class WorkflowEngine:
             "id": run_id, "name": name, "status": "running",
             "spec": spec, "inputs": inputs or {},
             "operator_mode": bool(operator_mode),
+            'stop_generation':self.store.setting('stop_generation',0),
             "nodes": {n["id"]: {"status": "pending", "output": None}
                       for n in spec["nodes"]},
             "started_at": now(),
@@ -125,6 +127,8 @@ class WorkflowEngine:
         flag = self._stop_flags.get(id)
         if flag:
             flag.set()
+        from .process_runtime import cancel
+        cancel(id)
         record = self.store.get("workflow_run", id)
         if record:
             record = {**record, "status": "cancelled", "stopped_at": now()}
@@ -160,7 +164,7 @@ class WorkflowEngine:
                         continue
                     self._mark(run_id, node_id, "running")
                     try:
-                        output = self._run_node(node, state, operator_mode)
+                        output = self._run_node(node, state, operator_mode,run_id=run_id)
                         state["nodes"][node_id] = {"status": "ok", "output": output}
                         self._mark(run_id, node_id, "ok", output)
                     except Exception as exc:
@@ -186,16 +190,15 @@ class WorkflowEngine:
             self.app.timeline.emit(kind="workflow", phase="complete",
                                    run_id=run_id, outcome=status)
 
-    def _run_node(self, node: dict, state: dict, operator_mode: bool) -> Any:
+    def _run_node(self, node: dict, state: dict, operator_mode: bool,run_id=None) -> Any:
         adapter_name = node.get("adapter")
         if not adapter_name:
             raise ValueError("node missing adapter")
         args = _resolve_refs(node.get("args", {}), state)
-        tools = (self.app.operator_tools
-                 if operator_mode and hasattr(self.app, "operator_tools")
-                 else None)
-        if tools is None:
+        if not operator_mode:
             raise RuntimeError("workflow requires operator_mode=True")
+        from .operator_tools import OperatorTools
+        tools=OperatorTools(self.app,run_id=run_id)
         return tools.invoke_adapter(adapter_name, **args)
 
     def _mark(self, run_id: str, node_id: str, status: str,

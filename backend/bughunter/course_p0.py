@@ -22,7 +22,8 @@ COURSE_EXTENSIONS = (MEDIA_EXTENSIONS | IMAGE_EXTENSIONS |
     {'.txt', '.md', '.markdown', '.rst', '.csv', '.json', '.yaml', '.yml',
      '.srt', '.vtt', '.pdf', '.epub', '.html', '.htm', '.docx', '.pptx',
      '.xlsx', '.odt', '.py', '.cpp', '.cc', '.c', '.h',
-     '.hpp', '.rs', '.js', '.ts', '.tsx', '.java', '.cs', '.sh', '.bat'})
+     '.hpp', '.rs', '.js', '.ts', '.tsx', '.java', '.cs', '.sh', '.bat',
+     '.exe', '.dll', '.elf', '.so', '.dylib', '.bin'})
 MAX_COURSE_ENTRIES = 12000
 MAX_EXPANDED_BYTES = 12 * 1024**3
 MAX_MEMBER_BYTES = 4 * 1024**3
@@ -91,7 +92,9 @@ class CourseP0:
                         self._update(batch['id'],status='cancelled',detail='Stopped before restart. Resume this import explicitly.')
                     else:self._launch(batch['id'])
 
-    def import_archive(self, path: str, project_id=None):
+    def import_archive(self, path: str, project_id=None, analysis_model=None):
+        from .source_models import validate
+        analysis_model = validate(analysis_model,self.store)
         self._check_running()
         candidate = Path(path).expanduser().resolve()
         if not candidate.is_file() or candidate.suffix.lower() != '.zip':
@@ -108,11 +111,17 @@ class CourseP0:
         batch_id = 'course_' + ident
         existing = self.store.get('course_batch', batch_id)
         if existing:
+            if analysis_model is not None:
+                ids = [item['source_id'] for item in existing.get('items', []) if item.get('source_id') and self.store.get('source', item['source_id'])]
+                if ids:
+                    self.knowledge.set_models(ids, analysis_model)
+                self._update(batch_id, analysis_model=analysis_model)
+                existing = self.store.get('course_batch', batch_id)
             if existing['status'] in {'queued', 'importing', 'interrupted', 'partial'}:
                 self._launch(batch_id)
             return {**existing, 'duplicate': True}
         batch = self.store.put('course_batch', {'id':batch_id, 'title': candidate.stem,
-            'path':str(candidate), 'project_id':project_id,
+            'path':str(candidate), 'project_id':project_id, 'analysis_model':analysis_model,
             'archive_size':snap.st_size, 'archive_mtime_ns':snap.st_mtime_ns,
             'status':'queued', 'total_entries':len(items), 'total_bytes':total,
             'completed_entries':0, 'imported_sources':0, 'errors':[], 'items':[],
@@ -223,7 +232,7 @@ class CourseP0:
                                     if not target_side.exists():
                                         target_side.write_bytes(archive.read(side))
                                     break
-                        source = self.knowledge.import_source(path=str(dest),copy_original=False,project_id=batch.get('project_id'))
+                        source = self.knowledge.import_source(path=str(dest),copy_original=False,project_id=batch.get('project_id'), analysis_model=batch.get('analysis_model'))
                         self.knowledge._update(source['id'],course_batch_id=id,
                                                course_member=item.filename,course_path=batch['title'])
                         reports[item.filename] = {'member':item.filename, 'state':'queued',
@@ -265,7 +274,7 @@ class ProcedureP0:
             raise ValueError('The source must be indexed before extracting procedures.')
         with self.store.connection() as db:
             rows = [dict(r) for r in db.execute(
-                'SELECT id,ordinal,text,locator,modality,metadata FROM knowledge_chunks WHERE source_id=? ORDER BY ordinal',
+                "SELECT id,ordinal,text,locator,modality,metadata FROM knowledge_chunks WHERE source_id=? AND coalesce(json_extract(metadata,'$.active'),1)<>0 ORDER BY ordinal",
                 (source_id,))]
         # Only quote actual indexed text, never synthesize clicks or shell commands.
         procedures = []
@@ -361,9 +370,34 @@ class ProcedureP0:
             procedures=[p for p in procedures if p.get('source_id')==source_id]
         if project_id!='*':
             procedures=[p for p in procedures if p.get('project_id') in (None,project_id)]
+        with self.store.connection() as db:
+            procedures=[p for p in procedures if self._supported(db,p)]
         return procedures[:max(1,min(int(limit),500))]
+
+    @staticmethod
+    def _supported(db, procedure, check_quotes=True):
+        # A candidate remains in the audit store, but withdrawn evidence must
+        # never be returned as a current reusable procedure.
+        steps=procedure.get('steps',[])
+        if not steps:
+            return False
+        for step in steps:
+            row=db.execute("SELECT text,metadata FROM knowledge_chunks WHERE id=? AND source_id=?",
+                           (step.get('chunk_id'),procedure.get('source_id'))).fetchone()
+            if (not row or not json.loads(row['metadata']).get('active',True)
+                    or (check_quotes and (not step.get('quote') or step['quote'] not in row['text']))):
+                return False
+        return True
 
     def get(self,id):
         value=self.store.get('course_procedure',id)
         if not value: raise ValueError('Procedure not found.')
+        with self.store.connection() as db:
+            if not self._supported(db,value,check_quotes=False):
+                raise ValueError('Procedure evidence was withdrawn or corrected; rebuild this source’s procedures.')
+            if not self._supported(db,value):
+                # Explicit access by ID is also used to diagnose citation drift.
+                # Stale candidates remain hidden from the reusable list.
+                return {**value,'source_stale':True,
+                        'source_warning':'The cited text changed. Check source fidelity before using this candidate.'}
         return value

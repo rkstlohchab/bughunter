@@ -1,6 +1,6 @@
 export type Category = 'subscription' | 'api' | 'selfhosted';
 export const AI_CATEGORIES: {id: Category; label: string; detail: string}[] = [
-  {id: 'subscription', label: 'Subscriptions', detail: 'ChatGPT and Claude plans'},
+  {id: 'subscription', label: 'Subscriptions', detail: 'ChatGPT, Claude and Google AI plans'},
   {id: 'api', label: 'Paid APIs', detail: 'Connect with an API key'},
   {id: 'selfhosted', label: 'My own models', detail: 'Local and custom servers'},
 ];
@@ -8,10 +8,12 @@ export const AI_PROVIDERS: Record<Category, {id: string; name: string; detail: s
   subscription: [
     {id: 'codex', name: 'ChatGPT subscription', detail: 'Your ChatGPT plan through Codex'},
     {id: 'claude_code', name: 'Claude subscription', detail: 'Your Claude plan through Claude Code'},
+    {id:'gemini_cli',name:'Google AI subscription',detail:'Google AI Pro / Ultra through Gemini CLI'},
   ],
   api: [
     {id: 'openai', name: 'OpenAI API', detail: 'Separate API billing'},
     {id: 'anthropic', name: 'Anthropic API', detail: 'Separate API billing'},
+    {id:'gemini',name:'Gemini API',detail:'AI Studio key · separate API quota and billing'},
     {id: 'deepseek', name: 'DeepSeek', detail: 'API billing'},
   ],
   selfhosted: [

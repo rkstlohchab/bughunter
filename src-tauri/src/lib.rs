@@ -20,6 +20,26 @@ use tauri::Manager;
 type Reply = Result<Value, String>;
 type Pending = Arc<Mutex<HashMap<u64, mpsc::Sender<Reply>>>>;
 
+fn backend_python_candidates(root: &std::path::Path, windows: bool) -> Vec<PathBuf> {
+    let relative = if windows { ".venv/Scripts/python.exe" } else { ".venv/bin/python" };
+    vec![root.join("backend").join(relative), root.join(relative)]
+}
+
+fn backend_search_path() -> Result<std::ffi::OsString, String> {
+    let inherited = std::env::var_os("PATH").unwrap_or_default();
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let mut paths = Vec::new();
+    if cfg!(target_os = "windows") {
+        if let Some(appdata) = std::env::var_os("APPDATA") { paths.push(PathBuf::from(appdata).join("npm")); }
+    } else {
+        if let Some(home) = home { paths.push(PathBuf::from(home).join(".local/bin")); }
+        if cfg!(target_os = "macos") { paths.push(PathBuf::from("/opt/homebrew/bin")); }
+        paths.push(PathBuf::from("/usr/local/bin"));
+    }
+    paths.extend(std::env::split_paths(&inherited));
+    std::env::join_paths(paths).map_err(|e| format!("Could not prepare the backend tool path: {e}"))
+}
+
 struct Process {
     child: Child,
     stdin: Option<ChildStdin>,
@@ -82,7 +102,7 @@ impl Process {
         if cfg!(debug_assertions) {
             let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().ok_or("Unable to locate the project root")?.to_path_buf();
             let backend = root.join("backend");
-            let candidates = [backend.join(".venv/bin/python"), root.join(".venv/bin/python")];
+            let candidates = backend_python_candidates(&root, cfg!(target_os = "windows"));
             let python = candidates.iter().find(|p| p.exists()).ok_or("Python environment missing. Run the setup script to install backend dependencies.")?;
             command = Command::new(python);
             command.args(["-m", "bughunter", "--stdio"]).current_dir(backend);
@@ -94,9 +114,7 @@ impl Process {
             command = Command::new(sidecar);
             command.arg("--stdio");
         }
-        let inherited = std::env::var("PATH").unwrap_or_default();
-        let home = std::env::var("HOME").unwrap_or_default();
-        command.env("PATH", format!("{home}/.local/bin:/opt/homebrew/bin:/usr/local/bin:{inherited}"));
+        command.env("PATH", backend_search_path()?);
         Self::from_command(command)
     }
 }
@@ -275,6 +293,17 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backend_venv_paths_cover_windows_and_unix() {
+        let root = PathBuf::from("workspace");
+        assert_eq!(backend_python_candidates(&root, true)[0], root.join("backend/.venv/Scripts/python.exe"));
+        assert_eq!(backend_python_candidates(&root, false)[0], root.join("backend/.venv/bin/python"));
+        let paths = backend_search_path().unwrap();
+        let inherited: Vec<_> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).collect();
+        let prepared: Vec<_> = std::env::split_paths(&paths).collect();
+        assert!(inherited.iter().all(|path| prepared.contains(path)));
+    }
 
     #[test]
     fn stop_response_overtakes_slow_request() {
