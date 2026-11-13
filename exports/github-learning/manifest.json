@@ -1,15 +1,15 @@
 {
   "format": "bughunter-knowledge",
   "schema_version": 1,
-  "exported_at": "2026-11-13T17:55:09.780153+00:00",
+  "exported_at": "2026-11-13T20:00:20.801691+00:00",
   "counts": {
     "sources.jsonl": 31,
-    "passages.jsonl": 5496,
-    "nodes.jsonl": 11606,
-    "edges.jsonl": 27835,
+    "passages.jsonl": 5783,
+    "nodes.jsonl": 12478,
+    "edges.jsonl": 29763,
     "corrections.jsonl": 0,
     "examples.jsonl": 0,
-    "candidate_procedures.jsonl": 1013,
+    "candidate_procedures.jsonl": 1213,
     "experiment_runs.jsonl": 0,
     "experiment_failures.jsonl": 0,
     "reviewed_research_updates.jsonl": 0,
@@ -19,8 +19,10 @@
     "train.jsonl": 0,
     "evaluation.jsonl": 0,
     "frames.jsonl": 0,
-    "active_passages.jsonl": 5000,
-    "frame_references.jsonl": 2935,
+    "active_passages.jsonl": 5287,
+    "active_procedures.jsonl": 1211,
+    "procedure_citation_audit.jsonl": 2,
+    "frame_references.jsonl": 3222,
     "rea_evidence.jsonl": 4
   },
   "contains_model_weights": false,
@@ -62,8 +64,8 @@
       "records": 0
     },
     "sources.jsonl": {
-      "sha256": "00aaf41a90b4dd220f96a18d5b9af2bb9e0c1aed1df63f572f2c472c1f90d429",
-      "bytes": 53961,
+      "sha256": "7bd6368fce244906e7f83b5a9775038b7fee2155166921f095a245fe3572cbbe",
+      "bytes": 54461,
       "records": 31
     },
     "examples.jsonl": {
@@ -77,14 +79,19 @@
       "records": 0
     },
     "passages.jsonl": {
-      "sha256": "b23d32172af3ad377c34bf3641b4584ff239eaa1276556731f8868d139fff252",
-      "bytes": 16668332,
-      "records": 5496
+      "sha256": "db81c09203be37ca39370f3e7a3c89e43d8729ba616ef9db5f8e2c0a22e7030f",
+      "bytes": 18091397,
+      "records": 5783
+    },
+    "active_procedures.jsonl": {
+      "sha256": "f61bc37eaa7e0cd4465d314c53be2ac4001435912fb0ab7f7a966ff78a108bb3",
+      "bytes": 2443770,
+      "records": 1211
     },
     "frame_references.jsonl": {
-      "sha256": "cb3104c15f5ee633296333db53ec8bd02c485be9dcf93163c38a42847498f412",
-      "bytes": 1009408,
-      "records": 2935
+      "sha256": "aae1814995779db9f1eaee867583dd2eb011ad4a7e2dd0c74e5b66cfdc1d260f",
+      "bytes": 1108493,
+      "records": 3222
     },
     "frames.jsonl": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -92,9 +99,14 @@
       "records": 0
     },
     "edges.jsonl": {
-      "sha256": "aec2b5966b1cb02402fa626cc931a0ee4facacedc5cba76b4d4125a59b1f582f",
-      "bytes": 8441607,
-      "records": 27835
+      "sha256": "04f0fe24230380c9254994050f50f061318eecbc0c5c61b21cff975e084f8c31",
+      "bytes": 9023263,
+      "records": 29763
+    },
+    "procedure_citation_audit.jsonl": {
+      "sha256": "45ae421bc9d830c49fa29b4db2e304d46bb6001b71bb1e2e166bf1fb68106eb9",
+      "bytes": 1258,
+      "records": 2
     },
     "evaluation.jsonl": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -102,14 +114,14 @@
       "records": 0
     },
     "nodes.jsonl": {
-      "sha256": "256eee854d32725deeee97ce7cfd36c5ddbc63bfc7018a4642f1b48ee17f6711",
-      "bytes": 3724519,
-      "records": 11606
+      "sha256": "2d705f08c7c9aefdf49f7791b374ee42b7ba3a0a8b33e3021e50d77fcfc5d3a5",
+      "bytes": 4032937,
+      "records": 12478
     },
     "candidate_procedures.jsonl": {
-      "sha256": "a7117a4ec17f6768650ed8e8935eeaf73f94cdda9096401df396b8d0282dfde4",
-      "bytes": 2136742,
-      "records": 1013
+      "sha256": "1c488940bbad663bb7c79abc588cd92f229373922f52cf59fc71422babc91e6f",
+      "bytes": 2448003,
+      "records": 1213
     },
     "corrections.jsonl": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -117,9 +129,9 @@
       "records": 0
     },
     "active_passages.jsonl": {
-      "sha256": "f7f1b0783e03b8ee4620f771ddd6412c3efdb829f1a4d48b5c65d0b7809c4f3f",
-      "bytes": 14343417,
-      "records": 5000
+      "sha256": "0dd243083a0799891df49f624fa8e199669079a59e7b679ad44fff9a7f5a5b85",
+      "bytes": 15766482,
+      "records": 5287
     },
     "courses.jsonl": {
       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -127,10 +139,18 @@
       "records": 0
     }
   },
-  "active_passages": 5000,
+  "active_passages": 5287,
   "inactive_audit_passages": 496,
   "retrieval_entrypoint": "active_passages.jsonl",
   "audit_entrypoint": "passages.jsonl",
+  "techniques": {
+    "all_candidates": 1213,
+    "current_citation_candidates": 1211,
+    "stale_citation_candidates": 2,
+    "retrieval_entrypoint": "active_procedures.jsonl",
+    "audit_entrypoint": "procedure_citation_audit.jsonl",
+    "verification": "Current citations confirm quoted source support, not independent reproduction or model-weight training."
+  },
   "privacy": "Credential patterns are redacted; local home/app-data paths are replaced by portable labels. Chat/account/configuration databases are not included.",
   "image_policy": "Cited visual descriptions and frame references are included. Raw screenshots have not been reviewed for embedded credentials and remain in the local Library.",
   "snapshot_policy": "This is a consistent database snapshot. Active extraction may publish additional learning after exported_at; rerun export.py to refresh.",
@@ -143,6 +163,9 @@
       "indexed_passages": 21,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 15,
+      "current_citation_candidates": 15,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -155,6 +178,9 @@
       "indexed_passages": 5,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 6,
+      "current_citation_candidates": 6,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -167,6 +193,9 @@
       "indexed_passages": 4,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 2,
+      "current_citation_candidates": 2,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -179,6 +208,9 @@
       "indexed_passages": 3,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -191,6 +223,9 @@
       "indexed_passages": 206,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 0,
+      "current_citation_candidates": 0,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -209,6 +244,9 @@
         "timestamp": 119.35
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 28,
+      "current_citation_candidates": 28,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -227,6 +265,9 @@
         "timestamp": 348.183008
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 34,
+      "current_citation_candidates": 34,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -245,6 +286,9 @@
         "timestamp": 381.65
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 41,
+      "current_citation_candidates": 41,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -263,6 +307,9 @@
         "timestamp": 747.066667
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 111,
+      "current_citation_candidates": 111,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -281,6 +328,9 @@
         "timestamp": 306.833008
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 45,
+      "current_citation_candidates": 45,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -299,6 +349,9 @@
         "timestamp": 300.166667
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 38,
+      "current_citation_candidates": 38,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -317,6 +370,9 @@
         "timestamp": 302.363696
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 35,
+      "current_citation_candidates": 35,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -335,6 +391,9 @@
         "timestamp": 162.016667
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 61,
+      "current_citation_candidates": 61,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -354,6 +413,9 @@
         "timestamp": 363.966236
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 41,
+      "current_citation_candidates": 41,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -372,6 +434,9 @@
         "timestamp": 481.505646
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 141,
+      "current_citation_candidates": 141,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -390,6 +455,9 @@
         "timestamp": 327.859206
       },
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 130,
+      "current_citation_candidates": 130,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -404,6 +472,9 @@
       "indexed_passages": 4,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 9,
+      "current_citation_candidates": 9,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -416,6 +487,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -428,6 +502,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 0,
+      "current_citation_candidates": 0,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -440,6 +517,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -452,6 +532,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -464,6 +547,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 0,
+      "current_citation_candidates": 0,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -476,6 +562,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -488,6 +577,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -500,6 +592,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -512,6 +607,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -524,6 +622,9 @@
       "indexed_passages": 2,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 1,
+      "current_citation_candidates": 1,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": []
@@ -536,6 +637,9 @@
       "indexed_passages": 182,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 39,
+      "current_citation_candidates": 37,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -568,6 +672,9 @@
       "indexed_passages": 102,
       "media_progress": null,
       "speech_coverage": null,
+      "media_coverage": null,
+      "technique_candidates": 28,
+      "current_citation_candidates": 28,
       "scene_coverage": null,
       "warnings": [],
       "extraction_notes": [
@@ -577,30 +684,42 @@
     {
       "source_id": "source_7923d7da5db7ec29c213a7e2",
       "title": "Day 1 Recon ",
-      "status": "processing",
+      "status": "ready",
       "media_control": "resume",
-      "indexed_passages": 2266,
+      "indexed_passages": 2553,
       "media_progress": {
-        "phase": "speech",
-        "completed": 31,
-        "analyzed": 31,
-        "total": 55,
-        "timestamp": 18600,
-        "duration": 32460.474921
+        "phase": "frames",
+        "analyzed": 1363,
+        "total": 1363,
+        "timestamp": 32460.533333,
+        "visual_context": 1363,
+        "ocr": 0,
+        "saved_analyzed": 1363
       },
       "speech_coverage": {
-        "completed": 31,
+        "completed": 55,
         "total": 55,
-        "seconds": 18600,
+        "seconds": 32460.474921,
         "duration": 32460.474921
       },
+      "media_coverage": {
+        "planned": 1363,
+        "sampled": 1363,
+        "vision": 1363,
+        "ocr": 0,
+        "missing": 0
+      },
+      "technique_candidates": 200,
+      "current_citation_candidates": 200,
       "scene_coverage": {
         "total": 55,
         "completed": 55,
         "gaps": []
       },
       "warnings": [],
-      "extraction_notes": []
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
     },
     {
       "source_id": "source_caae31ce06c54fce81574230",
@@ -623,6 +742,15 @@
         "seconds": 25412.466667,
         "duration": 25412.466667
       },
+      "media_coverage": {
+        "planned": 963,
+        "sampled": 963,
+        "vision": 963,
+        "ocr": 0,
+        "missing": 0
+      },
+      "technique_candidates": 200,
+      "current_citation_candidates": 200,
       "scene_coverage": {
         "total": 43,
         "completed": 43,

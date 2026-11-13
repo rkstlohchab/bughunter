@@ -4,6 +4,8 @@ This directory contains the app's learned retrieval library at the timestamp in 
 
 Use `active_passages.jsonl` for retrieval. Each passage retains its source ID, exact timestamp/page locator, model provenance, and correction metadata. `sources.jsonl` records processing coverage; unfinished extraction is explicitly marked.
 
+Use `active_procedures.jsonl` for extracted technique candidates whose supporting quotes still match active passages. `candidate_procedures.jsonl` preserves every candidate, including historical ones. `procedure_citation_audit.jsonl` identifies candidates with missing, superseded, rejected, or changed supporting passages. Current citations establish source support; they do not establish that a technique was independently reproduced.
+
 `passages.jsonl` also preserves rejected, superseded, and withdrawn descriptions for audit. Their metadata prevents them entering active retrieval. Graph nodes/edges, candidate procedures, manual corrections, experiments, reviewed research, and saved REA analysis evidence are exported in separate JSONL files.
 
 `train.jsonl` and `evaluation.jsonl` contain only reviewed, training-permitted examples. Empty files mean no examples qualified. This snapshot contains no trained model weights; retrieved observations are not automatically verified training labels.

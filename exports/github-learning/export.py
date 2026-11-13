@@ -29,6 +29,23 @@ def write_rows(name,rows):
         for row in rows:stream.write(json.dumps(row,ensure_ascii=False,separators=(',',':'))+'\n');count+=1
     return count
 
+def current_procedures(procedures,passages):
+    """Keep historical candidates while separating stale supporting citations."""
+    chunks={row['id']:row for row in passages};current=[];audit=[]
+    for procedure in procedures:
+        issues=[]
+        if not procedure.get('steps'):issues.append({'reason':'no_supporting_steps'})
+        for step in procedure.get('steps',[]):
+            chunk=chunks.get(step.get('chunk_id'));metadata=(chunk or {}).get('metadata',{})
+            reason=('missing_passage' if not chunk else
+                    'source_mismatch' if chunk.get('source_id')!=procedure.get('source_id') else
+                    'inactive_passage' if not metadata.get('active',True) or metadata.get('review_status') in {'rejected','superseded','withdrawn'} else
+                    'quote_changed' if not step.get('quote') or step['quote'] not in chunk['text'] else None)
+            if reason:issues.append({'step_id':step.get('id'),'chunk_id':step.get('chunk_id'),'reason':reason})
+        if issues:audit.append({'procedure_id':procedure['id'],'source_id':procedure.get('source_id'),'status':'stale_citations','issues':issues,'retained_in':'candidate_procedures.jsonl'})
+        else:current.append(procedure)
+    return current,audit
+
 def main():
     store=Store();knowledge=KnowledgeService(store,start_worker=False)
     archive=None
@@ -48,6 +65,10 @@ def main():
             metadata=row.get('metadata',{})
             return metadata.get('active',True) and metadata.get('review_status') not in {'rejected','superseded','withdrawn'}
         counts['active_passages.jsonl']=write_rows('active_passages.jsonl',(row for row in passages if active(row)))
+        procedures=[json.loads(line) for line in (OUT/'candidate_procedures.jsonl').read_text().splitlines() if line]
+        active_procedures,procedure_audit=current_procedures(procedures,passages)
+        counts['active_procedures.jsonl']=write_rows('active_procedures.jsonl',active_procedures)
+        counts['procedure_citation_audit.jsonl']=write_rows('procedure_citation_audit.jsonl',procedure_audit)
         counts['frame_references.jsonl']=write_rows('frame_references.jsonl',(
             {'source_id':row['source_id'],'chunk_id':row['id'],'locator':row['locator'],
              'start':row.get('metadata',{}).get('start'),'provider':row.get('metadata',{}).get('provider'),
@@ -72,12 +93,19 @@ def main():
                   'counts':counts,'files':checksums,'active_passages':len(active_ids),
                   'inactive_audit_passages':len(passages)-len(active_ids),
                   'retrieval_entrypoint':'active_passages.jsonl','audit_entrypoint':'passages.jsonl',
+                  'techniques':{'all_candidates':len(procedures),'current_citation_candidates':len(active_procedures),
+                     'stale_citation_candidates':len(procedure_audit),'retrieval_entrypoint':'active_procedures.jsonl',
+                     'audit_entrypoint':'procedure_citation_audit.jsonl',
+                     'verification':'Current citations confirm quoted source support, not independent reproduction or model-weight training.'},
                   'privacy':'Credential patterns are redacted; local home/app-data paths are replaced by portable labels. Chat/account/configuration databases are not included.',
                   'image_policy':'Cited visual descriptions and frame references are included. Raw screenshots have not been reviewed for embedded credentials and remain in the local Library.',
                   'snapshot_policy':'This is a consistent database snapshot. Active extraction may publish additional learning after exported_at; rerun export.py to refresh.',
                   'source_coverage':[{'source_id':source['id'],'title':source.get('title'),'status':source.get('status'),
                      'media_control':source.get('media_control'),'indexed_passages':sum(row['source_id']==source['id'] and active(row) for row in passages),
                      'media_progress':source.get('media_progress'),'speech_coverage':source.get('speech_coverage'),
+                     'media_coverage':source.get('media_coverage'),
+                     'technique_candidates':sum(row['source_id']==source['id'] for row in procedures),
+                     'current_citation_candidates':sum(row['source_id']==source['id'] for row in active_procedures),
                      'scene_coverage':source.get('scene_coverage'),'warnings':source.get('warnings',[]),'extraction_notes':source.get('extraction_notes',[])} for source in sources]}
         (OUT/'manifest.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+'\n')
         (OUT/'README.md').write_text('''# Cited learning snapshot
@@ -85,6 +113,8 @@ def main():
 This directory contains the app's learned retrieval library at the timestamp in `manifest.json`.
 
 Use `active_passages.jsonl` for retrieval. Each passage retains its source ID, exact timestamp/page locator, model provenance, and correction metadata. `sources.jsonl` records processing coverage; unfinished extraction is explicitly marked.
+
+Use `active_procedures.jsonl` for extracted technique candidates whose supporting quotes still match active passages. `candidate_procedures.jsonl` preserves every candidate, including historical ones. `procedure_citation_audit.jsonl` identifies candidates with missing, superseded, rejected, or changed supporting passages. Current citations establish source support; they do not establish that a technique was independently reproduced.
 
 `passages.jsonl` also preserves rejected, superseded, and withdrawn descriptions for audit. Their metadata prevents them entering active retrieval. Graph nodes/edges, candidate procedures, manual corrections, experiments, reviewed research, and saved REA analysis evidence are exported in separate JSONL files.
 
