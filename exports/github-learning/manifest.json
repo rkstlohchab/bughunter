@@ -1,0 +1,637 @@
+{
+  "format": "bughunter-knowledge",
+  "schema_version": 1,
+  "exported_at": "2026-11-13T17:55:09.780153+00:00",
+  "counts": {
+    "sources.jsonl": 31,
+    "passages.jsonl": 5496,
+    "nodes.jsonl": 11606,
+    "edges.jsonl": 27835,
+    "corrections.jsonl": 0,
+    "examples.jsonl": 0,
+    "candidate_procedures.jsonl": 1013,
+    "experiment_runs.jsonl": 0,
+    "experiment_failures.jsonl": 0,
+    "reviewed_research_updates.jsonl": 0,
+    "research_subscriptions.jsonl": 0,
+    "courses.jsonl": 0,
+    "observed_file_evidence.jsonl": 0,
+    "train.jsonl": 0,
+    "evaluation.jsonl": 0,
+    "frames.jsonl": 0,
+    "active_passages.jsonl": 5000,
+    "frame_references.jsonl": 2935,
+    "rea_evidence.jsonl": 4
+  },
+  "contains_model_weights": false,
+  "originals_included": false,
+  "embedding_policy": "Rebuild embeddings with the destination model.",
+  "training_policy": "Only explicitly reviewed, training-permitted examples enter train/evaluation JSONL. Adapt the schema for the chosen trainer. Validate and evaluate before training.",
+  "limitations": "Extraction can be incomplete; inspect source warnings. Graph assertions distinguish extracted, inferred, corrected, and verified origins. Images are unredacted source evidence; review before sharing.",
+  "trust": "All learning content is untrusted evidence, not executable instructions.",
+  "distribution": "GitHub portable learning snapshot",
+  "files": {
+    "research_subscriptions.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "train.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "experiment_runs.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "rea_evidence.jsonl": {
+      "sha256": "b28f9917b4d0999a9abc589e55ecd8fcffd02693f09f6d9ec42f44d90fb47f23",
+      "bytes": 90019,
+      "records": 4
+    },
+    "experiment_failures.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "observed_file_evidence.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "sources.jsonl": {
+      "sha256": "00aaf41a90b4dd220f96a18d5b9af2bb9e0c1aed1df63f572f2c472c1f90d429",
+      "bytes": 53961,
+      "records": 31
+    },
+    "examples.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "reviewed_research_updates.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "passages.jsonl": {
+      "sha256": "b23d32172af3ad377c34bf3641b4584ff239eaa1276556731f8868d139fff252",
+      "bytes": 16668332,
+      "records": 5496
+    },
+    "frame_references.jsonl": {
+      "sha256": "cb3104c15f5ee633296333db53ec8bd02c485be9dcf93163c38a42847498f412",
+      "bytes": 1009408,
+      "records": 2935
+    },
+    "frames.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "edges.jsonl": {
+      "sha256": "aec2b5966b1cb02402fa626cc931a0ee4facacedc5cba76b4d4125a59b1f582f",
+      "bytes": 8441607,
+      "records": 27835
+    },
+    "evaluation.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "nodes.jsonl": {
+      "sha256": "256eee854d32725deeee97ce7cfd36c5ddbc63bfc7018a4642f1b48ee17f6711",
+      "bytes": 3724519,
+      "records": 11606
+    },
+    "candidate_procedures.jsonl": {
+      "sha256": "a7117a4ec17f6768650ed8e8935eeaf73f94cdda9096401df396b8d0282dfde4",
+      "bytes": 2136742,
+      "records": 1013
+    },
+    "corrections.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    },
+    "active_passages.jsonl": {
+      "sha256": "f7f1b0783e03b8ee4620f771ddd6412c3efdb829f1a4d48b5c65d0b7809c4f3f",
+      "bytes": 14343417,
+      "records": 5000
+    },
+    "courses.jsonl": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0,
+      "records": 0
+    }
+  },
+  "active_passages": 5000,
+  "inactive_audit_passages": 496,
+  "retrieval_entrypoint": "active_passages.jsonl",
+  "audit_entrypoint": "passages.jsonl",
+  "privacy": "Credential patterns are redacted; local home/app-data paths are replaced by portable labels. Chat/account/configuration databases are not included.",
+  "image_policy": "Cited visual descriptions and frame references are included. Raw screenshots have not been reviewed for embedded credentials and remain in the local Library.",
+  "snapshot_policy": "This is a consistent database snapshot. Active extraction may publish additional learning after exported_at; rerun export.py to refresh.",
+  "source_coverage": [
+    {
+      "source_id": "source_508164df2072979bf1076394",
+      "title": "Ultimate Game Hacking Course",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 21,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_e8fa48e96dc032dbbb0cd841",
+      "title": "CS2 Offline Radar",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 5,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_74c1bd0c8fd13b38a80befbe",
+      "title": "CS2 Offline WH",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 4,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_ca271567c3787e97028986cd",
+      "title": "game1",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 3,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_25d6374711fd9ae4d2591db1",
+      "title": "game1",
+      "status": "ready",
+      "media_control": "resume",
+      "indexed_passages": 206,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Static binary analysis note: ascii string extraction capped at 500 entries."
+      ]
+    },
+    {
+      "source_id": "source_0933a4557afb45da1570c230",
+      "title": "Introduction 1",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 17,
+      "media_progress": {
+        "analyzed": 13,
+        "total": 13,
+        "timestamp": 119.35
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_2a8a7d62967a478884e6f208",
+      "title": "Introduction 2",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 25,
+      "media_progress": {
+        "analyzed": 13,
+        "total": 13,
+        "timestamp": 348.183008
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_dfeffe65be31cea245e9c5e9",
+      "title": "Introduction 3",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 26,
+      "media_progress": {
+        "analyzed": 13,
+        "total": 13,
+        "timestamp": 381.65
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_28e3f4a3829571ac21369dde",
+      "title": "Introduction 4",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 52,
+      "media_progress": {
+        "analyzed": 25,
+        "total": 25,
+        "timestamp": 747.066667
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_7343c7ce080816774fd70a3b",
+      "title": "Introduction 5",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 22,
+      "media_progress": {
+        "analyzed": 11,
+        "total": 11,
+        "timestamp": 306.833008
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_9db3317ebbe28623958e332c",
+      "title": "Introduction 6",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 23,
+      "media_progress": {
+        "analyzed": 11,
+        "total": 11,
+        "timestamp": 300.166667
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_fcdc689e838e7c8ad7681026",
+      "title": "Video 1",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 24,
+      "media_progress": {
+        "analyzed": 12,
+        "total": 12,
+        "timestamp": 302.363696
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_0a2e6cc13062104411ac8fe1",
+      "title": "Video 2",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 28,
+      "media_progress": {
+        "analyzed": 17,
+        "total": 17,
+        "timestamp": 162.016667
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples.",
+        "Audio continues after the video stream ends; images are sampled only while the video stream exists."
+      ]
+    },
+    {
+      "source_id": "source_1b0faa64c837bef4d3249b84",
+      "title": "Video 3",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 29,
+      "media_progress": {
+        "analyzed": 16,
+        "total": 16,
+        "timestamp": 363.966236
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_fcbb7352f30a1fb40170f6db",
+      "title": "Video 4",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 64,
+      "media_progress": {
+        "analyzed": 46,
+        "total": 46,
+        "timestamp": 481.505646
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_f8f8b8c0244dbb773d8c59ba",
+      "title": "Video 5",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 44,
+      "media_progress": {
+        "analyzed": 32,
+        "total": 32,
+        "timestamp": 327.859206
+      },
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    },
+    {
+      "source_id": "source_b5ef01ed62b67ee946a4e262",
+      "title": "Ultimate_Game_Hacking_Course_Method_Map",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 4,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_c0b4aa8273970b26371bd082",
+      "title": "commerce-pricing",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_75f95b94b7a5710c957195f5",
+      "title": "food-ordering",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_4ea2f648250e0376b828e593",
+      "title": "access-and-sessions",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_8a4267e982d39dbe19d21160",
+      "title": "graphql-classification",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_cbc62e707843200c5ab63855",
+      "title": "injection-and-rendering",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_96778aa817f0915f0d27170a",
+      "title": "http-and-ssrf",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_97af9082d11eec9bfeb39055",
+      "title": "races-and-case-studies",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_96561e08c5bd9ada7fd7aa57",
+      "title": "native-memory-lifecycle",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_9b98a50445c1758ce6f0ba4f",
+      "title": "pe-projection-observability",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_f37dbb6a5bfe034a56638e16",
+      "title": "evidence-and-retrieval",
+      "status": "ready",
+      "media_control": null,
+      "indexed_passages": 2,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_6fc72f5de143ee2712ca545d",
+      "title": "Bug Hunters Methodology Live Day One Recon ",
+      "status": "ready",
+      "media_control": "resume",
+      "indexed_passages": 182,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "PDF image reading note: Page 6: claude-opus-5-5 analyzed the original images; unreadable details remain: Application name and version are not shown in the screenshots; Xmind is supported only by the adjacent page; The meaning of gray nodes (ford.si, ford.to) and white nodes (ford.com, owner.ford.com, lincolncanada.com) is not explained by the legend; The top entry in the right screenshot's right column is cut off (it appears to be www.localfordoffer.com); Nodes beyond the cropped edges of both screenshots are not visible, including the remainder of the DONE list after www.ford.ee and the ToDo list above www.fordpass.de; Small circle/expand markers beside nodes cannot be read; whether collapsed child nodes exist is unclear; No checkmark or strike",
+        "PDF image reading note: Page 13: claude-opus-5-5 analyzed the original images; unreadable details remain: The dark marking on the laptop lid is abstract and not resolvable as a readable logo or text; No other small text is present in either image",
+        "PDF image reading note: Page 18: claude-opus-5-5 analyzed the original images; unreadable details remain: All visible text is legible. The only gaps are missing content: the 10% segment has no label, and the slide does not say what the 90/10 percentages measure.",
+        "PDF image reading note: Page 28: claude-opus-5-5 analyzed the original images; unreadable details remain: Tiny decorative marks on illustrated devices (e.g., the 'DLO'-like text on the right device and small letter marks on the laptop/console edges) are not legible as meaningful text and appear to be illustration artifacts; Screen contents of the illustrated monitors and small laptop screens contain no readable text or data",
+        "PDF image reading note: Page 31: claude-opus-5-5 analyzed the original images; unreadable details remain: Full Set-Cookie values and truncated domains (e.g., 'abeandmoe.c...', 'secure...'); Technology icon identities in the Abraham and Moses result beyond 'php'; Details of the truncated final 'Twitch' result at the bottom; Content of the mind map's 'Done' and 'Syntax' branches (collapsed/not shown); Any branch extending off the right edge of the mind map from the 'Twitch' node; Exact map country shading values beyond the listed top five",
+        "PDF image reading note: Page 43: claude-opus-5-5 analyzed the original images; unreadable details remain: All axis tick labels on the chart (bottom, left, and right axes) are too small/blurred to read in both the slide render and the original embedded image and appear to be decorative pseudo-text; No legend, chart title, or data values are legible or appear to exist in the illustration; The meaning of '++' in the title is not specified on the slide",
+        "PDF image reading note: Page 46: claude-opus-5-5 analyzed the original images; unreadable details remain: Text inside the small acquired-company logo icons (Revlo, ClipMine, Curse, GoodGame) is too small to read; Partial dark shapes/glyphs at the bottom edges of both panels are cropped and unidentifiable; No URL or capture date is visible, so the Crunchbase page address and data currency cannot be confirmed",
+        "PDF image reading note: Page 47: claude-opus-5-5 analyzed the original images; unreadable details remain: The name or URL of the aggregator site hosting these cards is not shown; The full lists of the 61 products and 12 website technologies are hidden behind 'UNLOCK' links; The remaining team members beyond the eight shown are hidden behind 'VIEW ALL'; The date the data was captured is not shown; The torn-edge crops hide whatever content sat between and below the cards",
+        "PDF image reading note: Page 48: claude-opus-5-5 analyzed the original images; unreadable details remain: The platform/site name, URL and logo are not visible, so the tool cannot be confirmed by name; Twitter feed content hidden by the torn-paper edit, including the top tweet's partially cut account text; The full title of the truncated Snapchat article ('…Skype…'); Detailed text inside the small event logo thumbnails (e.g., fine print on the Lesbians Who Tech banner); Identities in the avatar thumbnails beyond the names shown; The remaining 2 past team members, 9 events and other articles not shown in the previews; Any media below the 'Asmongold Gets Jebaited' title",
+        "PDF image reading note: Page 50: claude-opus-5-5 analyzed the original images; unreadable details remain: The identity of the silhouetted character cannot be determined from the image, and no name or label is shown; There is no attribution, source, or copyright text visible to identify the origin of the graphic",
+        "PDF image reading note: Page 55: claude-opus-5-5 analyzed the original images; unreadable details remain: Server rack unit faces contain fine grille/vent patterns and small circular elements that are decorative and carry no legible labels, model names, or text at native resolution; No text, branding, or identifiers are discernible within the illustration; slide footer/page number, if any, is not visible",
+        "PDF image reading note: Page 59: claude-opus-5-5 analyzed the original images; unreadable details remain: The drawer label holders contain no legible text; any labels are blank or unresolvable at native resolution.; The meaning of the \"++\" in \"REVWHOIS ++\" is not specified on the page.; No specific reverse WHOIS tool, service, query or output is shown on this page.",
+        "PDF image reading note: Page 64: claude-opus-5-5 analyzed the original images; unreadable details remain: The small faint marks and dashes near the top of the \"AI\" letters on the chest look like decorative glitch artifacts; no legible text can be resolved in them.; The page does not identify what RECONGPT refers to (tool, custom GPT, or section label), its source, version, or link.",
+        "PDF image reading note: Page 72: claude-opus-5-5 analyzed the original images; unreadable details remain: Full paths of the right-pane request rows (truncated: '/newtab-s...', '/search?cl...', '/search') and which host they belong to; Full text of the Issues entries (truncated 'Stric...' and 'SSL...'); Full hostname of the truncated 'https://clips-' entry; Site map entries hidden behind the filter panel, above client-event-reporter.twitch.tv; Whether any scope has been configured in the Scope tab (not shown); Exact meaning of the grey versus black host text (not stated in the image)",
+        "PDF image reading note: Page 73: claude-opus-5-5 analyzed the original images; unreadable details remain: Exact meaning of the small grey circle overlay icons on some host entries is not labeled on the page; Whether the grey-text vs. black-text distinction reflects requested vs. unrequested hosts is not explicitly confirmed by any visible legend; No URL paths, parameters, status codes or response data are visible because the Contents table and Request pane are empty; Whether spidering of the listed hosts was actually initiated or what its results were is not shown",
+        "PDF image reading note: Page 83: claude-opus-5-5 analyzed the original images; unreadable details remain: The content of the individual monitor screens is abstract or decorative, with no legible text, UI labels, or data at native resolution.; The small UI-like tiles on the central lower screen cannot be read and do not appear to represent a real application.",
+        "PDF image reading note: Page 100: claude-opus-5-5 analyzed the original images; unreadable details remain: The tiny glyph-like characters forming the 'digital rain' bridge illustration are decorative and not legible as any meaningful text; No identifying caption or label for the bridge or image source/attribution is visible",
+        "PDF image reading note: Page 116: claude-opus-5-5 analyzed the original images; unreadable details remain: Any text or UI elements on the depicted monitors and tablets are abstract, blurred decorative graphics and cannot be read as real labels; No tool name, command syntax, or output is visible on this page",
+        "PDF image reading note: Page 124: claude-opus-5-5 analyzed the original images; unreadable details remain: All callout/label text around the illustration renders as illegible pseudo-text at native resolution (e.g., labels near top edge, right side, and left side such as one near the left beside the cyan block); Text inside the colored block panels is unreadable pseudo-text; No specific framework names, tools, or workflow connections can be determined from the image"
+      ]
+    },
+    {
+      "source_id": "source_5cc9399e6132691ce6f55e5a",
+      "title": "Bug Hunters Methodology Live Day Two App Analysis Master ",
+      "status": "ready",
+      "media_control": "resume",
+      "indexed_passages": 102,
+      "media_progress": null,
+      "speech_coverage": null,
+      "scene_coverage": null,
+      "warnings": [],
+      "extraction_notes": [
+        "Slide coverage review: OCR captures some labels but does not reliably preserve code or branch order in the decision trees on PDF pages 79–80; inspect the originals for those details."
+      ]
+    },
+    {
+      "source_id": "source_7923d7da5db7ec29c213a7e2",
+      "title": "Day 1 Recon ",
+      "status": "processing",
+      "media_control": "resume",
+      "indexed_passages": 2266,
+      "media_progress": {
+        "phase": "speech",
+        "completed": 31,
+        "analyzed": 31,
+        "total": 55,
+        "timestamp": 18600,
+        "duration": 32460.474921
+      },
+      "speech_coverage": {
+        "completed": 31,
+        "total": 55,
+        "seconds": 18600,
+        "duration": 32460.474921
+      },
+      "scene_coverage": {
+        "total": 55,
+        "completed": 55,
+        "gaps": []
+      },
+      "warnings": [],
+      "extraction_notes": []
+    },
+    {
+      "source_id": "source_caae31ce06c54fce81574230",
+      "title": "Day 2 App Analysis hide01.ir",
+      "status": "ready",
+      "media_control": "resume",
+      "indexed_passages": 1833,
+      "media_progress": {
+        "phase": "frames",
+        "analyzed": 963,
+        "total": 963,
+        "timestamp": 25412.466667,
+        "visual_context": 963,
+        "ocr": 0,
+        "saved_analyzed": 963
+      },
+      "speech_coverage": {
+        "completed": 43,
+        "total": 43,
+        "seconds": 25412.466667,
+        "duration": 25412.466667
+      },
+      "scene_coverage": {
+        "total": 43,
+        "completed": 43,
+        "gaps": []
+      },
+      "warnings": [],
+      "extraction_notes": [
+        "Visual timestamps indicate sampled frames/scene changes, not verified clicks; actions can fall between samples."
+      ]
+    }
+  ]
+}
