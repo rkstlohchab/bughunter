@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bughunter.local/contracts/game_runtime/game_session.schema.json",
+  "title": "GameSession",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "target_id",
+    "harness_session_id",
+    "session_generation",
+    "stop_generation",
+    "process_instance_id",
+    "knowledge_collection_ids",
+    "state",
+    "last_error"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "target_id": {"type": "string"},
+    "harness_session_id": {"type": "string"},
+    "session_generation": {"type": "integer", "minimum": 0},
+    "stop_generation": {"type": "integer", "minimum": 0},
+    "process_instance_id": {"type": "string"},
+    "knowledge_collection_ids": {"type": "array", "items": {"type": "string"}},
+    "state": {
+      "enum": ["idle", "starting", "running", "stopping", "stopped", "failed", "interrupted"]
+    },
+    "last_error": {"type": ["string", "null"]}
+  }
+}

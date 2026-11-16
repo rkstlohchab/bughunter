@@ -85,7 +85,8 @@ def _check_build() -> dict:
             checks[name] = True
         except Exception:
             checks[name] = hint
-    among = Path("/Applications/Among Us.app")
+    wrapped = Path("/Applications/AmongUs.app/Wrapper/AmongUs.app")
+    among = wrapped if wrapped.is_dir() else Path("/Applications/Among Us.app")
     checks["among_us_installed"] = among.exists()
     missing = [k for k, v in checks.items() if v not in (True,)]
     return envelope("mac_appstore_memory_esp",

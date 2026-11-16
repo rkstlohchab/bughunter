@@ -1,0 +1,22 @@
+{
+  "id": "op_succeeded_without_request_hash",
+  "request_hash": "",
+  "session_id": "session_01",
+  "session_generation": 1,
+  "stop_generation": 0,
+  "process_instance_id": "proc_x",
+  "target_fingerprint": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445",
+  "kind": "write",
+  "effect_class": "mutating",
+  "arguments": {"address": "mod:UnityFramework+0x12345", "value": "0x0"},
+  "preconditions": [],
+  "status": "succeeded",
+  "revision": 4,
+  "executor_id": "executor_rust_01",
+  "executor_epoch": 1,
+  "lease_expires_at": null,
+  "attempt_id": "attempt_01",
+  "result": {"ok": true},
+  "error": null,
+  "evidence_ids": []
+}

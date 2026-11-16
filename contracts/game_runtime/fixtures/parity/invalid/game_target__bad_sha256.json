@@ -1,0 +1,15 @@
+{
+  "id": "target_bad_sha256",
+  "game_id": "among_us",
+  "platform": "macos",
+  "runtime": "il2cpp",
+  "architecture": "arm64",
+  "pointer_width": 8,
+  "executable_or_package": "/Applications/AmongUs.app",
+  "version": "2026.11.3",
+  "build_fingerprint": {
+    "sha256_main": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a"
+  },
+  "modules": [],
+  "capabilities": []
+}

@@ -63,8 +63,13 @@ export function gameLabPrefix(message: string): string | undefined {
 }
 export function wantsGameLab(message: string, scopedThread = false): boolean {
   if (gameLabPrefix(message) || /\bgamelab\b/i.test(message)) return true;
-  // Learning and local model setup remain ordinary chat even after a game thread.
-  if (/\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model)|ollama|whisper|learn rust|rust programming)\b/i.test(message)) return false;
+  // An active game task stays attached when the operator mentions the
+  // uploaded course or indexed library; those references are passed
+  // through as knowledge-aware investigation context. Only outside a
+  // scoped thread do learning/setup queries fall back to ordinary chat.
+  const explicitGameTask = /\b(?:among us|codm|bgmi|pubg|valorant|cs2|fortnite)\b/i.test(message) && /\b(?:cooldown|esp|cheat|mod|health|pointer)\b/i.test(message);
+  if (explicitGameTask || /\b(?:test|check)\b.{0,50}\bgame runtime\b/i.test(message)) return true;
+  if (!scopedThread && /\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model)|ollama|whisper|learn rust|rust programming)\b/i.test(message)) return false;
   if (scopedThread) return true;
   const game = /\b(?:cod|codm|call of duty|valorant|cs2|counter-strike|bgmi|pubg|fortnite|apex legends|tarkov|warzone|among us|dayz|fivem|rust game)\b/i;
   const mechanic = /\b(?:aimbot|esp|wallhack|triggerbot|cheat|no recoil|mod menu|anticheat|anti-cheat|remove cooldown|cooldown removal)\b/i;

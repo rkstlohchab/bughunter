@@ -1,0 +1,12 @@
+{
+  "id": "feature_run_bad_state",
+  "session_id": "session_01",
+  "feature_id": "among_us_no_cooldown",
+  "recipe_revisions": [1],
+  "configuration": {},
+  "state": "running_fast",
+  "readback_status": "pending",
+  "behavior_status": "pending",
+  "cleanup_status": "pending",
+  "evidence_ids": []
+}

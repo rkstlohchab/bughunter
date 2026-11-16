@@ -336,7 +336,11 @@ class GameLabService:
                 game=p["game"],
                 stack=p.get("stack"),
                 notes=p.get("notes", ""),
+                knowledge_project_ids=p.get("knowledge_project_ids", []),
+                target_platform=p.get("target_platform", "unknown"),
             )
+        if method == "gamelab.bind_knowledge":
+            return self.bind_knowledge(p["project_id"], p.get("knowledge_project_ids", []), p.get("target_platform", "unknown"))
         if method == "gamelab.list_projects":
             return {"projects": self._list_projects()}
         if method == "gamelab.get_project":
@@ -433,16 +437,24 @@ class GameLabService:
     # -------- projects ---------------------------------------------------
 
     def create_project(self, name: str, game: str,
-                        stack: str | None = None, notes: str = "") -> dict:
+                        stack: str | None = None, notes: str = "",
+                        knowledge_project_ids: list[str] | None = None,
+                        target_platform: str = "unknown") -> dict:
         if game not in GAME_PROFILES:
             raise ValueError(f"unknown game: {game}")
         if stack is not None and stack not in STACKS:
             raise ValueError(f"unknown stack: {stack}")
+        links = knowledge_project_ids or []
+        if not isinstance(links, list) or any(not isinstance(p, str) or not self.store.get("project", p) for p in links):
+            raise ValueError("Choose existing library projects for knowledge binding.")
+        if target_platform not in {"unknown", "windows", "macos", "linux", "android", "ios"}:
+            raise ValueError("Unknown target platform.")
         pid = new_id("cproj")
         rec = {
             "id": pid, "name": name, "game": game, "stack": stack,
             "notes": notes, "status": "active", "created_at": now(),
-            "recipes": [],
+            "recipes": [], "knowledge_project_ids": sorted(set(links)),
+            "target_platform": target_platform,
         }
         self.store.put("cheat_project", rec, id=pid)
         self._emit_timeline("create_project", payload={"id": pid, "game": game,
@@ -778,12 +790,34 @@ class GameLabService:
 
     # -------- multi-turn chat with the guide ------------------------------
 
+    def bind_knowledge(self, project_id: str, knowledge_project_ids: list[str], target_platform: str) -> dict:
+        project = self._get_project(project_id)
+        if not isinstance(knowledge_project_ids, list) or any(not isinstance(p, str) or not self.store.get("project", p) for p in knowledge_project_ids):
+            raise ValueError("Choose existing library projects for knowledge binding.")
+        if target_platform not in {"unknown", "windows", "macos", "linux", "android", "ios"}:
+            raise ValueError("Unknown target platform.")
+        project = {**project, "knowledge_project_ids": sorted(set(knowledge_project_ids)), "target_platform": target_platform}
+        return self.store.put("cheat_project", project, id=project_id)
+
+    def _knowledge_draft(self, session_id: str, message: str, project_id: str | None):
+        from .library_context import LibraryContext
+        project = self._get_project(project_id) if project_id else {}
+        # Game projects are not library projects. Only explicit links grant access.
+        projects = project.get("knowledge_project_ids", [])
+        target_platform = project.get("target_platform", "unknown")
+        knowledge = getattr(self.app, "knowledge", None)
+        if knowledge is None:
+            return None, "\nCourse evidence unavailable: knowledge library is not configured."
+        return LibraryContext(knowledge).game_task_context(message, session_id, projects, target_platform)
+
     def chat_start(self, project_id: str | None, message: str) -> dict:
         """Start a multi-turn thread with the GameLab guide. Loads the
         game-cheat-ops runtime prompt + current project/hardware context,
         then kicks off an OperatorAgent run. Use ``chat_send`` to continue
         on the same run_id."""
-        runtime_prompt = _load_runtime_prompt()
+        knowledge_session = new_id("game_knowledge_session")
+        plan, knowledge_context = self._knowledge_draft(knowledge_session, message, project_id)
+        runtime_prompt = _load_runtime_prompt() + knowledge_context
         ctx_lines = ["# GameLab session context", ""]
         if project_id:
             proj = self._get_project(project_id)
@@ -797,6 +831,8 @@ class GameLabService:
         run = self.app.operator.start(prompt=message,context=full_prompt.split('# Operator message')[0],
                                        objective=f"gamelab:{project_id or 'adhoc'}",
                                        approved=True)
+        self.store.put("game_knowledge_session", {"id": run["id"], "session_id": knowledge_session,
+                       "project_id": project_id, "plan_id": plan["id"] if plan else None}, id=run["id"])
         self._emit_timeline("chat_start",
                             payload={"run_id": run.get("id"),
                                      "project_id": project_id})
@@ -805,7 +841,18 @@ class GameLabService:
 
     def chat_send(self, run_id: str, message: str) -> dict:
         """Continue an existing gamelab chat thread."""
-        rec = self.app.operator.send(id=run_id, message=message)
+        link = self.store.get("game_knowledge_session", run_id)
+        if not link:
+            record = self.app.operator.get(id=run_id)
+            objective = str((record or {}).get("objective", ""))
+            if not objective.startswith("gamelab:"):
+                raise ValueError("This run is not a GameLab thread.")
+            project_id = objective[len("gamelab:"):]
+            link = {"id": run_id, "session_id": new_id("game_knowledge_session"),
+                    "project_id": None if project_id == "adhoc" else project_id}
+        plan, context = self._knowledge_draft(link["session_id"], message, link.get("project_id"))
+        rec = self.app.operator.send(id=run_id, message=message, reference_context=context)
+        self.store.put("game_knowledge_session", {**link, "plan_id": plan["id"] if plan else None}, id=run_id)
         return {"run_id": run_id, "status": rec.get("status")}
 
     def chat_get(self, run_id: str) -> dict:

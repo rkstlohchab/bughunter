@@ -25,6 +25,8 @@ import subprocess
 import sys
 import threading
 import time
+import tempfile
+from pathlib import Path
 
 K_MAX_READ = 65536
 K_MAX_WRITE = 4096
@@ -271,9 +273,27 @@ def make_backend():
 
 # ------------------------------------------------------------------ session
 
+class ProcessLease:
+    """PID-scoped OS lock interoperable with the backend memory engine."""
+    def __init__(self, pid):
+        import fcntl
+        root = Path(tempfile.gettempdir()) / "bughunter-memory-owners"
+        root.mkdir(mode=0o700, exist_ok=True)
+        self.file = (root / f"{pid}.lock").open("a+b")
+        try:
+            fcntl.flock(self.file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            self.file.close()
+            raise MemError(f"target process {pid} is busy in another memory owner") from exc
+
+    def close(self):
+        self.file.close()
+
+
 class Session:
     def __init__(self):
         self.backend = None
+        self.lease = None
         self.pid = None
         self.lock = threading.RLock()
         self.scan = None  # dict(type, size, align, values={addr: bytes}, truncated)
@@ -296,9 +316,17 @@ class Session:
             raise ValueError("refusing to attach to the MCP server itself")
         with self.lock:
             self.detach()
-            backend = make_backend()
-            backend.open(pid)
-            self.backend, self.pid = backend, pid
+            lease = ProcessLease(pid)
+            backend = None
+            try:
+                backend = make_backend()
+                backend.open(pid)
+            except BaseException:
+                if backend is not None:
+                    backend.close()
+                lease.close()
+                raise
+            self.backend, self.pid, self.lease = backend, pid, lease
 
     def detach(self):
         with self.lock:
@@ -306,9 +334,13 @@ class Session:
             self.frozen.clear()
             self.scan = None
             self.mapping_scans.clear()
-            if self.backend is not None:
-                self.backend.close()
-            self.backend, self.pid = None, None
+            try:
+                if self.backend is not None:
+                    self.backend.close()
+            finally:
+                if self.lease is not None:
+                    self.lease.close()
+                self.backend, self.pid, self.lease = None, None, None
 
     # --- freeze loop
     def ensure_freezer(self):

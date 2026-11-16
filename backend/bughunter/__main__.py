@@ -31,7 +31,9 @@ def response(app, request):
 
 def stdio(app):
     output_lock = threading.Lock()
+    closing = threading.Event()
     def handle(line):
+        if closing.is_set():return
         try:
             value = response(app,json.loads(line))
         except json.JSONDecodeError:
@@ -46,8 +48,13 @@ def stdio(app):
                 continue
             pool.submit(handle,line)
     finally:
-        app.shutdown()
-        pool.shutdown(wait=True,cancel_futures=True)
+        closing.set()
+        # Queued work cannot start during teardown. In-flight requests finish
+        # before shared services close; the native owner stops its executor first.
+        try:
+            pool.shutdown(wait=True,cancel_futures=True)
+        finally:
+            app.shutdown()
 
 
 def http_server(app,port,token):
@@ -92,6 +99,8 @@ def http_server(app,port,token):
                 request = json.loads(self.rfile.read(size))
             except (ValueError,json.JSONDecodeError):
                 return self.send(400,{"error":"Invalid JSON request"})
+            if isinstance(request,dict) and str(request.get('method','')).startswith('gamelab.native.'):
+                return self.send(403,{'error':'Native methods require the private desktop bridge.'})
             self.send(200,response(app,request))
     class LocalRPCServer(ThreadingHTTPServer):
         # The UI loads its collections concurrently. The default five-slot
@@ -114,18 +123,24 @@ def main():
     mode.add_argument("--mcp",action="store_true")
     mode.add_argument("--team-mcp",action="store_true")
     mode.add_argument("--gateway",action="store_true")
+    mode.add_argument("--memory-engine",action="store_true")
     parser.add_argument("--port",type=int,default=None)
     parser.add_argument("--run-id")
     parser.add_argument("--team-id")
     parser.add_argument("--agent-id")
     parser.add_argument("--data-dir")
     args = parser.parse_args()
+    if args.memory_engine:
+        from .memory_engine.__main__ import main as memory_main
+        raise SystemExit(memory_main())
     if args.gateway:
         from .gateway import run_gateway
         from .store import Store
         asyncio.run(run_gateway(Store(args.data_dir),args.port or 8091))
         return
-    app = Application(args.data_dir,primary=not (args.mcp or args.team_mcp))
+    native_credential = os.environ.pop('BUGHUNTER_NATIVE_CREDENTIAL',None)
+    if args.http or args.mcp or args.team_mcp:native_credential=None
+    app = Application(args.data_dir,primary=not (args.mcp or args.team_mcp),native_credential=native_credential)
     def exit_cleanly(signum,frame):
         app.shutdown()
         raise SystemExit(0)

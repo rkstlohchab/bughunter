@@ -1,0 +1,2 @@
+session_generation
+session_generation must be a non-negative integer (>= 0); -1 is not a valid wire value.

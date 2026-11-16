@@ -1,0 +1,15 @@
+{
+  "id": "target_pointer_width_string",
+  "game_id": "among_us",
+  "platform": "macos",
+  "runtime": "il2cpp",
+  "architecture": "arm64",
+  "pointer_width": "4",
+  "executable_or_package": "/Applications/AmongUs.app",
+  "version": "2026.11.3",
+  "build_fingerprint": {
+    "sha256_main": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445"
+  },
+  "modules": [],
+  "capabilities": []
+}

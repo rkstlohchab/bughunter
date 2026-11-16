@@ -1,5 +1,17 @@
 # GameLab — operator-mode game cheat workbench
 
+For the proposed game runtime work, use the [agent implementation plan](agent-implementation-plan.md)
+and [phase manifest](phase-manifest.json). They define code ownership, research,
+phase outcomes and acceptance checks; they do not assert that those capabilities
+are already implemented or verified.
+
+Current implementation and review instructions are in
+[P04 review and handoff](P04-review-and-handoff.md). P04 connects Chat to durable
+native operations and has macOS fixture evidence. Human review and independent
+acceptance of the final P04 revision remain pending. The
+[P00–P03 handoff](P00-P03-final-handoff.md) records the prerequisite history;
+its instruction to start P04 is superseded by the P04 handoff.
+
 Parallel surface to the Investigation agent. Lives entirely in the
 forge/operator stack (per AGENTS.md §10 invariants — no cross-plumbing
 to the investigation agent). The investigation agent's `ModelTools` is
@@ -72,3 +84,49 @@ The investigation agent's §6 invariants are intact.
 Per AGENTS.md §11, autonomous mode is ON by default. GameLab recipes
 start without per-call approval. The operator can flip it off on a
 per-adapter basis via the operator panel's approval settings.
+
+## Progress log
+
+### 2026-11-14 — P00 (Contracts and verification harness) → ready_for_review
+
+Owner: role C (workflow synthesis). Reviewer: role V (adversarial
+audit collective; identity distinct from owner). Implementation
+revision: `8187f411ab50878cab555a88fcbe607af2cacc23`.
+
+- **P00.contracts — pass.** Pydantic + TypeScript + Rust contracts
+  share `CONTRACT_VERSION = 1`, snake_case wire format, and the
+  `AddressRepr` pattern that distinguishes `null`, `placeholder` and
+  `+0x0`. 45 pytest assertions, `npx tsc --noEmit` and
+  `cargo check --locked` all green. JSON schemas and round-trip
+  fixtures live under `contracts/game_runtime/`.
+- **P00.fixture — blocked.** 11 fixture tests pass; 4 oracle-dependent
+  tests skip on this macOS host because `task_for_pid` returns
+  `KERN_FAILURE` without the `com.apple.security.cs.debugger`
+  entitlement. Adversarial oracle audit items 1–4 confirm the oracle
+  is structurally independent of the fixture's control channel (no
+  import or call edge from `Oracle.read_*` into `Fixture.get`; a
+  control-lie of 777 is visible on the control channel while the
+  memory read sees the real 42). Audit item 5 fails: `oracle.py` has
+  no secondary macOS read path (no `lldb`/`vmmap`/signed-debugserver
+  fallback) when the entitlement is absent. Independence is preserved
+  — tests skip rather than silently pass — but coverage is unmet.
+- **P00.report_validator — pass.** 10/10 verifier tests green.
+  Adversarial forge attacks across 8 forged-report variants
+  (screenshot-only live-fixture evidence, sha256 mismatch,
+  reviewer==owner, missing required check field, depends_on without
+  the prerequisite run, `exit_code=1` with `result=pass`,
+  `schema_version=999` tamper, and a known-good sanity report) all
+  terminate with the expected exit code (1, 1, 1, 1, 2, 1, 1, 0).
+  Three hardening notes recorded in `report.json` as follow-ups.
+- **P00.baseline — pass.** `artifacts/game-verification/game-runtime-v1/P00/baseline/run.sh`
+  captured the five-regression ground state of HEAD; aggregate
+  `fail` recorded honestly because the backend pytest suite is
+  pre-existing red on `8187f41` (pytest log kept under
+  `logs/pytest.log`). `tests/test_baseline_report.py` validates the
+  shape of the baseline report.
+- **Phase status:** `ready_for_review`. `implementation_status`
+  cannot promote to `verified` and P01/P02/P03 cannot start until
+  the macOS oracle fallback (or codesigned test harness with
+  `get-task-allow`) lands and `P00.fixture` flips to `pass`.
+- **Run artifacts:** `artifacts/game-verification/game-runtime-v1/P00/run-001/`
+  (`report.json`, `manifest.json`, `commands.jsonl`).

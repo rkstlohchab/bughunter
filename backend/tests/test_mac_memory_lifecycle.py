@@ -1,148 +1,124 @@
-"""Native engine ownership and refused writes, with isolated Mach API doubles."""
-import ctypes
-import importlib.util
-from pathlib import Path
+"""Exercise the legacy facade against the adapter interface it owns."""
+import struct
 import threading
-from unittest.mock import patch
-
 import pytest
-
-
-class Function:
-    def __init__(self, implementation=lambda *args: 0):
-        self.implementation = implementation
-        self.calls = []
-
-    def __call__(self, *args):
-        self.calls.append(args)
-        return self.implementation(*args)
-
-
-class Mach:
-    def __init__(self):
-        self.functions = {}
-        self.task_for_pid.implementation = self.attach
-
-    def __getattr__(self, name):
-        return self.functions.setdefault(name, Function())
-
-    @staticmethod
-    def attach(owner, pid, result):
-        ctypes.cast(result, ctypes.POINTER(ctypes.c_uint))[0] = pid + 100
-        return 0
+from bughunter import mac_memory as module
+from bughunter.memory_engine.protocol import MemoryEngineError
 
 
 @pytest.fixture
 def native(monkeypatch):
-    library = Mach()
-    path = Path(__file__).resolve().parents[1] / 'bughunter/mac_memory.py'
-    spec = importlib.util.spec_from_file_location('mac_memory_lifecycle_fixture', path)
-    module = importlib.util.module_from_spec(spec)
-    with patch.object(ctypes, 'CDLL', return_value=library):
-        spec.loader.exec_module(module)
-    monkeypatch.setattr(module, '_mach_task_self', lambda: 10)
+    instances = []
+    class Adapter:
+        def __init__(self, pid):
+            self.pid, self.closed, self.writes = pid, 0, 0
+            self.fail = False
+            self.data = bytearray(struct.pack('<iiii', 99, 10, 99, 20))
+            self.entered = self.release = None
+            instances.append(self)
+        def write_value(self, address, value, vtype='int', verify=True):
+            self.writes += 1
+            if self.fail:
+                raise MemoryEngineError('write refused')
+            if self.entered is not None:
+                self.entered.set()
+                assert self.release.wait(2)
+            self.data[address-0x1000:address-0x1000+4] = struct.pack('<i', value)
+        def read_bytes(self, address, size):
+            return bytes(self.data[address-0x1000:address-0x1000+size])
+        def read_value(self, address, vtype='int'):
+            return struct.unpack('<i', self.read_bytes(address, 4))[0]
+        def regions(self, writable_only=False):
+            assert writable_only
+            return [(0x1000, len(self.data))]
+        def modules(self):
+            return [{'path':'/fixture', 'base':'0x1000'}]
+        def close(self):
+            self.closed += 1
+    monkeypatch.setattr(module, 'MacMemoryAdapter', Adapter)
     engine = module.MacMemory()
+    engine.available = True
     monkeypatch.setattr(engine, 'list_processes', lambda *_: [])
-    yield module, engine, library
+    yield engine, instances
     engine.shutdown()
 
 
-def test_refused_write_never_changes_protection_or_retries(native):
-    module, engine, library = native
+def test_refused_write_never_retries(native):
+    engine, adapters = native
     engine.attach(42)
-    library.mach_vm_write.implementation = lambda *_: 2
-    with pytest.raises(module.MemoryError_, match='Page permissions were not changed'):
+    adapters[0].fail = True
+    with pytest.raises(module.MemoryError_, match='write refused'):
         engine.write_value(42, 0x1000, 99)
-    assert len(library.mach_vm_write.calls) == 1
-    assert 'mach_vm_protect' not in library.functions
+    assert adapters[0].writes == 1
 
 
 def test_refused_initial_freeze_is_not_reported_active(native):
-    module, engine, library = native
+    engine, adapters = native
     engine.attach(42)
-    library.mach_vm_write.implementation = lambda *_: 2
-    with pytest.raises(module.MemoryError_, match='initial write failed'):
+    adapters[0].fail = True
+    with pytest.raises(module.MemoryError_, match='Cannot freeze'):
         engine.freeze(42, 0x1000, 99)
     assert engine._sessions[42].freezes == {}
-    assert len(library.mach_vm_write.calls) == 1
+    assert adapters[0].writes == 1
 
 
-def test_failed_process_discovery_releases_new_port(native, monkeypatch):
-    _, engine, library = native
+def test_failed_process_discovery_allocates_no_adapter(native, monkeypatch):
+    engine, adapters = native
     def fail(*_):
         raise RuntimeError('process listing failed')
     monkeypatch.setattr(engine, 'list_processes', fail)
     with pytest.raises(RuntimeError, match='listing failed'):
         engine.attach(42)
-    assert library.mach_port_deallocate.calls == [(10, 142)]
-    assert engine._sessions == {}
+    assert adapters == [] and engine._sessions == {}
 
 
-def test_reattach_detach_and_shutdown_release_each_owned_reference_once(native):
-    _, engine, library = native
+def test_reattach_detach_and_shutdown_release_each_owner_once(native):
+    engine, adapters = native
     engine.attach(42)
-    previous = engine._sessions[42]
     stop = threading.Event()
-    previous.freezes[0x1000] = stop
+    engine._sessions[42].freezes[0x1000] = stop
     engine.attach(42)
-    assert stop.is_set() and previous.task == 0
+    assert stop.is_set()
     engine.attach(43)
     engine.detach(42)
     engine.detach(42)
     engine.shutdown()
     engine.shutdown()
-    assert library.mach_port_deallocate.calls == [(10, 142), (10, 142), (10, 143)]
-    assert engine._sessions == {}
+    assert [a.closed for a in adapters] == [1, 1, 1]
 
 
-def test_region_enumeration_releases_returned_object_port(native):
-    module, engine, library = native
-    def region(task, address, size, flavor, info, count, object_name):
-        if len(library.mach_vm_region.calls) > 1:
-            return 1
-        ctypes.cast(address, ctypes.POINTER(ctypes.c_ulonglong))[0] = 0x1000
-        ctypes.cast(size, ctypes.POINTER(ctypes.c_ulonglong))[0] = 0x100
-        ctypes.cast(info, ctypes.POINTER(module._BasicInfo64))[0].protection = 3
-        ctypes.cast(object_name, ctypes.POINTER(ctypes.c_uint))[0] = 555
-        return 0
-    library.mach_vm_region.implementation = region
-    assert list(engine._regions(142)) == [(0x1000, 0x100)]
-    assert library.mach_port_deallocate.calls == [(10, 555)]
-
-
-def test_detach_waits_for_active_freeze_write_and_stops_worker(native, monkeypatch):
-    _, engine, library = native
+def test_scan_narrow_results_and_module_forwarding(native):
+    engine, adapters = native
     engine.attach(42)
-    entered, release, detached = threading.Event(), threading.Event(), threading.Event()
-    workers = []
-    original_thread = threading.Thread
-    def record_thread(*args, **kwargs):
-        thread = original_thread(*args, **kwargs)
-        workers.append(thread)
-        return thread
-    monkeypatch.setattr(threading, 'Thread', record_thread)
-    def write(*_):
-        if len(library.mach_vm_write.calls) == 2:
-            entered.set()
-            assert release.wait(2), 'test did not release the active write'
-        return 0
-    library.mach_vm_write.implementation = write
+    assert engine.scan(42, value=99)['matches'] == 2
+    engine.write_value(42, 0x1008, 100)
+    assert engine.next_scan(42, 'increased')['matches'] == 1
+    assert engine.results(42)['results'] == [{'address':'0x1008', 'value':100}]
+    assert engine.modules(42, 'fixture')['count'] == 1
+
+
+def test_detach_waits_for_active_freeze_write(native):
+    engine, adapters = native
+    engine.attach(42)
+    adapter = adapters[0]
     engine.freeze(42, 0x1000, 99)
-    assert entered.wait(2)
+    adapter.entered, adapter.release = threading.Event(), threading.Event()
+    assert adapter.entered.wait(2)
+    detached = threading.Event()
     def detach():
         engine.detach(42)
         detached.set()
-    closer = original_thread(target=detach)
-    closer.start()
+    worker = threading.Thread(target=detach)
+    worker.start()
     try:
         assert not detached.wait(.05)
-        assert library.mach_port_deallocate.calls == []
+        assert adapter.closed == 0
     finally:
-        release.set()
-        closer.join(2)
-        for thread in workers:
-            thread.join(2)
-    assert detached.is_set()
+        adapter.release.set()
+        worker.join(2)
+    assert detached.is_set() and adapter.closed == 1
+    workers = [t for t in threading.enumerate() if t.name == "freeze-42-1000"]
+    for thread in workers:
+        thread.join(1)
     assert all(not thread.is_alive() for thread in workers)
-    assert len(library.mach_vm_write.calls) == 2
-    assert library.mach_port_deallocate.calls == [(10, 142)]
+    assert adapter.writes == 2

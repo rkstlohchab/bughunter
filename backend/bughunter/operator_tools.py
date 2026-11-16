@@ -61,8 +61,108 @@ class OperatorTools:
         if run and run.get('harness_id'):
             session=self.app.harness.check(run['harness_id'])
             from .harness_modes import READ_TOOLS
-            return [s for s in self.TOOL_SPECS if TOOL_CAPABILITIES.get(s['name']) in session['grants'] and (session.get('execution_mode')!='plan' or s['name'] in READ_TOOLS)]
+            return [s for s in self.TOOL_SPECS if (session.get('mode')=='game' or not s['name'].startswith('game_')) and TOOL_CAPABILITIES.get(s['name']) in session['grants'] and (session.get('execution_mode')!='plan' or s['name'] in READ_TOOLS)]
         return [s for s in self.TOOL_SPECS if s['name'] not in HARNESS_TOOLS]
+
+    def _game_task(self,name):
+        self.authorize(name)
+        run=self.check();task=self.app.harness.check(run['harness_id'])
+        if task.get('mode')!='game':raise PermissionError('Game tools require a game task.')
+        return task['id']
+
+    def game_targets(self):
+        self._game_task('game_targets');return self.app.game_runtime.targets()
+
+    def game_session(self,target_id,pid=None):
+        return self.app.game_runtime.start_session(self._game_task('game_session'),target_id,pid)
+
+    def game_fixture(self):
+        return self.app.game_runtime.fixture(self._game_task('game_fixture'))
+
+    def game_read(self,session_id,address,vtype='uint'):
+        return self.app.game_runtime.read(session_id,address,vtype,self._game_task('game_read'))
+
+    def game_write(self,session_id,read_operation_id,value,restore_on_stop=False):
+        return self.app.game_runtime.write(session_id,read_operation_id,value,self._game_task('game_write'),restore_on_stop)
+
+    def game_status(self):
+        return self.app.game_runtime.status(self._game_task('game_status'))
+
+    def game_stop(self,session_id):
+        return self.app.game_runtime.stop(session_id,self._game_task('game_stop'))
+
+    def game_feature_stop(self,session_id,feature_id):
+        return self.app.game_runtime.stop(session_id,self._game_task('game_feature_stop'),feature_id)
+
+    def game_scan_refine(self,session_id,scan_id,refinement,needle=None,byte_pattern=None):
+        return self.app.game_runtime.scan_control(session_id,scan_id,mode='refine',refinement=refinement,needle=needle,byte_pattern=byte_pattern,harness_id=self._game_task('game_scan_refine'))
+
+    def game_scan_results(self,session_id,scan_id,cursor=None):
+        return self.app.game_runtime.scan_control(session_id,scan_id,cursor=cursor,harness_id=self._game_task('game_scan_results'))
+
+    def game_scan_close(self,session_id,scan_id):
+        return self.app.game_runtime.scan_control(session_id,scan_id,mode='close',harness_id=self._game_task('game_scan_close'))
+
+    def game_pointer_search(self,session_id,address,depth=6,offset_window=4096):
+        return self.app.game_runtime.pointer_search(session_id,address,depth=depth,offset_window=offset_window,harness_id=self._game_task('game_pointer_search'))
+
+    def game_mapping_export(self,session_id,recipe_ids=None):
+        return self.app.game_runtime.mapping_export(session_id,recipe_ids,harness_id=self._game_task('game_mapping_export'))
+
+    def game_mapping_import(self,session_id,payload):
+        return self.app.game_runtime.mapping_import(session_id,payload,harness_id=self._game_task('game_mapping_import'))
+
+    def game_mapping_save(self,session_id,name,root,steps,value_type,preconditions=None,evidence_ids=None):
+        return self.app.game_runtime.mapping_save(
+            session_id, name=name, root=root, steps=list(steps or []),
+            value_type=value_type, preconditions=list(preconditions or []),
+            evidence_ids=list(evidence_ids or []),
+            harness_id=self._game_task('game_mapping_save'),
+        )
+
+    def game_mapping_list(self,session_id):
+        return self.app.game_runtime.mapping_list(
+            session_id, harness_id=self._game_task('game_mapping_list'),
+        )
+
+    def game_mapping_revalidate(self,session_id,recipe_id):
+        return self.app.game_runtime.mapping_revalidate(
+            session_id, recipe_id,
+            harness_id=self._game_task('game_mapping_revalidate'),
+        )
+
+    def game_mapping_observe(self,session_id,recipe_id,operation_id):
+        return self.app.game_runtime.mapping_observe(
+            session_id, recipe_id, operation_id,
+            harness_id=self._game_task('game_mapping_observe'),
+        )
+
+    def game_scan(self,session_id,value_type,mode,needle=None,low=None,high=None,byte_pattern=None):
+        return self.app.game_runtime.scan_start(
+            session_id, value_type=value_type, mode=mode,
+            needle=needle, low=low, high=high, byte_pattern=byte_pattern,
+            harness_id=self._game_task('game_scan'),
+        )
+
+    def game_candidate_search(self,session_id,kind='player_control',cooldown_hint=None,max_candidates=32):
+        return self.app.game_runtime.candidate_search(
+            session_id, kind=kind, cooldown_hint=cooldown_hint,
+            max_candidates=int(max_candidates),
+            harness_id=self._game_task('game_candidate_search'),
+        )
+
+    def game_feature_start(self,session_id,recipe_id,feature_id,apply_value,disable_value=None,guards=None):
+        return self.app.game_runtime.feature_start(
+            session_id, recipe_id=recipe_id, feature_id=feature_id,
+            apply_value=apply_value, disable_value=disable_value, guards=guards,
+            harness_id=self._game_task('game_feature_start'),
+        )
+
+    def game_feature_monitor(self,session_id,recipe_id,feature_id):
+        return self.app.game_runtime.feature_monitor(
+            session_id, recipe_id=recipe_id, feature_id=feature_id,
+            harness_id=self._game_task('game_feature_monitor'),
+        )
 
     def desktop_status(self):
         self.authorize('desktop_status');return self.app.harness.desktop.status()
@@ -575,3 +675,32 @@ for name,description,properties,required in [
  ('remember_context','Save a short cited preference or lesson for future chats. Quote the user accurately; this never grants permissions.',{'text':{'type':'string'}},['text']),
 ]:
     OperatorTools.TOOL_SPECS.append({'name':name,'description':description,'input_schema':{'type':'object','properties':properties,'required':required}})
+
+GAME_SPECS=[
+ ('game_targets','Inspect exact installed game targets and native executor availability.',{},[]),
+ ('game_session','Bind this task to a measured running target. Never substitute the test target for a requested game.',{'target_id':{'type':'string'},'pid':{'type':'integer'}},['target_id']),
+ ('game_fixture','Launch a disposable memory test process only when asked to test the runtime itself. Returns measured field addresses. This is not a game.',{},[]),
+ ('game_read','Queue a typed read from a measured address. Poll game_status for the actual receipt.',{'session_id':{'type':'string'},'address':{'type':'string'},'vtype':{'type':'string','enum':['byte','ubyte','int16','int','uint','int64','uint64','float','double','u8','u16','u32','u64','i8','i16','i32','i64','f32','f64']}},['session_id','address']),
+ ('game_write','Queue one write bound to a successful read. The helper checks the previous value, writes, and reads back. Poll game_status; never repeat uncertain writes.',{'session_id':{'type':'string'},'read_operation_id':{'type':'string'},'value':{'type':'number'},'restore_on_stop':{'type':'boolean'}},['session_id','read_operation_id','value']),
+ ('game_status','Read durable game progress, citations and native receipts for this task.',{},[]),
+ ('game_stop','Stop this game session; cleanup and helper exit are reported separately.',{'session_id':{'type':'string'}},['session_id']),
+ ('game_mapping_save','Persist a measured pointer/value recipe for the current target build. Status starts at candidate; observe/restart promote.',{'session_id':{'type':'string'},'name':{'type':'string'},'root':{'type':'string'},'steps':{'type':'array','items':{'type':'object'}},'value_type':{'type':'string','enum':['byte','ubyte','int16','int','uint','int64','uint64','float','double','u8','u16','u32','u64','i8','i16','i32','i64','f32','f64']},'preconditions':{'type':'array','items':{'type':'string'}},'evidence_ids':{'type':'array','items':{'type':'string'}}},['session_id','name','root','steps','value_type']),
+ ('game_mapping_list','List saved mapping recipes bound to this session\'s target build fingerprint.',{'session_id':{'type':'string'}},['session_id']),
+ ('game_mapping_revalidate','Queue a read through the broker that resolves a saved recipe against the running target. Poll game_status for the receipt, then game_mapping_observe to promote status.',{'session_id':{'type':'string'},'recipe_id':{'type':'string'}},['session_id','recipe_id']),
+ ('game_mapping_observe','Promote a recipe to observed after a successful game_mapping_revalidate read. The operation_id must come from the matching broker receipt.',{'session_id':{'type':'string'},'recipe_id':{'type':'string'},'operation_id':{'type':'string'}},['session_id','recipe_id','operation_id']),
+ ('game_scan','Queue a bounded scan through the broker (read-only). Modes: exact / range / unknown_initial / byte_pattern. Poll game_status for progress; Returns native matches, coverage and a task-owned scan_id for refinement and pagination.',{'session_id':{'type':'string'},'value_type':{'type':'string'},'mode':{'type':'string','enum':['exact','range','unknown_initial','byte_pattern']},'needle':{'type':'number'},'low':{'type':'number'},'high':{'type':'number'},'byte_pattern':{'type':'string'}},['session_id','value_type','mode']),
+ ('game_candidate_search','Search for diagnostic PlayerControl candidates through the native broker after measuring the exact executable. Candidates remain unverified; search never writes memory.',{'session_id':{'type':'string'},'kind':{'type':'string','enum':['player_control']},'cooldown_hint':{'type':'number'},'max_candidates':{'type':'integer'}},['session_id']),
+ ('game_feature_start','Start repeated conditional native updates through an observed recipe. Every tick has a durable receipt; Stop cancels ticks and runs declared cleanup. Live games require measured runtime guard recipes.',{'session_id':{'type':'string'},'recipe_id':{'type':'string'},'feature_id':{'type':'string'},'apply_value':{'type':'number'},'disable_value':{'type':['number','null']},'guards':{'type':'array','items':{'type':'object','properties':{'name':{'type':'string'},'recipe_id':{'type':'string'},'expected':{'type':['number','boolean']}},'required':['name','recipe_id','expected'],'additionalProperties':False}}},['session_id','recipe_id','feature_id','apply_value']),
+ ('game_feature_monitor','Queue a monitoring read through the broker for a running feature; the receipt confirms the applied value is still in place.',{'session_id':{'type':'string'},'recipe_id':{'type':'string'},'feature_id':{'type':'string'}},['session_id','recipe_id','feature_id']),
+ ('game_feature_stop','Stop one feature and its repeated writes while preserving other readers/features.',{'session_id':{'type':'string'},'feature_id':{'type':'string'}},['session_id','feature_id']),
+ ('game_scan_refine','Refine a native scan against its previous values.',{'session_id':{'type':'string'},'scan_id':{'type':'string'},'refinement':{'type':'string','enum':['changed','unchanged','increased','decreased','exact']},'needle':{'type':'number'},'byte_pattern':{'type':'string'}},['session_id','scan_id','refinement']),
+ ('game_scan_results','Retrieve the next bounded page of scan matches.',{'session_id':{'type':'string'},'scan_id':{'type':'string'},'cursor':{'type':'string'}},['session_id','scan_id']),
+ ('game_scan_close','Release a scan and its temporary snapshots.',{'session_id':{'type':'string'},'scan_id':{'type':'string'}},['session_id','scan_id']),
+ ('game_pointer_search','Discover bounded pointer paths to a measured address.',{'session_id':{'type':'string'},'address':{'type':'string'},'depth':{'type':'integer'},'offset_window':{'type':'integer'}},['session_id','address']),
+ ('game_mapping_export','Export saved mappings with provenance.',{'session_id':{'type':'string'},'recipe_ids':{'type':'array','items':{'type':'string'}}},['session_id']),
+ ('game_mapping_import','Validate and import mappings as unverified candidates; imported verification is never trusted.',{'session_id':{'type':'string'},'payload':{'type':'object'}},['session_id','payload']),
+
+]
+for name,description,properties,required in GAME_SPECS:
+    TOOL_CAPABILITIES[name]='app';HARNESS_TOOLS.add(name)
+    OperatorTools.TOOL_SPECS.append({'name':name,'description':description,'input_schema':{'type':'object','properties':properties,'required':required,'additionalProperties':False}})

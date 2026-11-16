@@ -127,7 +127,7 @@ class HarnessService:
                 chat=self.store.put('chat',{**chat,'attachment_ids':references},id=chat['id']);self.app.chat_attachments.bind(references,chat)
             custom=self.app.settings.get().get('custom_system_prompt','')
             if custom:context+='\nUser style preferences (do not change permissions):\n'+custom
-            if mode=='game':context+='\nBegin with app_action gamelab.setup. Find devices and missing prerequisites, then ask which detected environment the user wants. Do not request an APK unless package analysis is actually requested.'
+            if mode=='game':context+=self.app.game_runtime.context(hid,message)
             run=self.app.operator.start(prompt=message,objective='harness:'+mode,harness_id=hid,context=context,provider_snapshot=settings_override,memory_context=memory_context,reference_context=reference_context)
             self.store.put('harness_session',{**session,'run_id':run['id']},id=hid)
             chat={**chat,'harness_id':hid,'harness_ids':[*chat.get('harness_ids',[]),hid],'harness_base_messages':chat.get('messages',[]),'run_id':None,'task_id':None,'updated_at':now()}
@@ -157,7 +157,8 @@ class HarnessService:
                 'session':chat,'activity':redact(activity[-40:]),'error':run.get('error'),'turns_done':run.get('turns_done',0),
                 'model':(run.get('settings_snapshot') or {}).get('model'),'mode':session.get('mode','task'),'step_limit':session.get('step_limit',120),
                 'execution_mode':session.get('execution_mode','auto'),'background':session.get('background',True),'web_search_mode':session.get('web_search_mode','auto'),
-                'controller':self.desktop.controller_record(run.get('id',''))}
+                'controller':self.desktop.controller_record(run.get('id','')),
+                'game_runtime':self.app.game_runtime.status(id) if session.get('mode')=='game' else None}
 
     def controller_identity(self,id):
         session=self.check(id)
@@ -175,6 +176,7 @@ class HarnessService:
         chat=self.store.get('chat',session['chat_id']);references=list(dict.fromkeys(chat.get('attachment_ids',[])+reference_ids(attachment_ids or [])))[-6:]
         context=self.app.chat_attachments.context(references,message,chat.get('project_id'),vision_mode) if references else ''
         context+=self.search_context(message,chat.get('project_id'),session.get('web_search_mode','auto'))
+        if session.get('mode')=='game':context+=self.app.game_runtime.context(id,message)
         if references:
             self.store.put('chat',{**chat,'attachment_ids':references},id=chat['id']);self.app.chat_attachments.bind(references,chat)
         self.app.operator.send(id=session['run_id'],message=message,reference_context=context)
@@ -184,6 +186,7 @@ class HarnessService:
         session=self.store.get('harness_session',id)
         if not session:raise ValueError('Task not found.')
         self.store.put('harness_session',{**session,'revoked':True},id=id)
+        self.app.game_runtime.stop(harness_id=id)
         self.app.operator.stop(id=session['run_id'])
         self.app.rea.close_task(id)
         if hasattr(self.app,'background_workers'):self.app.background_workers.stop_children(id)
@@ -198,6 +201,7 @@ class HarnessService:
         return {**result,'session':chat}
 
     def stop_all(self):
+        self.app.game_runtime.stop()
         if hasattr(self.app,'rea'):self.app.rea.cancel_all()
         self.desktop.cancel_all()
         if hasattr(self.app,'background_workers'):self.app.background_workers.cancel_all()

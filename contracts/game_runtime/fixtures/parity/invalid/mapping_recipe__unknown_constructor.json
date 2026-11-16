@@ -1,0 +1,30 @@
+{
+  "id": "recipe_local_player_kill_cooldown",
+  "schema_version": 1,
+  "revision": 3,
+  "target_fingerprint": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445",
+  "name": "local_player_kill_cooldown",
+  "value_type": "f32",
+  "root": "mod:UnityFramework+0x12345",
+  "steps": [
+    {
+      "op": "deref",
+      "offset": "+0x0",
+      "width": 8
+    },
+    {
+      "op": "add",
+      "offset": "+0x18",
+      "width": 8
+    }
+  ],
+  "preconditions": [
+    "local_player_present",
+    "match_active"
+  ],
+  "evidence_ids": [
+    "evidence_cooldown_observation_1"
+  ],
+  "verification_status": "observed",
+  "constructor": 123
+}

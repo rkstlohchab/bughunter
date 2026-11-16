@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bughunter.local/contracts/game_runtime/game_target.schema.json",
+  "title": "GameTarget",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "game_id",
+    "platform",
+    "runtime",
+    "architecture",
+    "pointer_width",
+    "executable_or_package",
+    "version",
+    "build_fingerprint",
+    "modules",
+    "capabilities"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "game_id": {"type": "string"},
+    "platform": {"enum": ["macos", "windows", "android"]},
+    "runtime": {"type": "string"},
+    "architecture": {"type": "string"},
+    "pointer_width": {"enum": [4, 8]},
+    "executable_or_package": {"type": "string"},
+    "version": {"type": "string"},
+    "build_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256_main"],
+      "properties": {
+        "sha256_main": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "sha256_metadata": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "extras": {"type": "object"}
+      }
+    },
+    "modules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "base_rva", "size", "sha256"],
+        "properties": {
+          "name": {"type": "string"},
+          "base_rva": {"type": "string", "pattern": "^(mod:[A-Za-z0-9._-]+\\+0x[0-9A-Fa-f]+|abs:0x[0-9A-Fa-f]+|null|placeholder|\\+0x0)$"},
+          "size": {"type": "string", "pattern": "^0x[0-9A-Fa-f]+$"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "capabilities": {"type": "array", "items": {"type": "string"}}
+  }
+}

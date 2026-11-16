@@ -1,0 +1,2 @@
+sha256_main
+sha256 fields must be a 64-character lowercase hex digest; shorter strings are rejected.

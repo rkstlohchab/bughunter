@@ -6,6 +6,9 @@ pub mod mac_permissions;
 pub mod execution_control;
 pub mod mac_tool_control;
 pub mod mac_desktop;
+pub mod game_runtime_types;
+pub mod game_bridge;
+mod game_executor;
 
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -45,6 +48,7 @@ struct Process {
     stdin: Option<ChildStdin>,
     pending: Pending,
     alive: Arc<AtomicBool>,
+    native_credential: Option<String>,
 }
 
 fn reject_pending(pending: &Pending, message: &str) {
@@ -94,7 +98,7 @@ impl Process {
                 }
             });
         }
-        Ok(Self { child, stdin: Some(stdin), pending, alive })
+        Ok(Self { child, stdin: Some(stdin), pending, alive, native_credential:None })
     }
 
     fn spawn() -> Result<Self, String> {
@@ -115,7 +119,18 @@ impl Process {
             command.arg("--stdio");
         }
         command.env("PATH", backend_search_path()?);
-        Self::from_command(command)
+        let credential=game_bridge::BridgeCredential::generate()?.private_hex();
+        command.env("BUGHUNTER_NATIVE_CREDENTIAL", &credential);
+        let mut process=Self::from_command(command)?;
+        let (tx,rx)=mpsc::channel();
+        process.pending.lock().map_err(|_| "bootstrap pending lock")?.insert(0,tx);
+        let request=json!({"id":0,"method":"gamelab.native.bootstrap","params":{"credential_hex":credential}});
+        let stdin=process.stdin.as_mut().ok_or("backend input missing")?;
+        writeln!(stdin,"{request}").and_then(|_|stdin.flush()).map_err(|e|e.to_string())?;
+        let result=rx.recv_timeout(Duration::from_secs(20)).map_err(|_| "native bootstrap timeout")??;
+        if result["ready"]!=true || result["protocol_version"]!=1 { return Err("native bootstrap rejected".into()); }
+        process.native_credential=Some(credential);
+        Ok(process)
     }
 }
 
@@ -143,6 +158,10 @@ struct Backend {
 
 impl Backend {
     fn request(&self, method: String, params: Value) -> Reply {
+        if game_bridge::is_internal_bridge_method(&method) { return Err("Private game methods are unavailable to renderer RPC.".into()); }
+        self.request_impl(method,params,false)
+    }
+    fn request_impl(&self, method: String, mut params: Value, internal: bool) -> Reply {
         if self.stopping.load(Ordering::Acquire) { return Err("The desktop app is closing.".into()); }
         let id = self.sequence.fetch_add(1, Ordering::Relaxed) + 1;
         let (sender, receiver) = mpsc::channel();
@@ -157,6 +176,9 @@ impl Backend {
             let process = guard.as_mut().ok_or("Backend unavailable")?;
             pending = process.pending.clone();
             pending.lock().map_err(|_| "Backend pending-call lock failed")?.insert(id, sender);
+            if internal {
+                params["credential_hex"]=json!(process.native_credential.as_ref().ok_or("Native bootstrap unavailable")?);
+            }
             let request = json!({"id": id, "method": method, "params": params});
             let send_result = match process.stdin.as_mut() {
                 Some(stdin) => writeln!(stdin, "{request}").and_then(|_| stdin.flush()),
@@ -169,7 +191,7 @@ impl Backend {
             }
         }
         // Release the writer lock before waiting so stop/status can overtake slow calls.
-        match receiver.recv_timeout(Duration::from_secs(180)) {
+        match receiver.recv_timeout(Duration::from_secs(if internal {3} else {180})) {
             Ok(result) => result,
             Err(error) => {
                 if let Ok(mut entries) = pending.lock() { entries.remove(&id); }
@@ -184,12 +206,21 @@ impl Backend {
     }
 }
 
+impl game_executor::NativeRpc for Backend {
+    fn native_request(&self,method:&str,params:Value)->Reply {
+        if !game_bridge::is_internal_bridge_method(method) { return Err("Not a private method".into()); }
+        self.request_impl(method.into(),params,true)
+    }
+}
+struct GameExecutorState(Mutex<Option<game_executor::ExecutorRuntime>>);
+
 #[derive(Clone, Default)]
 struct BackendState(Arc<Backend>);
 
 #[tauri::command]
 async fn rpc(method: String, params: Option<Value>, state: tauri::State<'_, BackendState>,
              memory: tauri::State<'_, ce_mcp::CeMcpState>, desktop: tauri::State<'_, mac_desktop::DesktopControl>) -> Reply {
+    if game_bridge::is_internal_bridge_method(&method) { return Err("Private game methods are unavailable to renderer RPC.".into()); }
     let stopping = method == "system.stop";
     let resuming = method == "system.resume";
     let status = method == "system.status";
@@ -246,6 +277,14 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(BackendState::default())
+        .manage(GameExecutorState(Mutex::new(None)))
+        .setup(|app| {
+            let backend=app.state::<BackendState>().0.clone();
+            let rpc: Arc<dyn game_executor::NativeRpc> = backend;
+            let executor=game_executor::ExecutorRuntime::start(Arc::downgrade(&rpc)).map_err(std::io::Error::other)?;
+            *app.state::<GameExecutorState>().0.lock().map_err(|_| std::io::Error::other("executor lock"))?=Some(executor);
+            Ok(())
+        })
         .manage(ce_mcp::CeMcpState::default())
         .manage(mapping_receipt::Execution::default())
         .manage(mac_desktop::DesktopControl::default())
@@ -282,6 +321,9 @@ pub fn run() {
         .expect("Unable to start BugHunterClaudex")
         .run(|app, event| {
             if matches!(event, tauri::RunEvent::Exit) {
+                if let Ok(mut executor)=app.state::<GameExecutorState>().0.lock() {
+                    if let Some(mut runtime)=executor.take() { runtime.shutdown(); }
+                }
                 app.state::<BackendState>().0.shutdown();
                 // Reap the CE bridge child; tokio's kill_on_drop is the backstop.
                 let ce = app.state::<ce_mcp::CeMcpState>();

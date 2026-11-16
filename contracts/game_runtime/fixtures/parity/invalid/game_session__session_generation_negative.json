@@ -1,0 +1,11 @@
+{
+  "id": "session_negative_generation",
+  "target_id": "target_among_us_mac_appstore_2026_11_3",
+  "harness_session_id": "harness_a1",
+  "session_generation": -1,
+  "stop_generation": 0,
+  "process_instance_id": "proc_x",
+  "knowledge_collection_ids": [],
+  "state": "running",
+  "last_error": null
+}

@@ -1,0 +1,2 @@
+unexpected_extension_field
+unknown fields are rejected at the root (additionalProperties:false).

@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bughunter.local/contracts/game_runtime/feature_run.schema.json",
+  "title": "FeatureRun",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "session_id",
+    "feature_id",
+    "recipe_revisions",
+    "configuration",
+    "state",
+    "readback_status",
+    "behavior_status",
+    "cleanup_status",
+    "evidence_ids"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "session_id": {"type": "string"},
+    "feature_id": {"type": "string"},
+    "recipe_revisions": {"type": "array", "items": {"type": "integer", "minimum": 1}},
+    "configuration": {"type": "object"},
+    "state": {
+      "enum": [
+        "requested", "starting", "running", "verifying", "monitoring",
+        "stopping", "stopped", "failed", "needs_input", "blocked"
+      ]
+    },
+    "readback_status": {"enum": ["pending", "pass", "fail", "not_applicable"]},
+    "behavior_status": {"enum": ["pending", "pass", "fail", "not_applicable"]},
+    "cleanup_status": {"enum": ["pending", "pass", "fail", "not_applicable"]},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}

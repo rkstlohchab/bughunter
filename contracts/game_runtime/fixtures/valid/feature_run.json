@@ -1,0 +1,12 @@
+{
+  "id": "feature_run_01",
+  "session_id": "session_01",
+  "feature_id": "among_us_no_cooldown",
+  "recipe_revisions": [3],
+  "configuration": {"mode": "local_freeplay", "host_role": "host"},
+  "state": "verifying",
+  "readback_status": "pass",
+  "behavior_status": "pending",
+  "cleanup_status": "pending",
+  "evidence_ids": ["evidence_baseline_1", "evidence_enabled_1"]
+}

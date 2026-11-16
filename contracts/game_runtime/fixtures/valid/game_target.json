@@ -1,0 +1,24 @@
+{
+  "id": "target_among_us_mac_appstore_2026_11_3",
+  "game_id": "among_us",
+  "platform": "macos",
+  "runtime": "il2cpp",
+  "architecture": "arm64",
+  "pointer_width": 8,
+  "executable_or_package": "/Applications/AmongUs.app/Wrapper/AmongUs.app",
+  "version": "2026.11.3",
+  "build_fingerprint": {
+    "sha256_main": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445",
+    "sha256_metadata": "aa11bb22cc33dd44ee55ff6600778899aabbccddeeff00112233445566778899",
+    "extras": {"unity_version": "2022.3.62f3", "metadata_version": 31}
+  },
+  "modules": [
+    {
+      "name": "UnityFramework",
+      "base_rva": "+0x0",
+      "size": "0x7fffff",
+      "sha256": "11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff"
+    }
+  ],
+  "capabilities": ["static_analysis", "runtime_access_blocked"]
+}

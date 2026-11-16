@@ -66,7 +66,7 @@ from .game_lab import GameLabService
 
 
 class Application:
-    def __init__(self,root=None,primary=True):
+    def __init__(self,root=None,primary=True,native_credential=None):
         self.store = Store(root)
         self.primary = primary
         self._owner_file = None
@@ -140,6 +140,8 @@ class Application:
         self.operator = OperatorAgent(self)
         # GameLab (operator-stack parallel; no cross-plumbing to investigation)
         self.gamelab = GameLabService(self)
+        from .game_runtime.service import GameRuntimeService
+        self.game_runtime = GameRuntimeService(self, native_credential, recover=primary)
         from .harness import HarnessService
         self.harness = HarnessService(self,recover=primary)
         from .conversation_memory import ConversationMemory
@@ -190,6 +192,8 @@ class Application:
         if not isinstance(method,str) or not isinstance(params or {},dict):
             raise ValueError("Invalid RPC request.")
         p = params or {}
+        if method.startswith(('gamelab.native.','gamelab.targets.','gamelab.sessions.','gamelab.runtime.')) or method=='gamelab.features.stop':
+            return self.game_runtime.dispatch(method,p)
         if method.startswith('plugins.'):
             return self.plugins.dispatch(method,p)
         if method.startswith('chat.attachments.'):
@@ -613,6 +617,7 @@ class Application:
             try: operation()
             except Exception as exc: errors.append({'task': label, 'error': str(exc)[:220]})
         attempt('requests', self.policy.stop)
+        attempt('game runtime',self.game_runtime.stop)
         attempt('chat and desktop harness',self.harness.stop_all)
         for workflow in self.store.list('workflow_run'):
             if workflow.get('status')=='running':attempt(workflow['id'],lambda row=workflow:self.workflows.stop(id=row['id']))
@@ -928,6 +933,7 @@ class Application:
         # Mark shutdown before cancelling provider transports so checkpoints requeue,
         # while explicit Stop All remains a separate cancelled state.
         self.knowledge._stop.set()
+        self.game_runtime.shutdown()
         if self.primary:self.harness.stop_all()
         else:
             # A temporary RPC/MCP client must not stop another desktop's tasks.

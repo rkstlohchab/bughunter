@@ -4,6 +4,7 @@ import { fileBase64, rpc } from './api';
 import { wantsMappingResearch, wantsHarnessTask, gameLabPrefix, wantsGameLab } from './taskIntent';
 import { mappingActive, useMappingChat } from './useMappingChat';
 import MappingChatActivity from './MappingChatActivity';
+import GameRuntimeActivity from './GameRuntimeActivity';
 import HarnessSetup from './HarnessSetup';
 import ChatContent from './ChatContent';
 import ChatPromptNavigator from './ChatPromptNavigator';
@@ -248,13 +249,13 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         if (version !== scopeVersion.current) return;
         setSession(result.session);setText('');setAttached([]);setSending(false);await refreshHistory();return;
       }
-      const gameRequest=wantsGameLab(message);
+      const gameRequest=wantsGameLab(message,harness?.mode==='game');
       if(message==='/exit' && session?.harness_id){
         const result=await rpc<Row>('harness.detach',{id:session.harness_id});
         if(version!==scopeVersion.current)return;
         setSession(result.session as Session);setHarness(null);setText('');setSending(false);return;
       }
-      const leavingForLearning=/\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model))\b/i.test(message);
+      const leavingForLearning=harness?.mode!=='game' && !gameRequest && /\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model))\b/i.test(message);
       if(session?.harness_id && !leavingForLearning){
         if(harness&&(['cancelled','interrupted'].includes(harness.status)||(harness.execution_mode&&harness.execution_mode!==modeProfile.execution_mode)||(harness.background!==undefined&&harness.background!==modeProfile.background)||(harness.web_search_mode&&harness.web_search_mode!==(modeProfile.web_search_mode||'auto'))||(modeProfile.permissions_configured&&modeProfile.execution_mode==='auto'&&JSON.stringify([...(harness.grants||[])].sort())!==JSON.stringify([...(modeProfile.grants||[])].sort())))){
           if(modeProfile.permissions_configured){await startConfiguredHarness(message,harness.mode||'task',version);return;}
@@ -366,9 +367,10 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
         {(sending||working)&&<div className="chat-working" role="status"><LoaderCircle size={14} className="spin"/><span>{harness?.background===false?'Working…':'Working in background…'}</span><button type="button" className="chat-tool-btn" aria-label="Stop task" onClick={()=>void stopTask()}><Square size={14}/></button></div>}
         {trackingError&&<p role="status">{trackingError}</p>}
         {(harness?.error||activeTask?.error)&&<p role="alert">{harness?.error||activeTask?.error}</p>}
-        {harness&&['cancelled','interrupted','provider_error','crashed','max_turns'].includes(harness.status)&&<button type="button" className="text-button" disabled={stopped} onClick={()=>setHarnessPlan({message:text.trim()||'Continue the previous task from its recorded results.',mode:'task'})}>Continue task</button>}
+        {harness&&['cancelled','interrupted','provider_error','crashed','max_turns'].includes(harness.status)&&<button type="button" className="text-button" disabled={stopped} onClick={()=>setHarnessPlan({message:text.trim()||'Continue the previous task from its recorded results.',mode:harness.mode||'task'})}>Continue task</button>}
         {!session?.harness_id && taskIds.length > 1 && <div className="saved-task-picker"><label htmlFor="saved-task">Saved work</label><select id="saved-task" value={taskId} onChange={event => setTaskId(event.target.value)}>{taskIds.map((id, index) => <option key={id} value={id}>Task {index + 1}{id === session?.task_id ? ' (latest)' : ''}</option>)}</select></div>}
         {setup&&<ChatTaskSetup plan={setup} projectId={projectId} sessionId={session?.id} stopped={stopped} onCancel={()=>setSetup(null)} onStarted={async saved=>{setSetup(null);setText('');setAttached([]);setSession(saved as Session);await refreshHistory();}} selectProject={selectProject}/>}
+        {harness?.mode==='game'&&session?.harness_id&&<GameRuntimeActivity harnessId={session.harness_id} executionMode={harness.execution_mode} stopped={stopped} />}
         {harnessPlan&&<HarnessSetup {...harnessPlan} executionMode={modeProfile.execution_mode} background={modeProfile.background} webSearchMode={modeProfile.web_search_mode||'auto'} initialGrants={session?.harness_id?harness?.grants:undefined} sessionId={session?.id} projectId={projectId} sourceIds={[]} attachmentIds={attached.map(file=>file.id)} visionMode={visionMode} stopped={stopped} onCancel={()=>setHarnessPlan(null)} onStarted={result=>{setHarnessPlan(null);setHarness(result);setSession(result.session as Session);setText('');setAttached([]);setSending(result.status==='running');void refreshHistory();}}/>}
       </div>
 

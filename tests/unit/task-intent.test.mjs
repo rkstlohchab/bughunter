@@ -77,3 +77,9 @@ for(const message of ['What apps can you control?','Study my local AI course','S
 for(const message of ['COD Android ESP','Set up CODM ESP','Help me remove cooldown for Among Us']){
  test(`game setup stays out of APK-only workflow: ${message}`,()=>assert.equal(wantsGameLab(message),true));
 }
+
+for(const message of ['Remove kill cooldown in Among Us using my uploaded course','Test the game runtime']) {
+ test(`game execution with knowledge: ${message}`,()=>assert.equal(wantsGameLab(message),true));
+}
+test('game follow-up about a lesson stays scoped',()=>assert.equal(wantsGameLab('Use that lesson',true),true));
+test('ordinary course learning stays ordinary',()=>assert.equal(wantsGameLab('Study my local AI course'),false));

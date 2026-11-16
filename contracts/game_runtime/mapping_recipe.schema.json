@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bughunter.local/contracts/game_runtime/mapping_recipe.schema.json",
+  "title": "MappingRecipe",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "schema_version",
+    "revision",
+    "target_fingerprint",
+    "name",
+    "value_type",
+    "root",
+    "steps",
+    "preconditions",
+    "evidence_ids",
+    "verification_status"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "schema_version": {"type": "integer", "minimum": 1},
+    "revision": {"type": "integer", "minimum": 1},
+    "target_fingerprint": {"type": "string"},
+    "name": {"type": "string"},
+    "value_type": {
+      "enum": ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "f32", "f64", "bytes"]
+    },
+    "root": {
+      "type": "string",
+      "pattern": "^(mod:[A-Za-z0-9._-]+\\+0x[0-9A-Fa-f]+|abs:0x[0-9A-Fa-f]+|null|placeholder|\\+0x0)$"
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "offset", "width"],
+        "properties": {
+          "op": {"enum": ["add", "deref"]},
+          "offset": {"type": "string", "pattern": "^[+-]?0x[0-9A-Fa-f]+$"},
+          "width": {"enum": [4, 8]}
+        }
+      }
+    },
+    "preconditions": {"type": "array", "items": {"type": "string"}},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}},
+    "verification_status": {
+      "enum": ["candidate", "observed", "restart_verified", "stale"]
+    }
+  }
+}

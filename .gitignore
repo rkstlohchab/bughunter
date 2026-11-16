@@ -23,3 +23,4 @@ src-tauri/gen/
 
 CLAUDE.md
 .setup-logs/
+.claude/

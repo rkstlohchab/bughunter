@@ -1,0 +1,1070 @@
+{
+  "schema_version": 1,
+  "plan_id": "game-runtime-v1",
+  "plan_revision": 1,
+  "specification_status": "planned",
+  "prepared_at": "2026-11-14",
+  "source_baseline": "8187f411ab50878cab555a88fcbe607af2cacc23",
+  "plan_document": "agent-implementation-plan.md",
+  "verification_status": "ready_for_review",
+  "evidence_root": "<app_data>/game-verification/game-runtime-v1",
+  "status_policy": {
+    "implementation": [
+      "not_started",
+      "working",
+      "ready_for_review",
+      "verified",
+      "failed",
+      "blocked"
+    ],
+    "target": [
+      "not_run",
+      "static_only",
+      "runtime_access_blocked",
+      "runtime_ready",
+      "feature_verified",
+      "stale"
+    ],
+    "checks": [
+      "pass",
+      "fail",
+      "blocked",
+      "not_run"
+    ],
+    "dependency_evaluation": "Shared dependencies apply to all lanes; platform dependencies require the corresponding lane unless an explicit milestone below selects any desktop lane.",
+    "reviewer_must_differ_from_author": true,
+    "absent_hardware_result": "blocked",
+    "skipped_required_check_satisfies_gate": false,
+    "changed_inputs_invalidate_affected_reports": true
+  },
+  "milestones": [
+    {
+      "id": "target_runtime_ready",
+      "required_checks": [
+        "P02.identity",
+        "P02.target_memory_access"
+      ],
+      "lane_policy": "same_exact_target",
+      "condition": "P02 identity and target_memory_access pass for the exact game process/build; record external or in_process access mode. Workbench/fixture reads cannot qualify the target."
+    },
+    {
+      "id": "first_desktop_feature",
+      "required_checks": [
+        "P06.baseline",
+        "P06.readback",
+        "P06.behavior",
+        "P06.disable",
+        "P06.lifecycle",
+        "P06.restarts"
+      ],
+      "lane_policy": "any_one_desktop_lane",
+      "condition": "Every P06 check passes on at least one exact macOS or Windows target; record which lane. This does not certify the other lane."
+    },
+    {
+      "id": "desktop_controller_ready",
+      "required_phases": [
+        "P04"
+      ],
+      "lane_policy": "any_one_desktop_lane",
+      "condition": "P04 passes on one Mac or Windows controller; P09 records the selected controller OS/build and consumes that lane's artifacts."
+    },
+    {
+      "id": "mobile_feasible",
+      "required_checks": [
+        "P02.identity",
+        "P02.target_memory_access",
+        "P08.launch",
+        "P08.data",
+        "P08.phone_render",
+        "P08.non_root",
+        "P08.budget"
+      ],
+      "lane_policy": "same_exact_android_target",
+      "condition": "P08 launch, data, phone_render, non_root and budget all pass on the exact Android device/build. Data covers the fixed requested feature set; tools and performance budget are pinned."
+    },
+    {
+      "id": "desktop_release",
+      "required_phases": [
+        "P10"
+      ],
+      "lane_policy": "named_desktop_lane",
+      "condition": "P10 passes for the named desktop OS with its same-platform prerequisites; combined Mac+Windows support needs both."
+    },
+    {
+      "id": "full_scope",
+      "required_phases": [
+        "P09",
+        "P10"
+      ],
+      "required_checks": [
+        "P10.mobile_integration"
+      ],
+      "lane_policy": "P10_both_desktop_lanes_and_P09_qualified_android_lane",
+      "condition": "Both desktop release lanes, P09 for the entire fixed requested feature set, and mobile release integration evidence pass. Partial feature availability cannot complete scope. P11 maintenance remains separately reported."
+    }
+  ],
+  "phases": [
+    {
+      "id": "P00",
+      "title": "Contracts and verification harness",
+      "owner_role": "C",
+      "reviewer_role": "V",
+      "implementation_status": "ready_for_review",
+      "lane_results": {
+        "shared": "ready_for_review"
+      },
+      "depends_on": [],
+      "milestone_dependencies": [],
+      "lanes": [
+        "shared"
+      ],
+      "expected_outcome": "Agents share fixed interfaces, an independent fixture and objective report checks.",
+      "required_outputs": [
+        "contracts/game_runtime/",
+        "scripts/verify_game_plan.py",
+        "baseline report",
+        "disposable target fixture"
+      ],
+      "checks": [
+        {
+          "id": "P00.contracts",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P00/run-004/report.json"
+        },
+        {
+          "id": "P00.fixture",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P00/run-004/report.json"
+        },
+        {
+          "id": "P00.report_validator",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P00/run-004/report.json"
+        },
+        {
+          "id": "P00.baseline",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P00/run-004/report.json"
+        }
+      ],
+      "acceptance_notes": "Required checks apply once to shared contracts; the fixture must have an oracle independent of the resolver under test. Shared fixtures must be executed against Python, JSON Schema, TypeScript and Rust. P00 must pass independent acceptance before dependent phases start.",
+      "source_paths": [
+        "backend/bughunter/game_runtime/__init__.py",
+        "backend/bughunter/game_runtime/contracts.py",
+        "backend/bughunter/game_runtime/testing",
+        "backend/tests/test_game_runtime_contracts.py",
+        "backend/tests/test_game_runtime_fixture.py",
+        "backend/tests/test_verify_game_plan.py",
+        "backend/tests/test_baseline_report.py",
+        "contracts/game_runtime",
+        "src/types/gameRuntime.ts",
+        "src/types/gameRuntimeValidator.mjs",
+        "src/types/gameRuntimeValidator.test.mjs",
+        "src-tauri/src/game_runtime_types.rs",
+        "scripts/verify_game_plan.py"
+      ],
+      "review_report": "artifacts/game-verification/game-runtime-v1/P00/run-003/report.json",
+      "review_notes": "Independent review rejected the previous acceptance. Original 75 tests pass, but Python accepts schema-invalid records and Rust/TypeScript fixture parity is untested. Verifier and fixture timeout repairs have local regression coverage; renewed independent acceptance and lane-aware verifier completion remain pending. See docs/game-lab/P00-review-and-handoff.md.\n\n2026-11-14 run-002 regenerated by Claude after Codex review. Cross-language parity fixed (TypeScript gameRuntimeValidator.mjs added; backend/tests/test_jsonschema_parity.py and test_typescript_contract_parity.py exercise the shared parity fixture bank through all four languages). 130 backend tests, 6 cargo game_runtime_types tests and tsc --noEmit all green. implementation_revision bound to source_snapshot_digest. Awaiting an independent reviewer to perform the replay per the P00-review-and-handoff.md contract; this record must not be marked verified without that replay.\n\nCodex/Sol repair replay: see docs/game-lab/P00-P03-final-handoff.md. Current source-bound checks pass on shared/macOS lanes. Independent frozen acceptance remains pending; no reviewer was fabricated. P02 game memory access remains blocked; Windows and Android lack runtime evidence.\nP04 handoff: independent prerequisite agent accepted run-003; its source inventory remains unchanged.\nCodex repair review 2026-11-15: see docs/game-lab/P05-P06-codex-review.md. Sources changed; prior run hashes are historical. New reports and independent replay are required. P05/P06 chat integration and P06 target gameplay remain incomplete; no phase acceptance claimed.\n2026-11-16 fixture birth identity now uses the actual OS process start time, matching helper and saved mapping identities. Replayed fixture/native tests pass; prior reports are historical and need independent replay."
+    },
+    {
+      "id": "P01",
+      "title": "Course-informed investigations",
+      "owner_role": "K",
+      "reviewer_role": "V",
+      "implementation_status": "verified",
+      "lane_results": {
+        "shared": "verified"
+      },
+      "depends_on": [
+        "P00"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "shared"
+      ],
+      "expected_outcome": "Game tasks retrieve applicable cited course instructions and retain corrections.",
+      "required_outputs": [
+        "game_runtime/knowledge.py",
+        "knowledge_plan records",
+        "30 answerable and 10 negative benchmark cases",
+        "retrieval report"
+      ],
+      "checks": [
+        {
+          "id": "P01.retrieval",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        },
+        {
+          "id": "P01.negative_cases",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        },
+        {
+          "id": "P01.citations",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        },
+        {
+          "id": "P01.isolation",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        },
+        {
+          "id": "P01.behavior",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        },
+        {
+          "id": "P01.correction_reuse",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json"
+        }
+      ],
+      "acceptance_notes": "Use 30 answerable cases for the 27/30 threshold plus 10 separate negative cases. Reviewer establishes expected passages before evaluation.",
+      "source_paths": [
+        "backend/bughunter/game_runtime/knowledge.py",
+        "backend/bughunter/game_runtime/knowledge_benchmark.py",
+        "backend/tests/test_game_runtime_knowledge.py",
+        "backend/bughunter/library_context.py",
+        "backend/bughunter/game_lab.py",
+        "src/taskIntent.ts",
+        "backend/tests/test_library_context.py",
+        "backend/tests/test_gamelab_setup.py",
+        "tests/unit/task-intent.test.mjs"
+      ],
+      "review_report": "artifacts/game-verification/game-runtime-v1/P01/run-003/report.json",
+      "review_notes": "\n\nCodex/Sol repair replay: see docs/game-lab/P00-P03-final-handoff.md. Current source-bound checks pass on shared/macOS lanes. Independent frozen acceptance remains pending; no reviewer was fabricated. P02 game memory access remains blocked; Windows and Android lack runtime evidence.\nCurrent P04 implementation changes routing/native inputs. Fresh reports bind current source; independent replay and human P04 review remain pending. See docs/game-lab/P04-review-and-handoff.md."
+    },
+    {
+      "id": "P02",
+      "title": "Exact target and tool qualification",
+      "owner_role": "T",
+      "reviewer_role": "V",
+      "implementation_status": "verified",
+      "lane_results": {
+        "macos": "verified",
+        "windows": "blocked",
+        "android": "blocked"
+      },
+      "depends_on": [
+        "P00"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows",
+        "android"
+      ],
+      "expected_outcome": "Every target has a fingerprint and an honest static/runtime capability result.",
+      "required_outputs": [
+        "game_runtime/targets.py",
+        "scripts/qualify_game_target.py",
+        "target_qualification.json",
+        "pinned tool manifest"
+      ],
+      "checks": [
+        {
+          "id": "P02.identity",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P02/run-002/report.json"
+        },
+        {
+          "id": "P02.derivation",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P02/run-002/report.json"
+        },
+        {
+          "id": "P02.capability_report",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P02/run-002/report.json"
+        },
+        {
+          "id": "P02.target_memory_access",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P02/run-002/report.json"
+        }
+      ],
+      "acceptance_notes": "The investigation can finish with blocked runtime access. target_memory_access is required for target_runtime_ready, not for completion of the investigation report. Record external or in_process access. Android derivation evaluates the selected package/tool inputs; it does not assume IL2CPP. Capture unsupported architecture/tool outcomes explicitly.",
+      "source_paths": [
+        "backend/bughunter/game_runtime/targets.py",
+        "scripts/qualify_game_target.py",
+        "backend/tests/test_game_runtime_targets.py",
+        "backend/bughunter/op_adapters/mac_appstore_memory_esp.py"
+      ],
+      "review_report": "artifacts/game-verification/game-runtime-v1/P02/run-002/report.json",
+      "review_notes": "\n\nCodex/Sol repair replay: see docs/game-lab/P00-P03-final-handoff.md. Current source-bound checks pass on shared/macOS lanes. Independent frozen acceptance remains pending; no reviewer was fabricated. P02 game memory access remains blocked; Windows and Android lack runtime evidence.\nP04 handoff: independent agent reproduced static macOS qualification. Optional target_memory_access remains blocked; this is not runtime target acceptance."
+    },
+    {
+      "id": "P03",
+      "title": "Native memory and tool service",
+      "owner_role": "N",
+      "reviewer_role": "V",
+      "implementation_status": "ready_for_review",
+      "lane_results": {
+        "macos": "ready_for_review",
+        "windows": "blocked"
+      },
+      "depends_on": [
+        "P00"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "One native owner provides acknowledged operations and observable tool lifecycle.",
+      "required_outputs": [
+        "memory_engine/",
+        "game_bridge.rs",
+        "native transport fixtures",
+        "OS capability reports"
+      ],
+      "checks": [
+        {
+          "id": "P03.memory",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P03/run-005/report.json"
+        },
+        {
+          "id": "P03.lifetime",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P03/run-005/report.json"
+        },
+        {
+          "id": "P03.transport",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P03/run-005/report.json"
+        },
+        {
+          "id": "P03.ownership",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P03/run-005/report.json"
+        },
+        {
+          "id": "P03.tool_control",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P03/run-005/report.json"
+        }
+      ],
+      "acceptance_notes": "Verify each OS independently. A self-process test cannot satisfy memory; an unavailable Windows machine keeps its lane blocked.",
+      "source_paths": [
+        "backend/bughunter/memory_engine",
+        "backend/bughunter/__main__.py",
+        "backend/bughunter/mac_memory.py",
+        "backend/tests/test_memory_engine.py",
+        "backend/tests/test_mac_memory_lifecycle.py",
+        "src-tauri/src/game_bridge.rs",
+        "src-tauri/resources/mac_memory_mcp.py",
+        "tests/mac_mcp/test_ownership.py",
+        "backend/bughunter/memory_engine/discovery.py",
+        "backend/bughunter/memory_engine/runtime.py"
+      ],
+      "review_report": "artifacts/game-verification/game-runtime-v1/P03/run-003/report.json",
+      "review_notes": "\n\nCodex/Sol repair replay: see docs/game-lab/P00-P03-final-handoff.md. Current source-bound checks pass on shared/macOS lanes. Independent frozen acceptance remains pending; no reviewer was fabricated. P02 game memory access remains blocked; Windows and Android lack runtime evidence.\nCurrent P04 implementation changes routing/native inputs. Fresh reports bind current source; independent replay and human P04 review remain pending. See docs/game-lab/P04-review-and-handoff.md.\nCodex repair review 2026-11-15: see docs/game-lab/P05-P06-codex-review.md. Sources changed; prior run hashes are historical. New reports and independent replay are required. P05/P06 chat integration and P06 target gameplay remain incomplete; no phase acceptance claimed.\n2026-11-16 Codex completion: durable native scan/refine/paging, real recipe resolution, import/export, guarded repeated features and activity controls implemented. See docs/game-lab/P05-P06-completion.md and codex-P05-P06-completion-001 evidence. Historical phase reports remain historical and require fresh source-bound independent acceptance. Among Us native attach/gameplay remains blocked."
+    },
+    {
+      "id": "P04",
+      "title": "Chat and durable execution",
+      "owner_role": "R",
+      "reviewer_role": "V",
+      "implementation_status": "ready_for_review",
+      "lane_results": {
+        "macos": "ready_for_review",
+        "windows": "blocked"
+      },
+      "depends_on": [
+        "P01",
+        "P03"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "Chat drives an observable native task with reliable cancellation and crash recovery.",
+      "required_outputs": [
+        "game_runtime/broker.py",
+        "game_runtime/service.py",
+        "harness integration",
+        "game activity status",
+        "recovery report"
+      ],
+      "checks": [
+        {
+          "id": "P04.chat_flow",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        },
+        {
+          "id": "P04.races",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        },
+        {
+          "id": "P04.stop",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        },
+        {
+          "id": "P04.crash",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        },
+        {
+          "id": "P04.recovery",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        },
+        {
+          "id": "P04.routing_regression",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P04/run-002/report.json"
+        }
+      ],
+      "acceptance_notes": "Consume shared P01 and the same-platform accepted P03 artifacts. Claims require transactional revision/executor checks; lost write replies cannot be replayed.",
+      "review_report": "artifacts/game-verification/game-runtime-v1/P04/run-001/report.json",
+      "review_notes": "\nCurrent P04 implementation changes routing/native inputs. Fresh reports bind current source; independent replay and human P04 review remain pending. See docs/game-lab/P04-review-and-handoff.md.\n\n2026-11-15 run-002 regenerated by Claude after persistent-LLDB repair. The failing rust test (durable_backend_executor_fixture_read_write_cleanup) now passes in ~10s (was timing out at ~27s on this host without debugger entitlement). 2-second cleanup budget preserved. Awaiting a reviewer different from the owner to fill reviewer and independent_replay in run-002/report.json before marking verified.\nCodex repair review 2026-11-15: see docs/game-lab/P05-P06-codex-review.md. Sources changed; prior run hashes are historical. New reports and independent replay are required. P05/P06 chat integration and P06 target gameplay remain incomplete; no phase acceptance claimed.\n2026-11-16 Codex completion: durable native scan/refine/paging, real recipe resolution, import/export, guarded repeated features and activity controls implemented. See docs/game-lab/P05-P06-completion.md and codex-P05-P06-completion-001 evidence. Historical phase reports remain historical and require fresh source-bound independent acceptance. Among Us native attach/gameplay remains blocked.",
+      "source_paths": [
+        "backend/bughunter/__main__.py",
+        "backend/bughunter/app.py",
+        "backend/bughunter/game_runtime/broker.py",
+        "backend/bughunter/game_runtime/contracts.py",
+        "backend/bughunter/game_runtime/knowledge.py",
+        "backend/bughunter/game_runtime/service.py",
+        "backend/bughunter/game_runtime/targets.py",
+        "backend/bughunter/game_runtime/testing/fixture_target.py",
+        "backend/bughunter/harness.py",
+        "backend/bughunter/harness_actions.py",
+        "backend/bughunter/harness_modes.py",
+        "backend/bughunter/memory_engine/__main__.py",
+        "backend/bughunter/memory_engine/mac_adapter.py",
+        "backend/bughunter/memory_engine/server.py",
+        "backend/bughunter/operator_agent.py",
+        "backend/bughunter/operator_tools.py",
+        "backend/bughunter/provider_api.py",
+        "backend/bughunter/store.py",
+        "backend/pyproject.toml",
+        "backend/tests/test_game_runtime_broker.py",
+        "backend/tests/test_game_runtime_native.py",
+        "backend/tests/test_game_runtime_service.py",
+        "backend/tests/test_memory_engine.py",
+        "backend/uv.lock",
+        "package-lock.json",
+        "package.json",
+        "src-tauri/Cargo.lock",
+        "src-tauri/Cargo.toml",
+        "src-tauri/src/game_bridge.rs",
+        "src-tauri/src/game_executor.rs",
+        "src-tauri/src/lib.rs",
+        "src/Chat.tsx",
+        "src/GameRuntimeActivity.tsx",
+        "src/api.ts",
+        "src/taskIntent.ts",
+        "src/types/gameRuntime.ts",
+        "tests/ui/game-runtime.spec.ts",
+        "tests/unit/task-intent.test.mjs",
+        "backend/bughunter/memory_engine/discovery.py",
+        "backend/bughunter/memory_engine/runtime.py",
+        "backend/tests/test_game_runtime_integrated.py",
+        "backend/tests/test_game_runtime_chat_integration.py"
+      ]
+    },
+    {
+      "id": "P05",
+      "title": "Scanning and saved pointer recipes",
+      "owner_role": "R",
+      "reviewer_role": "V",
+      "implementation_status": "ready_for_review",
+      "lane_results": {
+        "macos": "ready_for_review",
+        "windows": "blocked"
+      },
+      "depends_on": [
+        "P04"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "Values can be narrowed and saved recipes are reused only with matching evidence.",
+      "required_outputs": [
+        "scan engine",
+        "mapping service and migration",
+        "scripts/verify_game_profile_restarts.py",
+        "restart and budget reports"
+      ],
+      "checks": [
+        {
+          "id": "P05.scans",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P05/run-002/report.json"
+        },
+        {
+          "id": "P05.restarts",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P05/run-002/report.json"
+        },
+        {
+          "id": "P05.staleness",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P05/run-002/report.json"
+        },
+        {
+          "id": "P05.migration",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P05/run-002/report.json"
+        },
+        {
+          "id": "P05.budgets",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P05/run-002/report.json"
+        }
+      ],
+      "acceptance_notes": "Consume same-platform P04. Restart checks reuse the immutable saved recipe across three genuinely new process instances.",
+      "review_notes": "Codex repair review 2026-11-15: see docs/game-lab/P05-P06-codex-review.md. Sources changed; prior run hashes are historical. New reports and independent replay are required. P05/P06 chat integration and P06 target gameplay remain incomplete; no phase acceptance claimed.\n2026-11-16 Codex completion: durable native scan/refine/paging, real recipe resolution, import/export, guarded repeated features and activity controls implemented. See docs/game-lab/P05-P06-completion.md and codex-P05-P06-completion-001 evidence. Historical phase reports remain historical and require fresh source-bound independent acceptance. Among Us native attach/gameplay remains blocked.",
+      "source_paths": [
+        "backend/bughunter/game_runtime/mappings.py",
+        "backend/bughunter/game_runtime/scans.py",
+        "backend/bughunter/game_runtime/pointers.py",
+        "backend/bughunter/game_runtime/migrations.py",
+        "backend/bughunter/game_runtime/service.py",
+        "backend/bughunter/game_runtime/broker.py",
+        "backend/bughunter/operator_tools.py",
+        "backend/tests/test_game_runtime_scans_pointers.py",
+        "backend/tests/test_game_runtime_review_regressions.py",
+        "backend/tests/test_game_runtime_chat_integration.py",
+        "scripts/verify_game_profile_restarts.py",
+        "backend/bughunter/memory_engine/discovery.py",
+        "backend/bughunter/memory_engine/server.py",
+        "backend/tests/test_game_runtime_discovery_native.py",
+        "backend/tests/test_game_mapping_transfer.py",
+        "backend/tests/test_game_runtime_integrated.py"
+      ]
+    },
+    {
+      "id": "P06",
+      "title": "Among Us local no-cooldown",
+      "owner_role": "T",
+      "reviewer_role": "V",
+      "implementation_status": "ready_for_review",
+      "lane_results": {
+        "macos": "ready_for_review",
+        "windows": "blocked"
+      },
+      "depends_on": [
+        "P02",
+        "P04",
+        "P05"
+      ],
+      "milestone_dependencies": [
+        "target_runtime_ready"
+      ],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "The requested action works in the selected local game mode and normal behavior can be restored.",
+      "required_outputs": [
+        "exact-build feature profile",
+        "scripts/verify_game_feature.py",
+        "baseline/enabled/disabled evidence",
+        "restart report"
+      ],
+      "checks": [
+        {
+          "id": "P06.baseline",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        },
+        {
+          "id": "P06.readback",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        },
+        {
+          "id": "P06.behavior",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        },
+        {
+          "id": "P06.disable",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        },
+        {
+          "id": "P06.lifecycle",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "pass",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        },
+        {
+          "id": "P06.restarts",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "blocked",
+          "report_ref": "artifacts/game-verification/game-runtime-v1/P06/run-003/report.json"
+        }
+      ],
+      "acceptance_notes": "All checks are required for each exact OS/build. Require P02.target_memory_access from the exact game process through the qualified adapter. Freeze the comparable baseline/enabled/disabled gameplay scenario. A zero timer or active button alone fails behavior.",
+      "review_notes": "Codex repair review 2026-11-15: see docs/game-lab/P05-P06-codex-review.md. Sources changed; prior run hashes are historical. New reports and independent replay are required. P05/P06 chat integration and P06 target gameplay remain incomplete; no phase acceptance claimed.\n2026-11-16 Codex completion: durable native scan/refine/paging, real recipe resolution, import/export, guarded repeated features and activity controls implemented. See docs/game-lab/P05-P06-completion.md and codex-P05-P06-completion-001 evidence. Historical phase reports remain historical and require fresh source-bound independent acceptance. Among Us native attach/gameplay remains blocked.",
+      "source_paths": [
+        "backend/bughunter/game_runtime/features.py",
+        "backend/bughunter/game_runtime/among_us.py",
+        "backend/bughunter/game_runtime/live_target.py",
+        "backend/bughunter/game_runtime/service.py",
+        "backend/bughunter/memory_engine/mac_adapter.py",
+        "backend/bughunter/operator_tools.py",
+        "backend/tests/test_game_runtime_features.py",
+        "backend/tests/test_game_runtime_chat_integration.py",
+        "scripts/verify_game_feature.py",
+        "docs/game-lab/P06-live-launch-instructions.md",
+        "backend/bughunter/memory_engine/runtime.py",
+        "src-tauri/src/game_executor.rs",
+        "src/GameRuntimeActivity.tsx",
+        "backend/tests/test_game_runtime_integrated.py",
+        "tests/ui/game-runtime.spec.ts"
+      ]
+    },
+    {
+      "id": "P07",
+      "title": "Desktop overlay",
+      "owner_role": "U",
+      "reviewer_role": "V",
+      "implementation_status": "not_started",
+      "lane_results": {},
+      "depends_on": [
+        "P04",
+        "P05",
+        "P06"
+      ],
+      "milestone_dependencies": [
+        "first_desktop_feature"
+      ],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "Boxes, lines and available fields track validated entities and clear when stale.",
+      "required_outputs": [
+        "game_overlay.rs",
+        "GameOverlay.tsx",
+        "entity/camera qualification",
+        "30-minute performance report"
+      ],
+      "checks": [
+        {
+          "id": "P07.projection",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P07.live_alignment",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P07.truthful_fields",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P07.lifecycle",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P07.performance",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        }
+      ],
+      "acceptance_notes": "P06 supplies the first_desktop_feature milestone from at least one desktop lane; P04/P05 must pass for the overlay's own platform. Independent renderer preparation can start after P00. Health remains unavailable until measured on a suitable target.",
+      "review_notes": ""
+    },
+    {
+      "id": "P08",
+      "title": "Non-root phone feasibility",
+      "owner_role": "T",
+      "reviewer_role": "V",
+      "implementation_status": "not_started",
+      "lane_results": {},
+      "depends_on": [
+        "P00",
+        "P06"
+      ],
+      "milestone_dependencies": [
+        "first_desktop_feature"
+      ],
+      "lanes": [
+        "android"
+      ],
+      "expected_outcome": "The exact phone/build has proven launch, data and drawing paths, or a reproducible blocked result.",
+      "required_outputs": [
+        "device/package qualification",
+        "pinned mobile tool manifest",
+        "feasibility report",
+        "requested-feature matrix",
+        "versioned device performance budget",
+        "cleanup steps"
+      ],
+      "checks": [
+        {
+          "id": "P08.launch",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P08.data",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P08.phone_render",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P08.non_root",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P08.budget",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": false,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P08.feasibility_report",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        }
+      ],
+      "acceptance_notes": "Inventory may start after P00. Live experiments wait for first_desktop_feature. A reviewed feasibility report may complete even when launch/data/phone_render/non_root/budget fail; mobile_feasible remains blocked and full-feature P09 cannot start. Persist boxes, enemy lines, numerical enemy health and intended visibility coverage before evaluation; do not drop unavailable requested fields.",
+      "review_notes": ""
+    },
+    {
+      "id": "P09",
+      "title": "On-phone BGMI integration",
+      "owner_role": "U",
+      "reviewer_role": "V",
+      "implementation_status": "not_started",
+      "lane_results": {},
+      "depends_on": [
+        "P02",
+        "P08"
+      ],
+      "milestone_dependencies": [
+        "desktop_controller_ready",
+        "mobile_feasible"
+      ],
+      "lanes": [
+        "android"
+      ],
+      "expected_outcome": "Verified game data drives the requested overlay on the non-rooted phone.",
+      "required_outputs": [
+        "qualified connector",
+        "on-phone renderer",
+        "versioned profile",
+        "device evidence",
+        "install/restore instructions"
+      ],
+      "checks": [
+        {
+          "id": "P09.live_feature",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P09.lifecycle",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P09.performance",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P09.restore",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        }
+      ],
+      "acceptance_notes": "Use accepted shared runtime contracts and at least one accepted desktop P04 lane for the controller. Require the P02 Android qualification and target_memory_access. P08 launch/data/phone_render/non_root/budget must all pass. The complete requested feature set must pass; partial results remain partial.",
+      "review_notes": ""
+    },
+    {
+      "id": "P10",
+      "title": "Packaging and release acceptance",
+      "owner_role": "C",
+      "reviewer_role": "V",
+      "implementation_status": "not_started",
+      "lane_results": {},
+      "depends_on": [
+        "P01",
+        "P02",
+        "P03",
+        "P04",
+        "P05",
+        "P06",
+        "P07"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "Clean installations reproduce advertised capabilities and preserve existing data.",
+      "required_outputs": [
+        "release candidates",
+        "resource/dependency manifests",
+        "support matrix",
+        "migration/rollback report",
+        "scripts/validate_windows_release.py"
+      ],
+      "checks": [
+        {
+          "id": "P10.regression",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P10.clean_install",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P10.upgrade",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P10.target_replay",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P10.support_matrix",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P10.mobile_integration",
+          "evidence_class": "live_target_or_external_fixture",
+          "required_for_phase": false,
+          "required_when": "mobile_support_advertised_or_full_scope_acceptance",
+          "result": "not_run",
+          "report_ref": null
+        }
+      ],
+      "acceptance_notes": "Evaluate desktop prerequisites for each release OS. Mobile advertising additionally requires P08 and P09; a desktop-only release cannot mark the full requested scope complete. Packaging preparation is allowed earlier.",
+      "review_notes": ""
+    },
+    {
+      "id": "P11",
+      "title": "Update detection and requalification",
+      "owner_role": "R",
+      "reviewer_role": "V",
+      "implementation_status": "not_started",
+      "lane_results": {},
+      "depends_on": [
+        "P10"
+      ],
+      "milestone_dependencies": [],
+      "lanes": [
+        "macos",
+        "windows"
+      ],
+      "expected_outcome": "Changed builds or lessons invalidate affected work and trigger bounded requalification.",
+      "required_outputs": [
+        "invalidation workflow",
+        "compatibility history",
+        "procedure promotion rules",
+        "requalification reports"
+      ],
+      "checks": [
+        {
+          "id": "P11.build_change",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P11.source_change",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P11.requalification",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        },
+        {
+          "id": "P11.recovery",
+          "evidence_class": "automated_or_reviewed_artifact",
+          "required_for_phase": true,
+          "result": "not_run",
+          "report_ref": null
+        }
+      ],
+      "acceptance_notes": "Evaluate for the accepted desktop release lanes. Add Android only after its P09 feature and packaged integration are accepted.",
+      "review_notes": ""
+    }
+  ],
+  "report_required_fields": [
+    "plan_id",
+    "plan_revision",
+    "contract_version",
+    "phase_id",
+    "run_id",
+    "owner",
+    "implementation_revision",
+    "input_artifacts",
+    "environment",
+    "target_identity",
+    "checks",
+    "artifacts",
+    "cleanup_result",
+    "blockers",
+    "next_action",
+    "reviewer",
+    "reviewed_revision",
+    "independent_replay"
+  ],
+  "check_report_required_fields": [
+    "id",
+    "result",
+    "expected",
+    "observed",
+    "command",
+    "working_directory",
+    "exit_code",
+    "artifact_refs",
+    "limitations"
+  ],
+  "verifier_cli": {
+    "status": "implemented_pending_review",
+    "command": "scripts/verify_game_plan.py --manifest <path> --reports <directory> --phase <id>",
+    "exit_codes": {
+      "0": "All required checks and prerequisite gates passed.",
+      "1": "Failed, invalid or stale evidence.",
+      "2": "Required checks are blocked or not run."
+    }
+  }
+}

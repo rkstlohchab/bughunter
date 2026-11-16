@@ -1,0 +1,22 @@
+{
+  "id": "op_01",
+  "request_hash": "sha256:ab12cd34ef56",
+  "session_id": "session_01",
+  "session_generation": 1,
+  "stop_generation": 0,
+  "process_instance_id": "proc_pid4211_birth_2026_11_14T09_00Z",
+  "target_fingerprint": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445",
+  "kind": "read",
+  "effect_class": "read_only",
+  "arguments": {"address": "mod:UnityFramework+0x12345", "width": 4},
+  "preconditions": ["match_active"],
+  "status": "queued",
+  "revision": 1,
+  "executor_id": null,
+  "executor_epoch": null,
+  "lease_expires_at": null,
+  "attempt_id": null,
+  "result": null,
+  "error": null,
+  "evidence_ids": []
+}

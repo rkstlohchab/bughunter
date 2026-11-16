@@ -1,0 +1,2 @@
+platform
+platform must be one of 'macos', 'windows', or 'android'; 'ios' has drifted from the enum.

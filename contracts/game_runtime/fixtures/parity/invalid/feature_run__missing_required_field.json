@@ -1,0 +1,11 @@
+{
+  "id": "feature_run_missing_session",
+  "feature_id": "among_us_no_cooldown",
+  "recipe_revisions": [1],
+  "configuration": {},
+  "state": "requested",
+  "readback_status": "pending",
+  "behavior_status": "pending",
+  "cleanup_status": "pending",
+  "evidence_ids": []
+}

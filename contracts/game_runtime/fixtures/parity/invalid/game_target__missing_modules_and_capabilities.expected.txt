@@ -1,0 +1,2 @@
+modules
+GameTarget must declare both 'modules' and 'capabilities' arrays, even if empty.

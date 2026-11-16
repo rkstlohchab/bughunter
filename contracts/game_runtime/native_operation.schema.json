@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://bughunter.local/contracts/game_runtime/native_operation.schema.json",
+  "title": "NativeOperation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "request_hash",
+    "session_id",
+    "session_generation",
+    "stop_generation",
+    "process_instance_id",
+    "target_fingerprint",
+    "kind",
+    "effect_class",
+    "arguments",
+    "preconditions",
+    "status",
+    "revision",
+    "executor_id",
+    "executor_epoch",
+    "lease_expires_at",
+    "attempt_id",
+    "result",
+    "error",
+    "evidence_ids"
+  ],
+  "properties": {
+    "id": {"type": "string"},
+    "request_hash": {"type": "string", "minLength": 1},
+    "session_id": {"type": "string"},
+    "session_generation": {"type": "integer", "minimum": 0},
+    "stop_generation": {"type": "integer", "minimum": 0},
+    "process_instance_id": {"type": "string"},
+    "target_fingerprint": {"type": "string"},
+    "kind": {"enum": ["read", "write", "scan", "pointer_search", "tool_control"]},
+    "effect_class": {"enum": ["read_only", "read_write", "mutating"]},
+    "arguments": {"type": "object"},
+    "preconditions": {"type": "array", "items": {"type": "string"}},
+    "status": {
+      "enum": [
+        "queued", "claimed", "dispatched", "succeeded", "failed",
+        "outcome_unknown", "cancelled_before_dispatch", "cancellation_requested"
+      ]
+    },
+    "revision": {"type": "integer", "minimum": 0},
+    "executor_id": {"type": ["string", "null"]},
+    "executor_epoch": {"type": ["integer", "null"], "minimum": 0},
+    "lease_expires_at": {"type": ["string", "null"]},
+    "attempt_id": {"type": ["string", "null"]},
+    "result": {"type": ["object", "null"]},
+    "error": {"type": ["object", "null"]},
+    "evidence_ids": {"type": "array", "items": {"type": "string"}}
+  }
+}

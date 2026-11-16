@@ -1,0 +1,13 @@
+{
+  "id": "recipe_schema_version_negative",
+  "schema_version": -1,
+  "revision": 1,
+  "target_fingerprint": "3c1a7f2b4e5d6c7a8b9c0d1e2f3a4b5c6d7e8f9012a3b4c5d6e7f80112233445",
+  "name": "bad_recipe_schema_version_negative",
+  "value_type": "u32",
+  "root": "mod:UnityFramework+0x12345",
+  "steps": [],
+  "preconditions": [],
+  "evidence_ids": [],
+  "verification_status": "candidate"
+}

@@ -1,0 +1,11 @@
+{
+  "id": "session_01",
+  "target_id": "target_among_us_mac_appstore_2026_11_3",
+  "harness_session_id": "harness_a1b2c3",
+  "session_generation": 1,
+  "stop_generation": 0,
+  "process_instance_id": "proc_pid4211_birth_2026_11_14T09_00Z",
+  "knowledge_collection_ids": ["course_among_us_v2"],
+  "state": "running",
+  "last_error": null
+}
