@@ -13,14 +13,14 @@ Deploy PentAGI separately using its [upstream documentation](https://github.com/
 
 Start the BugHunter backend with the following environment variables:
 
-\`\`\`sh
+```sh
 export PENTAGI_API_URL="https://127.0.0.1:8443"
 export PENTAGI_API_TOKEN="your-private-api-token"
 # Optional: provide your PentAGI server's trusted CA certificate.
 export PENTAGI_CA_BUNDLE="/path/to/ca.pem"
-\`\`\`
+```
 
-The bridge uses the documented \`GET /api/v1/flows\` endpoint. TLS verification stays enabled. An HTTP origin is accepted only for loopback development. The token is not written to BugHunter's SQLite database or included in RPC responses.
+The bridge uses the documented `GET /api/v1/flows` endpoint. TLS verification stays enabled. An HTTP origin is accepted only for loopback development. The token is not written to BugHunter's SQLite database or included in RPC responses.
 
 In BugHunter's **Automated cart security lab** page, use the PentAGI panel to inspect recent flows and generate a project-scoped handoff. Export/copy the plan, review it and initiate separate PentAGI activity from the PentAGI UI itself. PentAGI's external agent traffic does not pass through BugHunter's gateway, so enforce its network scope independently.
 
@@ -37,11 +37,11 @@ Checkout tests remain **quote-only**. Neither variant can create an order, proce
 
 ## Verification
 
-\`\`\`sh
+```sh
 cd backend
 uv run pytest -q tests/test_pentagi_bridge.py tests/test_checkout_lab.py tests/test_commerce_audit.py
 cd ..
 npx tsc --noEmit
-\`\`\`
+```
 
 The PentAGI API tests are mocked and never require a live instance. A real PentAGI connection check requires a separately running server and configured credentials.
