@@ -1,0 +1,38 @@
+name: PentAGI and Commerce Integration
+on:
+  push:
+    branches: [feat/pentagi-haddix-commerce]
+  pull_request:
+    paths:
+      - 'backend/bughunter/pentagi_bridge.py'
+      - 'backend/bughunter/haddix_methodology.py'
+      - 'backend/bughunter/checkout_lab.py'
+      - 'backend/bughunter/app.py'
+      - 'backend/tests/test_pentagi_bridge.py'
+      - 'backend/tests/test_checkout_lab.py'
+      - 'src/PentagiBridgePanel.tsx'
+      - '.github/workflows/pentagi-integration.yml'
+jobs:
+  provider-bridge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install backend and test dependencies
+        run: python -m pip install -e './backend[dev]'
+      - name: Validate PentAGI bridge and checkout quote oracle
+        run: python -m pytest -q backend/tests/test_pentagi_bridge.py backend/tests/test_checkout_lab.py
+      - name: Python syntax
+        run: python -m compileall -q backend/bughunter
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build

@@ -7,6 +7,8 @@ from bughunter.store import Store
 from bughunter.testing import TestingService
 from bughunter.traffic import TrafficService
 
+pytestmark = pytest.mark.approval_gate
+
 
 def test_source_linked_suggestions_deduplicate_and_require_placeholders(tmp_path):
     store=Store(tmp_path); policy=PolicyService(store); traffic=TrafficService(store)

@@ -4,11 +4,13 @@ MODES={
  'auto':{'label':'Auto','detail':'Work within the task access you chose. Background steps first.','grants':['app','computer']},
  'full':{'label':'Full access','detail':'Allow app, computer, file, command and installation tools for this task. OS permissions still apply.','grants':['app','computer','files','shell','install','integrations']},
 }
-READ_APP={'system.apps','system.status','sources.list','sources.get','sources.coverage','knowledge.search','knowledge.graph','knowledge.status','knowledge.integrity','knowledge.frames','knowledge.learnings','knowledge.procedures','knowledge.procedures.get','models.available','media.status','media.models','media.catalog','media.timeline','projects.list','projects.get','assets.find','assets.hosts','assets.services','assets.graph','gamelab.setup','gamelab.hardware_check','gamelab.list_games','gamelab.list_projects','gamelab.get_project','setup.catalog','setup.history','setup.plan','setup.status','traffic.list','traffic.get','tests.list','tests.coverage','findings.list','dashboard.get','training.domains','training.workspaces','skills.list','skills.get'}
+READ_APP={'burp.health','burp.history','burp.issues','burp.web.review','burp.audit.status','system.apps','system.status','sources.list','sources.get','sources.coverage','knowledge.search','knowledge.graph','knowledge.status','knowledge.integrity','knowledge.frames','knowledge.learnings','knowledge.procedures','knowledge.procedures.get','models.available','media.status','media.models','media.catalog','media.timeline','projects.list','projects.get','assets.find','assets.hosts','assets.services','assets.graph','gamelab.setup','gamelab.hardware_check','gamelab.list_games','gamelab.list_projects','gamelab.get_project','setup.catalog','setup.history','setup.plan','setup.status','traffic.list','traffic.get','tests.list','tests.coverage','findings.list','dashboard.get','training.domains','training.workspaces','skills.list','skills.get'}
 READ_TOOLS={'app_features','app_action','desktop_status','desktop_tools','desktop_call','desktop_describe','file_read','assets_query','install_plan','worker_status','delegate_task','plugin_list','plugin_tools','plugin_call','web_search','browser_workspace'}
 READ_DESKTOP={'desktop_snapshot','desktop_find','desktop_get','desktop_is','desktop_screenshot','desktop_list_windows','desktop_list_displays','desktop_list_apps','desktop_list_surfaces','desktop_status','desktop_version','desktop_permissions','desktop_skills_list','desktop_skills_get','desktop_skills_path'}
 READ_TOOLS.update({'game_targets','game_status','game_session','game_read','game_stop'})
+READ_TOOLS.update({'game_engine_detect','game_metadata_search','game_engine_probe','game_object_dissect','game_watch','game_watch_stop','game_snapshot','game_findings'})
 READ_TOOLS.update({'library_sources','library_search','library_read'})
+READ_TOOLS.update({'tbhm_methodology','tbhm_progress','site_monitor','route_review','pentest_flow'})
 READ_TOOLS.update({'agent_skills','agent_skill_read','rea_status','rea_tools','rea_call','rea_evidence'})
 
 
@@ -72,3 +74,30 @@ def should_search(message,mode='auto'):
  if mode=='on':return True
  import re
  return bool(re.search(r'\b(?:search (?:the )?(?:web|internet|online)|look (?:it |this )?up|browse|latest|current (?:price|version|release|news)|today.s|find (?:online|sources)|check online|news|research online)\b',str(message),re.I))
+
+
+import re as _re
+
+_FOREGROUND = _re.compile(
+    r"\b(?:show me|let me (?:see|watch)|i (?:want|would like|wanna) to (?:see|watch)|so i can (?:see|watch)|"
+    r"in (?:the )?foreground|in front of me|while i watch|watch (?:you|it|the work)|on my screen|visibly|"
+    r"see (?:the )?(?:cursor|work|ai)|record (?:it|this|the screen)|screen ?record|use my (?:mouse|keyboard)|"
+    r"take (?:over )?(?:my )?(?:mouse|keyboard|screen))\b", _re.I)
+_BACKGROUND = _re.compile(
+    r"\b(?:in (?:the )?background|quietly|silently|behind the scenes|without (?:disturbing|interrupting|bothering) me|"
+    r"don'?t (?:take|use|touch) my (?:screen|mouse|keyboard)|while i (?:work|keep working)|don'?t show)\b", _re.I)
+
+
+def work_location(message, default=None):
+    """Infer foreground/background from the user's own words.
+
+    Returns False when the user wants to watch the work (foreground), True when
+    they ask for background work, else ``default``. An explicit background
+    request wins over incidental words like "screen".
+    """
+    text = str(message or '')
+    if _BACKGROUND.search(text):
+        return True
+    if _FOREGROUND.search(text):
+        return False
+    return default

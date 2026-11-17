@@ -83,3 +83,22 @@ for(const message of ['Remove kill cooldown in Among Us using my uploaded course
 }
 test('game follow-up about a lesson stays scoped',()=>assert.equal(wantsGameLab('Use that lesson',true),true));
 test('ordinary course learning stays ordinary',()=>assert.equal(wantsGameLab('Study my local AI course'),false));
+
+// Natural phrasing must route to the game task for any target, not a fixed list.
+for(const message of [
+ 'attach to supertux and give me unlimited coins',
+ 'attached to supertux2, set my coins to 9999',
+ 'give me unlimited gold in this game',
+ 'scan the memory of the running game for my health value',
+ 'freeze my ammo in supertux',
+ 'max out my gems',
+ 'find the coin value in OpenTTD memory and change it',
+ 'mod this apk for unlimited coins',
+]) test(`natural game phrasing routes to game task: ${message}`,()=>assert.equal(wantsGameLab(message),true));
+
+for(const message of [
+ 'What is a pointer path?',
+ 'Study my local AI course',
+ 'Summarise my library',
+ 'Audit my authorized website',
+]) test(`non-game stays out of game task: ${message}`,()=>assert.equal(wantsGameLab(message),false));

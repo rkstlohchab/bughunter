@@ -1,3 +1,4 @@
+import {openWorkspaces} from './navigation';
 import { expect, test } from '@playwright/test';
 import { chatFixture } from './chat-fixture';
 
@@ -7,10 +8,8 @@ test('task guide and manual workspaces fit at minimum desktop height', async ({p
   await page.goto('/');
   const nav = page.getByRole('navigation', {name: 'Main navigation'});
   await expect(nav.getByRole('button')).toHaveCount(3);
-  await page.getByRole('button', {name: 'Tools', exact: true}).click();
-  const guide = page.getByRole('dialog', {name: 'Tools', exact: true});
-  await expect(guide.getByRole('button', {name: 'Review a website', exact: false})).toBeVisible();
-  await guide.getByText('Open individual workspaces', {exact: true}).click();
+  await expect(page.getByRole('button', {name: 'Tools', exact: true})).toHaveCount(0);
+  const guide = await openWorkspaces(page);
   await guide.getByLabel('Find a workspace').fill('prompt');
   await guide.getByRole('button', {name: 'Prompt editor', exact: true}).click();
   await expect(page.getByRole('button', {name: 'Switch to light theme'})).toBeInViewport();

@@ -8,6 +8,8 @@ import pytest
 from bughunter.policy import PolicyService, canonical_url, classify_effect, normalized_request, validate_scope
 from bughunter.store import Store
 
+pytestmark = pytest.mark.approval_gate
+
 
 @pytest.fixture
 def policy(tmp_path):

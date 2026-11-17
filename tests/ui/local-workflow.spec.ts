@@ -25,6 +25,9 @@ test('real backend: lesson to approved shop test to evidence report and reusable
     await expect.poll(async () => { try { return (await fetch(`http://127.0.0.1:${port}/rpc`)).status; } catch { return 0; } }).toBe(405);
     expect((await fetch(`http://127.0.0.1:${port}/rpc`,{method:'POST',body:'{}'})).status).toBe(401);
     expect((await fetch(`http://127.0.0.1:${port}/rpc`,{method:'POST',body:'{}',headers:{Authorization:`Bearer ${token}`,Origin:'https://untrusted.example'}})).status).toBe(403);
+    // This journey exercises the approval gate, so turn autonomous requests off (the desktop Settings switch).
+    const autonomy=await fetch(`http://127.0.0.1:${port}/rpc`,{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'system.autonomy',params:{enabled:false}})});
+    expect((await autonomy.json()).result).toEqual({enabled:false});
     // Forward UI RPC to a real isolated backend, with no mocked application results.
     await page.route('http://127.0.0.1:8765/rpc',async route => {
       const headers = { 'Access-Control-Allow-Origin':'*', 'Access-Control-Allow-Headers':'Authorization, Content-Type', 'Access-Control-Allow-Methods':'POST, OPTIONS' };

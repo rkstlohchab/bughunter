@@ -55,6 +55,7 @@ def gateway(tmp_path):
     target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
     threading.Thread(target=target.serve_forever, daemon=True).start()
     store = Store(tmp_path)
+    store.set_setting('autonomy_mode', False)  # these tests exercise the opt-in approval gate
     policy = PolicyService(store)
     origin = f"http://127.0.0.1:{target.server_port}"
     policy.save_project({"id":"p", "name":"Owned loopback target", "scope":[origin+"/api"],

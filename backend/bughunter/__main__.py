@@ -124,11 +124,13 @@ def main():
     mode.add_argument("--team-mcp",action="store_true")
     mode.add_argument("--gateway",action="store_true")
     mode.add_argument("--memory-engine",action="store_true")
+    mode.add_argument("--burp-mcp",action="store_true")
     parser.add_argument("--port",type=int,default=None)
     parser.add_argument("--run-id")
     parser.add_argument("--team-id")
     parser.add_argument("--agent-id")
     parser.add_argument("--data-dir")
+    parser.add_argument("--project-id")
     args = parser.parse_args()
     if args.memory_engine:
         from .memory_engine.__main__ import main as memory_main
@@ -139,8 +141,8 @@ def main():
         asyncio.run(run_gateway(Store(args.data_dir),args.port or 8091))
         return
     native_credential = os.environ.pop('BUGHUNTER_NATIVE_CREDENTIAL',None)
-    if args.http or args.mcp or args.team_mcp:native_credential=None
-    app = Application(args.data_dir,primary=not (args.mcp or args.team_mcp),native_credential=native_credential)
+    if args.http or args.mcp or args.team_mcp or args.burp_mcp:native_credential=None
+    app = Application(args.data_dir,primary=not (args.mcp or args.team_mcp or args.burp_mcp),native_credential=native_credential)
     def exit_cleanly(signum,frame):
         app.shutdown()
         raise SystemExit(0)
@@ -153,6 +155,14 @@ def main():
         from .team import TeamTools, TEAM_SPECS
         try:
             asyncio.run(serve_capability(TeamTools(app,args.team_id,args.agent_id),TEAM_SPECS,"bughunter-team"))
+        finally:
+            app.shutdown()
+    elif args.burp_mcp:
+        if not args.project_id:
+            parser.error("--burp-mcp requires --project-id")
+        from .burp_mcp import serve as burp_serve
+        try:
+            asyncio.run(burp_serve(app,args.project_id))
         finally:
             app.shutdown()
     elif args.mcp:

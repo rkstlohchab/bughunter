@@ -9,7 +9,7 @@ export type AnalysisModel={provider:'claude_subscription'|'codex_subscription'|'
 const chatProvider:Record<AnalysisModel['provider'],string>={claude_subscription:'claude_code',codex_subscription:'codex',gemini_subscription:'gemini_cli',gemini:'gemini',openai:'openai',anthropic:'anthropic',local:'ollama'};
 const analysisProvider=Object.fromEntries(Object.entries(chatProvider).map(([media,chat])=>[chat,media])) as Record<string,AnalysisModel['provider']>;
 const labels={claude_subscription:'Claude subscription',codex_subscription:'ChatGPT subscription',gemini_subscription:'Google AI subscription',gemini:'Gemini API',openai:'OpenAI API',anthropic:'Anthropic API',local:'Local AI'};
-export function analysisModelLabel(value?:AnalysisModel|null){return value?`${labels[value.provider]} · ${value.model}`:'Use default';}
+export function analysisModelLabel(value?:AnalysisModel|null){return value?[labels[value.provider]||value.provider,value.model].filter(Boolean).join(' · '):'Use default';}
 export function configAnalysisModel(config:Record<string,any>):AnalysisModel{
   const provider=(config.vision_provider||'local') as AnalysisModel['provider'];
   const key=provider==='local'?'vision_model':provider==='codex_subscription'?'codex_vision_model':provider==='claude_subscription'?'claude_vision_model':provider==='gemini_subscription'?'gemini_vision_model':'api_vision_model';

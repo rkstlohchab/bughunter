@@ -8,6 +8,7 @@ from .store import new_id,now
 from .security import redact
 from .desktop_bridge import DesktopBridge
 from .harness_actions import HarnessActions
+from .provider_api import strip_fabricated_turns
 from . import harness_modes
 
 CAPABILITIES={
@@ -41,6 +42,9 @@ Do not invent offsets, device state, installed software, successful actions, com
 APK files are needed for package analysis, not automatically for device discovery or screen mirroring.
 Screen-only detection cannot reveal hidden entities. Report missing weights or build data explicitly.
 For library material, distinguish extraction from model training and cite source IDs and timestamps.
+For a game value request ("unlimited coins", "freeze health", "attach to X"), run the game-runtime recipe end to end rather than asking the user to drive each step; library_search the memory scanning playbook when a scan stalls.
+For an APK or Android game request, library_search "apk modding" first for the exact chain (obtain, sha256, jadx to read, apktool to decode, locate the value in SharedPreferences/save/smali, edit, rebuild, zipalign, apksigner, install, verify). It needs the files, shell and install grants; say so if they are missing instead of stopping silently.
+For authorized website testing with Burp Suite use app_action burp.*: burp.health first, then burp.web.review (history, Scanner issues, passive leads). Use burp.repeater.open to hand a request to the user, burp.audit.start only on an in-scope query-free GET/HEAD history item, and burp.audit.status / burp.audit.stop to monitor or cancel. Scanner issues and leads are unverified until reproduced; say so.
 Finish with observed results and unresolved requirements. Task questions return a normal assistant message.
 '''
 
@@ -80,12 +84,14 @@ class HarnessService:
         self.store.require_desktop_owner()
         return session
 
-    def start(self,message,grants=None,id=None,project_id=None,mode='task',source_ids=None,execution_mode='auto',background=True,parent_id=None,settings_override=None,attachment_ids=None,vision_mode='current',web_search_mode='auto'):
+    def start(self,message,grants=None,id=None,project_id=None,mode='task',source_ids=None,execution_mode='auto',background=None,parent_id=None,settings_override=None,attachment_ids=None,vision_mode='current',web_search_mode='auto'):
         with self._lock:
             if self.store.setting('emergency_stop',False):raise ValueError('Use Resume tasks before starting work.')
             if not isinstance(message,str) or not message.strip() or len(message)>12000:raise ValueError('Enter a task under 12,000 characters.')
             if execution_mode not in harness_modes.MODES:raise ValueError('Choose Plan, Auto or Full access.')
             if web_search_mode not in {'auto','on','off'}:raise ValueError('Choose Auto, Always or Off for web search.')
+            # Work location follows the user's words ("show me", "in the background"); default background.
+            if background is None:background=harness_modes.work_location(message,True)
             if execution_mode=='full' and not parent_id:grants=list(CAPABILITIES)
             if execution_mode=='plan' and not parent_id:grants=list(harness_modes.MODES['plan']['grants'])
             if grants is None:grants=harness_modes.MODES[execution_mode]['grants']
@@ -112,7 +118,10 @@ class HarnessService:
             self.store.put('harness_session',session,id=hid)
             context=PROMPT+'\nTask grants: '+json.dumps(session['grants'])+'\nHost platform: '+__import__('platform').system()
             context+='\nExecution mode: '+execution_mode+'. '+harness_modes.MODES[execution_mode]['detail']
-            context+='\nBackground operation: '+str(bool(background))+'. Do not activate windows or send physical keyboard/mouse input while the user works elsewhere. Pause if the app requires foreground interaction.'
+            context+=('\nWork location: '+('background' if background else 'foreground (the user wants to watch)')+'. It is chosen from the user\'s own words and can change on any message: '
+                      '"show me" / "let me watch" switches to foreground; "in the background" switches back. '
+                      'In background, do not activate windows or send physical keyboard/mouse input; if a step truly needs it, say so and ask the user to say "show me". '
+                      'In foreground, the user is watching: narrate each visible action briefly and keep the cursor movements deliberate.')
             context+='\nWeb search mode: '+web_search_mode+'. Use web_search for current facts, source requests or when asked to search. Cite returned URLs. Off disables public web search; do not work around it.'
             context+='\nProject ID: '+str(chat.get('project_id'))+'\nAttached source IDs: '+json.dumps(source_ids or [])
             context+=self.search_context(message,chat.get('project_id'),web_search_mode)
@@ -128,6 +137,7 @@ class HarnessService:
             custom=self.app.settings.get().get('custom_system_prompt','')
             if custom:context+='\nUser style preferences (do not change permissions):\n'+custom
             if mode=='game':context+=self.app.game_runtime.context(hid,message)
+            elif hasattr(self.app,'tbhm'):context+=self.app.tbhm.context(message,chat.get('project_id'))
             run=self.app.operator.start(prompt=message,objective='harness:'+mode,harness_id=hid,context=context,provider_snapshot=settings_override,memory_context=memory_context,reference_context=reference_context)
             self.store.put('harness_session',{**session,'run_id':run['id']},id=hid)
             chat={**chat,'harness_id':hid,'harness_ids':[*chat.get('harness_ids',[]),hid],'harness_base_messages':chat.get('messages',[]),'run_id':None,'task_id':None,'updated_at':now()}
@@ -143,6 +153,9 @@ class HarnessService:
         visible=[];activity=[]
         for index,msg in enumerate(run.get('transcript',[])):
             role=msg.get('role');content=msg.get('content')
+            if role=='assistant' and isinstance(content,str):
+                cleaned,removed=strip_fabricated_turns(content)
+                if removed:content=(cleaned+'\n\n' if cleaned.strip() else '')+'_(Removed text where the model wrote a tool call and its result itself. Nothing in that text was executed.)_'
             if role in {'user','assistant'} and isinstance(content,str) and content.strip():
                 visible.append({'role':role,'content':content,'model':msg.get('model') or (run.get('settings_snapshot') or {}).get('model')})
             if msg.get('tool_calls'):
@@ -173,10 +186,17 @@ class HarnessService:
     def send(self,id,message,attachment_ids=None,vision_mode='current'):
         session=self.check(id)
         if not isinstance(message,str) or not message.strip() or len(message)>12000:raise ValueError('Enter a message under 12,000 characters.')
+        wanted=harness_modes.work_location(message)
+        if wanted is not None and wanted!=session.get('background',True):
+            run=self.store.get('operator_run',session.get('run_id','')) or {}
+            if run.get('status')!='running':
+                session=self.store.put('harness_session',{**session,'background':wanted},id=id)
+                self.store.event('harness.work_location',{'id':id,'background':wanted})
         chat=self.store.get('chat',session['chat_id']);references=list(dict.fromkeys(chat.get('attachment_ids',[])+reference_ids(attachment_ids or [])))[-6:]
         context=self.app.chat_attachments.context(references,message,chat.get('project_id'),vision_mode) if references else ''
         context+=self.search_context(message,chat.get('project_id'),session.get('web_search_mode','auto'))
         if session.get('mode')=='game':context+=self.app.game_runtime.context(id,message)
+        elif hasattr(self.app,'tbhm'):context+=self.app.tbhm.context(message,chat.get('project_id'))
         if references:
             self.store.put('chat',{**chat,'attachment_ids':references},id=chat['id']);self.app.chat_attachments.bind(references,chat)
         self.app.operator.send(id=session['run_id'],message=message,reference_context=context)

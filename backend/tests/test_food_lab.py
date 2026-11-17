@@ -8,6 +8,8 @@ from bughunter.policy import PolicyService
 from bughunter.store import Store
 from bughunter.traffic import TrafficService
 
+pytestmark = pytest.mark.approval_gate
+
 
 @pytest.mark.parametrize('body', [[], {'product_id': []}, {'product_id': 'unknown'},
     {'product_id': 'bowl', 'quantity': True}, {'product_id': 'bowl', 'quantity': 1.5},

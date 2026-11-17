@@ -13,7 +13,9 @@ from .server import MemoryEngineServer
 def main():
     server=MemoryEngineServer();bootstrapped=False
     from .runtime import RuntimeOperations
+    from .analysis import AnalysisOperations
     runtime=RuntimeOperations(server)
+    analysis=AnalysisOperations(server)
     output_lock=threading.Lock();state_lock=threading.Lock()
     jobs=queue.Queue(maxsize=64)
     state={'quiescing':False,'active':0,'closing':False,'last_op_latency_ms':0.0,'backlog':0}
@@ -64,6 +66,9 @@ def main():
             return result
         if method=='gamelab.native.detach':return server.detach(params['session_id'])
         if method=='gamelab.native.diagnostics':return _diagnostics()
+        if params.get('analysis_action'):
+            if method!='gamelab.native.read':raise ValueError('Analysis runs only as a read-only operation.')
+            return analysis.dispatch(params)
         if params.get('runtime_action'):
             return runtime.dispatch(params)
         methods={'gamelab.native.read':'memory.read','gamelab.native.write':'memory.write','gamelab.native.scan':'memory.scan','gamelab.native.pointer_search':'memory.pointer_search','gamelab.native.tool_control':'tool_control'}
@@ -90,6 +95,7 @@ def main():
                 except (OSError,BrokenPipeError):pass
             finally:jobs.task_done()
         runtime.close()
+        analysis.close()
         server.shutdown()
     thread=threading.Thread(target=worker,daemon=True);thread.start()
     try:
@@ -123,6 +129,7 @@ def main():
                     for task in params.get('task_session_ids',[]):
                         server.discovery.close_owner(params['session_id'],task)
                         runtime.release_task(task)
+                        analysis.release_task(task)
                     respond(ident,{'released':True})
                 elif method=='gamelab.native.resume':
                     with state_lock:

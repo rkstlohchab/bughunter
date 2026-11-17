@@ -30,6 +30,11 @@ from .skills import SkillService
 from .model_routing import ModelRoutes
 from .research import WebResearch
 from .commerce_audit import CommerceAudit
+from .pentagi_bridge import PentagiBridge
+from .tbhm import TbhmService
+from .site_monitor import SiteMonitor
+from .route_review import RouteReview
+from .pentest import PentestEngine
 from .staging_price import StagingPriceAudit
 from .website_audit import WebsiteAudit
 from .pointer_notebook import PointerNotebook
@@ -111,6 +116,13 @@ class Application:
         self.verification_p9 = VerificationP9(self)
         self.investigation_p10 = InvestigationP10(self)
         self.commerce = CommerceAudit(self)
+        self.pentagi = PentagiBridge(self)
+        self.tbhm = TbhmService(self)
+        self.site_monitor = SiteMonitor(self)
+        self.route_review = RouteReview(self)
+        self.pentest = PentestEngine(self)
+        if primary:
+            self.site_monitor.start_watchers()
         self.staging_price = StagingPriceAudit(self)
         self.website_audit = WebsiteAudit(self)
         self.pointer_notebook = PointerNotebook(self.store)
@@ -173,7 +185,11 @@ class Application:
         self._claude_cache_time = 0
         if primary:
             from .reference_pack import seed_pack
-            seed_pack(self.knowledge)
+            try:
+                seed_pack(self.knowledge)
+            except Exception as error:
+                # Bundled references are optional; they must never prevent startup.
+                self.store.event('reference_pack.seed_failed', {'error': str(error)[:300]})
             self.policy.recover()
             self.runs.recover()
             self.store.set_setting("lab_runtime",{})
@@ -285,6 +301,16 @@ class Application:
             return self.memory_mappings.dispatch(method,p)
         if method.startswith('website.audit.'):
             return self.website_audit.dispatch(method,p)
+        if method.startswith('pentagi.'):
+            return self.pentagi.dispatch(method, p)
+        if method.startswith('tbhm.'):
+            return self.tbhm.dispatch(method, p)
+        if method.startswith('monitor.'):
+            return self.site_monitor.dispatch(method, p)
+        if method.startswith('routes.'):
+            return self.route_review.dispatch(method, p)
+        if method.startswith('pentest.'):
+            return self.pentest.dispatch(method, p)
         if method.startswith('commerce.staging.'):
             return self.staging_price.dispatch(method,p)
         if method.startswith('commerce.'):
@@ -414,7 +440,20 @@ class Application:
         if method == "system.resume":
             self.store.set_setting("emergency_stop",False)
             self.harness.desktop.reset()
+            if self.primary:
+                # A seed deferred by Stop all runs once tasks are allowed again.
+                from .reference_pack import seed_pack
+                try:seed_pack(self.knowledge)
+                except Exception as error:self.store.event('reference_pack.seed_failed',{'error':str(error)[:300]})
             return {"resumed":True,"message":"New tasks are enabled. Stopped work is not restarted."}
+        if method == "system.autonomy":
+            # Desktop-only switch; model tools have no route to this method.
+            if "enabled" in p:
+                if not isinstance(p["enabled"], bool):raise ValueError("Choose on or off.")
+                self.store.set_setting("autonomy_mode", p["enabled"])
+                self.store.event("system.autonomy", {"enabled": p["enabled"]})
+            from .autonomy import enabled as autonomy_enabled
+            return {"enabled": autonomy_enabled(self.store)}
         if method == "events.list":
             return self.store.events(**p)
         if method == "system.backup.create":
@@ -467,7 +506,8 @@ class Application:
                 self._claude_cache_time = time.monotonic()
             return {"version":"0.1.0","platform":platform.system(),"architecture":platform.machine(),
                 "data_dir":str(self.store.root),"provider":self.settings.get()["provider"],"claude":self._claude_cache,
-                "emergency_stop":self.store.setting("emergency_stop",False)}
+                "emergency_stop":self.store.setting("emergency_stop",False),
+                "autonomy_mode":bool(self.store.setting("autonomy_mode",True))}
         if method == "dashboard.get":
             return {"counts":{kind:len(self.store.list(kind)) for kind in ("project","source","traffic","test","action","finding","run")},
                 "pending_approvals":len(self.store.list("action",status="pending_approval")),
@@ -951,6 +991,7 @@ class Application:
         self.browser_workspaces.shutdown()
         self.memory_mappings.stop_all()
         self.readiness_p7.shutdown()
+        self.site_monitor.shutdown()
         try: self.capabilities.shutdown()
         except Exception: pass
         self.agent_jobs.shutdown()

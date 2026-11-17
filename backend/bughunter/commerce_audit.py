@@ -44,6 +44,10 @@ CASES = (
     Case('Food bundle exclusion', {'product_id': 'family-meal', 'quantity': 1, 'coupon': 'FOOD10'}, 'Excluded meal received coupon', 44.5, route='food-cart'),
     Case('Food coupon replay', {'product_id': 'bowl', 'quantity': 1, 'addons': ['drink'], 'coupon': ['FOOD10', 'FOOD10']}, 'Food coupon replay accepted', 21.4, ('FOOD10',), route='food-cart'),
     Case('Food negative quantity', {'product_id': 'bowl', 'quantity': -1}, 'Invalid food quantity accepted', fixed_error='invalid_quantity', route='food-cart'),
+    Case('Checkout shipping override', {'product_id': 'regular', 'quantity': 1, 'shipping_fee_minor': 0}, 'Client shipping fee accepted', 110, route='checkout-quote'),
+    Case('Checkout currency override', {'product_id': 'regular', 'quantity': 1, 'currency': 'EUR'}, 'Client checkout currency accepted', 110, route='checkout-quote'),
+    Case('Checkout total override', {'product_id': 'regular', 'quantity': 1, 'client_total_minor': 1}, 'Client checkout total accepted', 110, route='checkout-quote'),
+    Case('Checkout paid-state spoof', {'product_id': 'regular', 'quantity': 1, 'checkout_state': 'paid'}, 'Unverified paid checkout state accepted', 110, route='checkout-quote'),
 )
 
 class CommerceAudit:
@@ -151,6 +155,25 @@ class CommerceAudit:
                 and all(type(response.get(key + '_minor')) is int
                         and response[key + '_minor'] / 100 == response[key]
                         for key in ('accepted_total', 'canonical_total')))
+        if scenario.route == 'checkout-quote':
+            valid = (valid and response.get('fixture') == 'synthetic-checkout-quote-v1'
+                and response.get('quote_only') is True and response.get('order_created') is False
+                and response.get('payment_initiated') is False
+                and type(response.get('accepted_total_minor')) is int
+                and type(response.get('canonical_total_minor')) is int
+                and response['accepted_total_minor'] / 100 == response['accepted_total']
+                and response['canonical_total_minor'] / 100 == response['canonical_total']
+                and isinstance(response.get('accepted_currency'), str)
+                and response.get('checkout_state') in {'quoted', 'paid'})
+            if mode == 'fixed':
+                valid = (valid and response.get('accepted_currency') == 'USD'
+                    and response.get('checkout_state') == 'quoted'
+                    and response.get('accepted_shipping_minor') == 1000)
+            else:
+                valid = (valid and (
+                    response['accepted_total_minor'] != response['canonical_total_minor']
+                    or response['accepted_currency'] != 'USD'
+                    or response['checkout_state'] != 'quoted'))
         observed = valid and scenario.failure in response['violations']
         if mode == 'vulnerable':
             return observed, observed
@@ -176,7 +199,9 @@ class CommerceAudit:
                         'headers': {'content-type': 'application/json', 'x-test-account': 'alice'},
                         'body': json.dumps(scenario.body)}, session_id='cart-lab-'+task_id[:12])
                     # Approved batch applies ONLY to app-owned loopback test fixtures.
-                    self.app.policy.approve(action['id'])
+                    # Autonomous mode may already have released it; approving again would fail.
+                    if action.get('status') == 'pending_approval':
+                        self.app.policy.approve(action['id'])
                     result = self.app.policy.execute(action['id'])
                     status, response = self._observed_response(action, result)
                     passed, observed = self._score(scenario, mode, status, response)

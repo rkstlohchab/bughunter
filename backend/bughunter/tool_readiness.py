@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import platform
 import plistlib
+from xml.parsers.expat import ExpatError
 import re
 import shutil
 import subprocess
@@ -23,8 +24,9 @@ _CE_EXE = re.compile(r'^cheat\s*engine(?:-x86_64)?(?:\.exe)?$', re.I)
 def _bundle_info(app: Path):
     try:
         with (app / 'Contents' / 'Info.plist').open('rb') as handle:
-            return plistlib.load(handle)
-    except (OSError, ValueError, TypeError, plistlib.InvalidFileException):
+            info = plistlib.load(handle)
+        return info if isinstance(info, dict) else {}
+    except (OSError, ValueError, TypeError, ExpatError, plistlib.InvalidFileException):
         return {}
 
 

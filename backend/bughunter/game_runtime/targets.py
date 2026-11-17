@@ -43,8 +43,9 @@ import ctypes.util
 import hashlib
 import json
 import os
-import platform
+import platform as _platform
 import plistlib
+from xml.parsers.expat import ExpatError
 import re
 import shutil
 import struct
@@ -137,12 +138,31 @@ class MachOInfo:
     ``x86_64``, ...). ``pointer_width`` is derived from the magic,
     not inferred from the architecture name — a thin armv7 binary is
     pointer_width=4 even if the kernel ran it in a 64-bit sandbox.
+    ``sub_architectures`` keeps every slice slug a fat binary advertises
+    in the order they appear on disk. ``architecture`` is the slice the
+    host will actually run — prefer the slice whose slug equals the
+    host's architecture when present, otherwise the first supported
+    slice — because fat slice order is not execution order.
     """
 
     architecture: str
     pointer_width: Literal[4, 8]
     is_fat: bool
     sub_architectures: tuple[str, ...]
+
+
+def _host_architecture() -> str:
+    """Canonical architecture slug for the host.
+
+    Returns ``arm64`` on Apple Silicon, ``x86_64`` on Intel. ``aarch64``
+    is normalised to ``arm64`` to match the Mach-O slug family. Used
+    only to break ties between fat Mach-O slices when the on-disk
+    slice order does not predict which slice the kernel will run.
+    """
+    arch = _platform.machine().lower()
+    if arch in ("aarch64",):
+        return "arm64"
+    return arch
 
 
 def read_macho_info(path: Path) -> MachOInfo:
@@ -166,7 +186,7 @@ def read_macho_info(path: Path) -> MachOInfo:
         is_64 = magic in (FAT_MAGIC_64, FAT_CIGAM_64)
         entry_size = 32 if is_64 else 20
         slugs: list[str] = []
-        first: tuple[str, int] | None = None
+        supported: list[tuple[str, int]] = []
         for i in range(nfat):
             off = 8 + i * entry_size
             if off + 8 > len(head):
@@ -177,13 +197,14 @@ def read_macho_info(path: Path) -> MachOInfo:
                 slugs.append(f"cpu_0x{cpu:x}")
                 continue
             slugs.append(info[0])
-            if first is None:
-                first = info
-        if first is None:
+            supported.append(info)
+        if not supported:
             raise ValueError(f"{path}: fat binary has no supported slices")
+        host = _host_architecture()
+        chosen = next((s for s in supported if s[0] == host), supported[0])
         return MachOInfo(
-            architecture=first[0],
-            pointer_width=first[1],  # type: ignore[arg-type]
+            architecture=chosen[0],
+            pointer_width=chosen[1],  # type: ignore[arg-type]
             is_fat=True,
             sub_architectures=tuple(slugs),
         )
@@ -240,7 +261,9 @@ def _plist_executable(bundle: Path) -> tuple[Path | None, dict]:
         try:
             with info_path.open("rb") as fh:
                 info = plistlib.load(fh)
-        except (plistlib.InvalidFileException, OSError):
+        except (plistlib.InvalidFileException, OSError, ValueError, ExpatError):
+            continue
+        if not isinstance(info, dict):
             continue
         exec_name = info.get("CFBundleExecutable")
         if not exec_name:
@@ -303,8 +326,19 @@ def _macos_inspect_bundle(bundle: Path) -> GameTarget | None:
     """Produce a :class:`GameTarget` for one ``.app`` bundle, or None if
     the bundle is not a Unity target this discovery recognises.
 
-    Only wrapped-iPhoneOS Unity bundles — and conventional macOS
-    bundles that still carry a UnityFramework module — are returned.
+    Two Unity layouts are accepted:
+
+    * **wrapped iPhoneOS** — ``Frameworks/UnityFramework.framework/
+      UnityFramework`` next to a root ``Info.plist``, data at
+      ``Data/Managed/Metadata/global-metadata.dat``. Only one module
+      (``UnityFramework``) is recorded. Keeps the Among Us path alive.
+    * **conventional macOS** — ``Contents/Frameworks/UnityPlayer.dylib``
+      and (for IL2CPP builds) ``Contents/Frameworks/GameAssembly.dylib``
+      next to ``Contents/Info.plist``, data at
+      ``Contents/Resources/Data/il2cpp_data/Metadata/global-metadata.dat``.
+      Both dylibs are recorded as modules. Steam IL2CPP games use this
+      layout.
+
     Non-Unity apps are skipped silently; this discovery is scoped to
     targets P02 can reason about.
     """
@@ -312,33 +346,56 @@ def _macos_inspect_bundle(bundle: Path) -> GameTarget | None:
     if exec_path is None:
         return None
 
-    # Unity module location. iPhoneOS-wrapped and modern macOS Unity
-    # builds both use ``Frameworks/UnityFramework.framework/UnityFramework``.
-    unity = bundle / "Frameworks" / "UnityFramework.framework" / "UnityFramework"
-    if not unity.is_file():
+    wrapped_root = bundle / "Frameworks" / "UnityFramework.framework" / "UnityFramework"
+    conv_unity_player = bundle / "Contents" / "Frameworks" / "UnityPlayer.dylib"
+    conv_game_assembly = bundle / "Contents" / "Frameworks" / "GameAssembly.dylib"
+
+    modules_on_disk: list[tuple[str, Path]] = []
+    if wrapped_root.is_file():
+        layout = "wrapped_iphoneos"
+        data_root = bundle / "Data"
+        metadata = data_root / "Managed" / "Metadata" / "global-metadata.dat"
+        unity_version_asset = data_root / "globalgamemanagers"
+        modules_on_disk.append(("UnityFramework", wrapped_root))
+    elif conv_unity_player.is_file():
+        layout = "conventional_macos"
+        data_root = bundle / "Contents" / "Resources" / "Data"
+        metadata = data_root / "il2cpp_data" / "Metadata" / "global-metadata.dat"
+        unity_version_asset = data_root / "globalgamemanagers"
+        modules_on_disk.append(("UnityPlayer", conv_unity_player))
+        if conv_game_assembly.is_file():
+            modules_on_disk.append(("GameAssembly", conv_game_assembly))
+    else:
         return None
 
     try:
         exec_info = read_macho_info(exec_path)
     except ValueError:
         return None
-    try:
-        unity_info = read_macho_info(unity)
-    except ValueError:
-        return None
 
-    # Data directory layout: iPhoneOS-wrapped lives at ``<bundle>/Data``.
-    data_root = bundle / "Data"
-    metadata = data_root / "Managed" / "Metadata" / "global-metadata.dat"
+    module_infos: dict[str, MachOInfo] = {}
+    module_hashes: dict[str, str] = {}
+    for name, path in modules_on_disk:
+        try:
+            module_infos[name] = read_macho_info(path)
+        except ValueError:
+            return None
+        module_hashes[name] = sha256_file(path)
+
     sha_main = sha256_file(exec_path)
     sha_meta = sha256_file(metadata) if metadata.is_file() else None
-    sha_unity = sha256_file(unity)
 
-    unity_version = _unity_version_from_module(unity)
-    asset = data_root / "globalgamemanagers"
-    asset_version = _unity_asset_version(asset)
-    if asset_version:
-        unity_version = asset_version[0]
+    # Unity version: prefer a parsed asset header (globalgamemanagers in
+    # the classic data layout); fall back to a string scan of the first
+    # module (UnityFramework or UnityPlayer carry the version tag in
+    # practice). Games packaged as a single ``data.unity3d`` archive
+    # (Combat Master, newer Unity Il2CPP builds) have no
+    # globalgamemanagers file, and the module scan is then the only
+    # measured version source.
+    asset_version = _unity_asset_version(unity_version_asset)
+    unity_version = asset_version[0] if asset_version else _unity_version_from_module(
+        modules_on_disk[0][1]
+    )
     build_guid = _macos_build_guid(data_root)
     bundle_version = (
         info.get("CFBundleShortVersionString")
@@ -347,42 +404,70 @@ def _macos_inspect_bundle(bundle: Path) -> GameTarget | None:
     )
     bundle_id = info.get("CFBundleIdentifier") or bundle.name
 
-    # module size: file length on disk, which is the on-disk slice size
-    # for a thin Mach-O. Fat slices would need an offset table; we
-    # record file size here and note the fat layout in extras.
-    module_size = unity.stat().st_size
+    # Primary module stays first in ``modules_on_disk`` so the existing
+    # extras.module_* fields remain the layout-primary identity. For
+    # wrapped layout that is UnityFramework; for conventional macOS it
+    # is UnityPlayer.
+    primary_name, primary_path = modules_on_disk[0]
+    primary_info = module_infos[primary_name]
 
     extras: dict[str, Any] = {
         "bundle_identifier": bundle_id,
         "bundle_path": str(bundle),
-        "wrapper_layout": (bundle / "Info.plist").is_file(),  # True when iPhoneOS-wrapped
-        "module_sha256": sha_unity,
-        "module_architecture": unity_info.architecture,
-        "module_pointer_width": unity_info.pointer_width,
-        "module_is_fat": unity_info.is_fat,
-        "module_sub_architectures": list(unity_info.sub_architectures),
+        "wrapper_layout": layout == "wrapped_iphoneos",
+        "layout": layout,
+        "module_sha256": module_hashes[primary_name],
+        "module_architecture": primary_info.architecture,
+        "module_pointer_width": primary_info.pointer_width,
+        "module_is_fat": primary_info.is_fat,
+        "module_sub_architectures": list(primary_info.sub_architectures),
     }
     if unity_version:
         extras["unity_version"] = unity_version
     if asset_version:
-        extras["unity_version_source"] = {"path": str(asset.relative_to(bundle)),
-                                         "sha256": sha256_file(asset), "byte_offset": asset_version[1]}
+        extras["unity_version_source"] = {
+            "path": str(unity_version_asset.relative_to(bundle)),
+            "sha256": sha256_file(unity_version_asset),
+            "byte_offset": asset_version[1],
+        }
     if build_guid:
         extras["unity_build_guid"] = build_guid
     if metadata.is_file():
         extras["metadata_present"] = True
         extras["metadata_path"] = str(metadata.relative_to(bundle))
 
-    # Target id: prefer bundle identifier + short version, fall back to
-    # the main executable sha.
+    # module_paths binds each recorded module name to its bundle-relative
+    # path. ``verify_target_files`` consumes this so a conventional-layout
+    # target (where the on-disk path is not the wrapped default) still
+    # resolves without hard-coded filename assumptions.
+    extras["module_paths"] = {
+        name: str(path.relative_to(bundle)) for name, path in modules_on_disk
+    }
+    extras["module_hashes"] = dict(module_hashes)
+    extras["module_architectures"] = {
+        name: module_infos[name].architecture for name, _ in modules_on_disk
+    }
+
     tid = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{bundle_id}_{bundle_version}")
     gid = re.sub(r"[^a-z0-9_]+", "_", bundle_id.lower().split(".")[-1]) or "unknown_game"
 
     capabilities = ["static_analysis"]
     if metadata.is_file():
         capabilities.append("il2cpp_metadata_present")
-    if exec_info.architecture != unity_info.architecture:
+    if exec_info.architecture != primary_info.architecture:
         capabilities.append("mixed_arch_warning")
+    if layout == "conventional_macos" and "GameAssembly" in module_hashes:
+        capabilities.append("il2cpp_gameassembly_present")
+
+    modules = [
+        Module(
+            name=name,
+            base_rva="+0x0",
+            size=f"0x{path.stat().st_size:x}",
+            sha256=module_hashes[name],
+        )
+        for name, path in modules_on_disk
+    ]
 
     target = GameTarget(
         id=f"target_{tid}",
@@ -398,19 +483,37 @@ def _macos_inspect_bundle(bundle: Path) -> GameTarget | None:
             sha256_metadata=sha_meta,
             extras=extras,
         ),
-        modules=[
-            Module(
-                name="UnityFramework",
-                base_rva="+0x0",
-                size=f"0x{module_size:x}",
-                sha256=sha_unity,
-            )
-        ],
+        modules=modules,
         capabilities=capabilities,
     )
     # Mandatory emission gate.
     validate_record("game_target", target.model_dump())
     return target
+
+
+def _default_macos_roots() -> list[Path]:
+    """Default macOS discovery roots: ``/Applications`` plus every Steam
+    library ``steamapps/common`` and each immediate per-game subdirectory
+    under it. Steam puts an ``.app`` inside ``common/<GameName>/``, so
+    scanning ``common`` alone would miss them.
+    """
+    roots: list[Path] = [Path("/Applications")]
+    home = Path.home()
+    steam_commons = [
+        home / "Library" / "Application Support" / "Steam" / "steamapps" / "common",
+        Path("/Library") / "Application Support" / "Steam" / "steamapps" / "common",
+    ]
+    for common in steam_commons:
+        if not common.is_dir():
+            continue
+        roots.append(common)
+        try:
+            for game_dir in sorted(common.iterdir()):
+                if game_dir.is_dir() and not game_dir.name.startswith("."):
+                    roots.append(game_dir)
+        except OSError:
+            continue
+    return roots
 
 
 def _discover_macos(roots: Iterable[Path] | None = None) -> list[GameTarget]:
@@ -419,7 +522,7 @@ def _discover_macos(roots: Iterable[Path] | None = None) -> list[GameTarget]:
         # synthesised fixture test). Without roots, return nothing.
         if roots is None:
             return []
-    search = list(roots) if roots is not None else [Path("/Applications")]
+    search = list(roots) if roots is not None else _default_macos_roots()
     out: list[GameTarget] = []
     seen: set[str] = set()
 
@@ -651,6 +754,147 @@ def _android_blocked(reason: str, detail: str) -> GameTarget:
 Platform = Literal["macos", "windows", "android"]
 
 
+# ---------------------------------------------------------------------------
+# Running-process discovery (any engine, not only Unity bundles)
+# ---------------------------------------------------------------------------
+
+# Paths that are never a game the operator means to attach to.
+_PROC_SKIP_PREFIXES = (
+    "/System/", "/usr/libexec/", "/usr/sbin/", "/sbin/", "/usr/bin/",
+    "/Library/Apple/", "/opt/homebrew/Cellar/node/",
+)
+# Background helpers and framework children are never the target the operator means.
+_PROC_SKIP_WORDS = re.compile(
+    r"(?:Helper|Renderer|GPU|Plugin|Service|Agent|Daemon|daemon|Updater|Crashpad|"
+    r"Notification|XPC|Extension|Shortcuts|Assistant|Sync|Indexer|Monitor)", re.I)
+_PROC_SKIP_NAMES = {
+    "python", "python3", "node", "bash", "zsh", "sh", "ssh", "login", "tmux",
+    "Finder", "Dock", "WindowServer", "loginwindow", "SystemUIServer",
+    "bughunter-claudex", "agent-desktop", "lldb", "debugserver",
+}
+
+
+def _proc_pidpath(pid: int) -> Path | None:
+    """Absolute executable path for a pid, however it was launched."""
+    try:
+        import ctypes, ctypes.util
+        lib = ctypes.util.find_library("proc")
+        if not lib:
+            return None
+        buf = ctypes.create_string_buffer(4096)
+        size = ctypes.cdll.LoadLibrary(lib).proc_pidpath(ctypes.c_int(pid), buf, 4096)
+        if size <= 0:
+            return None
+        return Path(buf.value.decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
+def _running_macos_processes() -> list[tuple[int, Path]]:
+    """(pid, executable path) for user processes that could be a game."""
+    try:
+        out = subprocess.run(["ps", "-axo", "pid="], capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return []
+    found: list[tuple[int, Path]] = []
+    for line in out.splitlines():
+        try:
+            pid = int(line.strip())
+        except ValueError:
+            continue
+        path = _proc_pidpath(pid)
+        if path is None or str(path).startswith(_PROC_SKIP_PREFIXES):
+            continue
+        name = path.name
+        if name in _PROC_SKIP_NAMES or _PROC_SKIP_WORDS.search(name):
+            continue
+        if not path.is_file():
+            continue
+        found.append((pid, path))
+        if len(found) >= 400:
+            break
+    # One entry per executable: worker pools (databases, browsers) would
+    # otherwise fill the list with identical copies of the same binary.
+    unique: dict[str, tuple[int, Path]] = {}
+    for pid, path in found:
+        unique.setdefault(str(path), (pid, path))
+    return list(unique.values())
+
+
+def _macos_inspect_process(pid: int, exec_path: Path) -> GameTarget | None:
+    """Build a target for a running native process of any engine.
+
+    Bundle discovery only recognises Unity layouts, so a game built from
+    source or shipped by any other engine is invisible to it. The operator
+    can still name a running process, so make it attachable: identity comes
+    from the measured executable, and the pid is recorded so a session can
+    bind the exact instance.
+    """
+    try:
+        info = read_macho_info(exec_path)
+    except (ValueError, OSError):
+        return None
+    try:
+        digest = sha256_file(exec_path)
+    except OSError:
+        return None
+
+    bundle_path = None
+    for parent in exec_path.parents:
+        if parent.suffix == ".app":
+            bundle_path = parent
+            break
+    name = bundle_path.stem if bundle_path else exec_path.name
+
+    extras: dict[str, Any] = {
+        "layout": "running_process",
+        "executable_path": str(exec_path),
+        "process_id": pid,
+        "discovered_from": "running process",
+        "module_sha256": digest,
+        "module_architecture": info.architecture,
+        "module_pointer_width": info.pointer_width,
+        "module_is_fat": info.is_fat,
+        "module_sub_architectures": list(info.sub_architectures),
+        "module_paths": {name: exec_path.name},
+        "module_hashes": {name: digest},
+        "module_architectures": {name: info.architecture},
+    }
+    if bundle_path is not None:
+        extras["bundle_path"] = str(bundle_path)
+
+    tid = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"proc_{name}_{pid}")
+    gid = re.sub(r"[^a-z0-9_]+", "_", name.lower()) or "unknown_game"
+    return GameTarget(
+        id="target_" + tid,
+        game_id=gid,
+        platform="macos",
+        runtime="native process",
+        architecture=info.architecture,
+        pointer_width=info.pointer_width,
+        executable_or_package=str(exec_path),
+        version="running",
+        build_fingerprint=BuildFingerprint(sha256_main=digest, extras=extras),
+        modules=[Module(name=name, base_rva="+0x0",
+                        size=f"0x{exec_path.stat().st_size:x}", sha256=digest)],
+        capabilities=["static_analysis", "running_process"],
+    )
+
+
+def _discover_running_macos() -> list[GameTarget]:
+    if sys.platform != "darwin":
+        return []
+    out: list[GameTarget] = []
+    seen: set[str] = set()
+    for pid, exec_path in _running_macos_processes():
+        target = _macos_inspect_process(pid, exec_path)
+        if target is not None and target.id not in seen:
+            seen.add(target.id)
+            out.append(target)
+    return out
+
+
 def discover_installed(
     platform_filter: Platform | Iterable[Platform] | None = None,
     *,
@@ -676,6 +920,11 @@ def discover_installed(
     results: list[GameTarget] = []
     if "macos" in wanted:
         results.extend(_discover_macos(macos_roots))
+        if macos_roots is None:
+            # A game running right now is the target the operator means when
+            # they name it, whatever engine built it.
+            installed = {t.id for t in results}
+            results.extend(t for t in _discover_running_macos() if t.id not in installed)
     if "windows" in wanted:
         results.extend(_discover_windows())
     if "android" in wanted:
@@ -713,20 +962,34 @@ def validate_identity(target: GameTarget) -> list[str]:
             f"but record has pointer_width={target.pointer_width}"
         )
     if target.platform == "macos" and target.modules:
-        unity = [m for m in target.modules if m.name == "UnityFramework"]
-        if unity:
+        unity_names = {"UnityFramework", "UnityPlayer", "GameAssembly"}
+        unity_present = [m for m in target.modules if m.name in unity_names]
+        if unity_present:
             mod_arch = target.build_fingerprint.extras.get("module_architecture")
             if mod_arch and mod_arch != target.architecture:
                 problems.append(
                     f"module architecture {mod_arch!r} does not match target "
                     f"architecture {target.architecture!r}"
                 )
+            # Per-module architecture map, when recorded by discovery,
+            # must agree with the target architecture. This catches a
+            # GameAssembly slice built for the wrong arch that otherwise
+            # would slip past the extras.module_architecture check.
+            per_arch = target.build_fingerprint.extras.get("module_architectures") or {}
+            for mod in unity_present:
+                arch_here = per_arch.get(mod.name)
+                if arch_here and arch_here != target.architecture:
+                    problems.append(
+                        f"module {mod.name!r} architecture {arch_here!r} does not "
+                        f"match target architecture {target.architecture!r}"
+                    )
     if target.platform == "windows" and any(
-        m.name == "UnityFramework" for m in target.modules
+        m.name in ("UnityFramework", "UnityPlayer", "GameAssembly")
+        for m in target.modules
     ):
         problems.append(
-            "Windows target should not carry a UnityFramework.framework "
-            "module; use the PE module name instead"
+            "Windows target should not carry a UnityFramework/UnityPlayer/"
+            "GameAssembly macOS-style module; use the PE module name instead"
         )
     return problems
 
@@ -944,18 +1207,47 @@ def probe_runtime_access(
                 pid=pid,
             )
 
-    # Find the UnityFramework base in the live address space. P02 reads
-    # the first ``bytes_to_read`` bytes of the module. The adapter in
-    # P03 will own precise module-base enumeration; here we settle for
-    # the first readable page at the module's known on-disk prefix via
-    # vmmap.
-    expected_module = bundle / "Frameworks/UnityFramework.framework/UnityFramework"
-    base = _mac_module_base(pid, str(expected_module.resolve()))
+    # Find the primary Unity module's base in the live address space.
+    # The primary module is the first entry in the target's module list
+    # (``UnityFramework`` for wrapped-iPhoneOS Among Us; ``UnityPlayer``
+    # for conventional-macOS IL2CPP builds like Combat Master). P02
+    # reads the first ``bytes_to_read`` bytes of that module. The
+    # adapter in P03 owns precise module-base enumeration from the live
+    # debugger; here we settle for the first readable page at the
+    # module's known on-disk prefix via vmmap, which does not require
+    # the debugger entitlement.
+    extras_paths = target.build_fingerprint.extras.get("module_paths") or {}
+    primary_module_name: str | None = None
+    for mod in target.modules:
+        if mod.name in ("UnityFramework", "UnityPlayer", "GameAssembly"):
+            primary_module_name = mod.name
+            break
+    if primary_module_name is None:
+        reader.close()
+        return RuntimeAccessResult(
+            "runtime_access_blocked",
+            "target carries no Unity module to probe (expected UnityFramework "
+            "or UnityPlayer)",
+            pid=pid,
+            access_mode=mode,
+        )
+    configured = extras_paths.get(primary_module_name)
+    if configured:
+        probe_path = Path(configured)
+        if not probe_path.is_absolute():
+            probe_path = bundle / probe_path
+    elif primary_module_name == "UnityFramework":
+        probe_path = bundle / "Frameworks/UnityFramework.framework/UnityFramework"
+    elif primary_module_name == "UnityPlayer":
+        probe_path = bundle / "Contents/Frameworks/UnityPlayer.dylib"
+    else:
+        probe_path = bundle / "Contents/Frameworks" / f"{primary_module_name}.dylib"
+    base = _mac_module_base(pid, str(probe_path.resolve()))
     if base is None:
         reader.close()
         return RuntimeAccessResult(
             "runtime_access_blocked",
-            f"vmmap did not report a UnityFramework base in pid {pid}",
+            f"vmmap did not report a {primary_module_name} base in pid {pid}",
             pid=pid,
             access_mode=mode,
         )
@@ -981,7 +1273,7 @@ def probe_runtime_access(
 
     return RuntimeAccessResult(
         "runtime_ready",
-        f"read {len(data)} bytes from UnityFramework at 0x{base:x}",
+        f"read {len(data)} bytes from {primary_module_name} at 0x{base:x}",
         bytes_read=len(data),
         pid=pid,
         access_mode=mode,

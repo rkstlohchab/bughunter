@@ -54,6 +54,8 @@ silently activated by this installer. See `ONE_COMMAND_MAC_SETUP.md`.
 
 See [chat controls](docs/chat-controls.md), [AI connections](docs/ai-connections.md), and [learning and storage](docs/knowledge.md) for the current workflow.
 
+PentAGI flow review, Haddix-derived testing checklists, and the checkout quote regression lab are documented in [PentAGI + commerce integration](docs/pentagi-haddix-commerce.md).
+
 # BugHunterClaudex
 
 A personal macOS workbench that connects cited learning materials, captured web traffic, controlled tests, and evidence reports. Built with Tauri 2, React/TypeScript, and a packaged Python backend.

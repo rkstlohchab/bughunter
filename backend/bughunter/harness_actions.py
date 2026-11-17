@@ -22,12 +22,15 @@ FAMILIES={
  'models':'Provider model catalogs',
  'dashboard':'Workspace overview',
  'setup':'Dependency catalogs and installation history',
+ 'burp':'Burp Suite for the task\'s authorized website project: connection health, scope-filtered proxy history, Scanner issues, read-only review, Repeater hand-off, and active audit start/status/stop',
 }
 EXCLUDED={'projects.create','projects.update','projects.delete','sources.delete','sources.remove',
  'findings.update','findings.confirm','models.select','models.routes.save','models.routes.secret','models.routes.remove',
  'setup.install','setup.cancel','gamelab.start_recipe','gamelab.start_fullkit','gamelab.stop_recipe',
  'gamelab.chat_start','gamelab.chat_send','gamelab.chat_stop'}
 EXAMPLES={
+ 'burp.health':{},'burp.history':{},'burp.issues':{},'burp.web.review':{},'burp.audit.status':{},
+ 'burp.repeater.open':{'history_id':42},'burp.audit.start':{'history_id':42},'burp.audit.stop':{},
  'sources.list':{},'sources.coverage':{'source_id':'source_id'},
  'sources.retry':{'id':'source_id'},'knowledge.search':{'query':'topic','limit':8},
  'media.status':{},'media.catalog':{},'models.available':{},'setup.catalog':{},
@@ -78,6 +81,17 @@ class HarnessActions:
         if method not in {row['method'] for row in self.catalog(query=method,limit=50)['items']}:
             raise ValueError('This action is not exposed to Chat. Choose an exact method from app_features.')
         params=dict(params or {})
+        if method.startswith('burp.'):
+            # Burp always acts for this task's project; the model cannot aim it elsewhere.
+            params['project_id']=project_id
+            if method=='burp.audit.stop':params['approved']=True  # stopping is always allowed
+            elif method in {'burp.audit.start','burp.repeater.open'}:
+                # Authorization comes from the operator's Autonomous-requests setting, never the model.
+                from .autonomy import enabled as autonomy_enabled
+                try:params['approved']=bool(autonomy_enabled(self.app.store))
+                except Exception:params['approved']=False
+                if not params['approved']:
+                    raise PermissionError('Autonomous requests are off. Ask the user to start this Burp action from the desktop, or turn Autonomous requests on in Settings → General.')
         if method in {'sources.list','knowledge.search','knowledge.graph','knowledge.integrity','traffic.list','findings.list','sources.import'}:
             if 'project_id' in params and params['project_id']!=project_id:raise ValueError('This task belongs to another project.')
             params['project_id']=project_id

@@ -67,8 +67,8 @@ test('guide collects website scope once and returns task results in Chat',async(
   });
   await page.goto('/');
   await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Library',exact:true}).click();
-  await page.getByRole('button',{name:'Tools',exact:true}).click();
-  await page.getByRole('button',{name:'Review a website',exact:false}).click();
+  await page.getByRole('navigation',{name:'Main navigation'}).getByRole('button',{name:'Chat',exact:true}).click();
+  await page.getByRole('button',{name:'Audit my authorized website',exact:true}).click();
   await expect(page.getByRole('textbox',{name:'Message'})).toHaveValue('Audit my authorized website');
   await page.getByRole('button',{name:'Send',exact:true}).click();
   const setup=page.getByRole('region',{name:'Task setup'});

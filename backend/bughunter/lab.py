@@ -131,7 +131,7 @@ class ShopHandler(BaseHTTPRequestHandler):
                                          "total_minor":price})
             except (ValueError, KeyError, TypeError, AttributeError) as exc:
                 return self._reply(400, {"error":str(exc)[:120]})
-        if len(parts) != 2 or parts[0] not in {"vulnerable", "fixed", "display-only"} or parts[1] not in {"cart", "food-cart"}:
+        if len(parts) != 2 or parts[0] not in {"vulnerable", "fixed", "display-only"} or parts[1] not in {"cart", "food-cart", "checkout-quote"}:
             return self._reply(404, {"error": "Not found"})
         try:
             size = int(self.headers.get("Content-Length", "0"))
@@ -140,6 +140,9 @@ class ShopHandler(BaseHTTPRequestHandler):
             if parts[1] == 'food-cart':
                 from .food_lab import calculate_food_cart
                 result = calculate_food_cart(body, parts[0])
+            elif parts[1] == 'checkout-quote':
+                from .checkout_lab import calculate_checkout_quote
+                result = calculate_checkout_quote(body, parts[0])
             else:
                 result = calculate_cart(body, parts[0])
         except (ValueError, TypeError, KeyError, OverflowError) as exc:
