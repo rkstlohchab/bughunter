@@ -60,3 +60,42 @@ def test_bridge_exposes_no_mutation_commands():
     bridge = PentagiBridge(Store())
     with pytest.raises(ValueError):
         bridge.dispatch("pentagi.start", {"project_id": "p1"})
+
+def test_selected_model_uses_subscription_without_new_key():
+    from types import SimpleNamespace
+    app = SimpleNamespace(store=Store(), settings=SimpleNamespace(
+        get=lambda: {"provider": "codex", "model": "gpt-6", "local_only": False}),
+        runs=SimpleNamespace())
+    bridge = PentagiBridge(app)
+    selection = bridge.dispatch("pentagi.selected_model", {})
+    assert selection["provider"] == "codex"
+    assert selection["kind"] == "subscription"
+    assert selection["engine"] == "bughunter"
+    assert "CLI subscriptions" in selection["external_pentagi_note"]
+
+
+def test_native_run_reuses_selected_model_and_respects_explicit_launch(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.delenv("PENTAGI_API_TOKEN", raising=False)
+    requests = []
+    def start(**kwargs):
+        requests.append(kwargs)
+        return {"id": "run_example", "status": "starting",
+                "provider": "ollama", "model": "qwen-local"}
+    app = SimpleNamespace(store=Store(), settings=SimpleNamespace(
+        get=lambda: {"provider": "ollama", "model": "qwen-local", "local_only": True}),
+        runs=SimpleNamespace(start=start))
+    bridge = PentagiBridge(app)
+    assert bridge.selected_model()["local_only"] is True
+    with pytest.raises(ValueError, match="explicitly"):
+        bridge.run_native("p1")
+    assert requests == []
+    result = bridge.dispatch("pentagi.run_native", {"project_id": "p1", "approved": True})
+    assert result["engine"] == "bughunter"
+    assert result["model"] == "qwen-local"
+    assert len(requests) == 1
+    assert requests[0]["project_id"] == "p1"
+    assert "Haddix" in requests[0]["prompt"]
+    with pytest.raises(ValueError, match="scope"):
+        bridge.run_native("not-found", approved=True)
+    assert len(requests) == 1

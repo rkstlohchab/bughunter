@@ -1,13 +1,21 @@
 # PentAGI + Haddix Methodology + Commerce Quote Coverage
 
-This integration preserves BugHunterClaudex's two distinct execution boundaries:
+This integration supports two engines:
 
-- The BugHunter agent proposes HTTP checks through the existing approval/policy gateway.
-- PentAGI runs as a separate, independently managed deployment. The BugHunter connector reads its flow summaries, but does **not** create, run, pause or modify PentAGI flows.
+- **BugHunter-native investigation (primary):** uses the already-selected BugHunter model through `RunManager` and the existing approval/policy gateway. Claude Code, Codex, Gemini CLI subscriptions, local Ollama/Crucible, and cloud/API providers retain their existing credentials, pricing checks and local-only settings. No extra AI key is necessary.
+- **External PentAGI (optional):** runs as a separate, independently managed deployment. The BugHunter connector reads its flow summaries, but does **not** create, run, pause or modify PentAGI flows. CLI subscriptions are not interchangeable with PentAGI's API provider credentials.
 
 The handoff generator uses [Jason Haddix's Bug Hunter's Methodology](https://github.com/jhaddix/tbhm) topic structure to create a scoped investigation checklist. This is an authored adaptation, **not** a verbatim reproduction of Haddix's material.
 
-## Configure the PentAGI connection
+## Use the existing BugHunter AI
+
+Open **Web testing > Tests** and select a saved, scoped project. Click **Run with selected BugHunter AI**. This starts an investigation with `RunManager.start` and a Haddix/commerce plan, using the model currently selected in BugHunter Settings. The run stays within BugHunter's existing action-approval workflow.
+
+The selected provider may be Claude Code, Codex or Gemini CLI subscription, Ollama/Crucible local inference, or an already configured paid/hosted API provider. No `PENTAGI_*` environment variables are necessary for the native run. Existing local-only restrictions and paid-provider preflight checks remain in force.
+
+An independently deployed PentAGI service can reuse a reachable Ollama server when configured separately, but it cannot directly use BugHunter's signed-in CLI subscription sessions. API keys saved in BugHunter's keyring are not exported into PentAGI.
+
+## Configure the optional external PentAGI connection
 
 Deploy PentAGI separately using its [upstream documentation](https://github.com/vxcontrol/pentagi). Create a Bearer token under PentAGI Settings > API Tokens.
 
