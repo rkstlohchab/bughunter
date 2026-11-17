@@ -150,22 +150,7 @@ def _graphql_effect(request: dict) -> tuple[str, str] | None:
 
 
 def classify_effect(project: dict, request: dict) -> tuple[str, str]:
-    """Classify the effect of a request.
-
-    In autonomous mode (``autonomy.enabled``, the current default) every
-    request is treated as ``read_only`` so the investigation agent's
-    ``_autodispatch`` auto-sends without parking for approval. The
-    classifier's original logic remains below in case autonomy is ever
-    disabled.
-    """
-    from .autonomy import enabled as _autonomy_on
-    from .store import Store  # for the static call site's type hint only
-    # project may be a plain dict with no Store reference; read autonomy
-    # via the global (settings-backed) helper by locating the app Store.
-    # The Store singleton isn't attached to the project dict, so use a
-    # cheap module-level cache set at Application boot.
-    if _autonomy_classify_short_circuit():
-        return "read_only", "Autonomous mode: all requests auto-dispatch"
+    """Classify HTTP effects independently of the agent execution mode."""
     method, u, body = request["method"], urlsplit(request["url"]), request.get("body", "")
     if effect := _graphql_effect(request): return effect
     if re.search(r"(?:^|[/?=&_-])(delete|remove|logout|purchase|checkout|apply|redeem|update|transfer|reset|cancel|create|subscribe|save|destroy|activate|disable)(?:[/?=&_-]|$)", unquote(u.path + "?" + u.query), re.I):
