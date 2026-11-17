@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ClipboardCopy, FileText, RefreshCw } from 'lucide-react';
+import { ClipboardCopy, FileText, RefreshCw, Play } from 'lucide-react';
 import { asList, rpc } from './api';
 import type { RecordData as Row } from './api';
 import { Button } from './components';
 
-type Connection = { configured: boolean; origin: string; detail: string; read_only: boolean };
+type ModelChoice = { provider: string; model: string; kind: string; local_only: boolean; ready: boolean };
+type Connection = { configured: boolean; origin: string; detail: string; read_only: boolean; ai: ModelChoice };
 type Plan = { prompt: string; methodology: { id: string; title: string; reference: string; checks: string[] }[] };
 
 export default function PentagiBridgePanel() {
@@ -15,6 +16,7 @@ export default function PentagiBridgePanel() {
   const [plan, setPlan] = useState<Plan | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [nativeRun, setNativeRun] = useState<Row | null>(null);
 
   useEffect(() => {
     void Promise.all([rpc<Connection>('pentagi.status'), rpc<Row[]>('projects.list')])
@@ -42,6 +44,15 @@ export default function PentagiBridgePanel() {
     finally { setBusy(false); }
   }
 
+  async function startNativeInvestigation() {
+    if (!selectedProject || busy) return;
+    setError(''); setBusy(true);
+    try {
+      setNativeRun(await rpc<Row>('pentagi.run_native', { project_id: selectedProject, approved: true }));
+    } catch (err) { setError(String(err)); }
+    finally { setBusy(false); }
+  }
+
   async function copyPlan() {
     if (!plan) return;
     try { await navigator.clipboard.writeText(plan.prompt); }
@@ -51,15 +62,22 @@ export default function PentagiBridgePanel() {
   return <section className="surface cart-audit" aria-label="PentAGI methodology bridge">
     <div className="section-title">
       <div>
-        <h2><FileText size={18} /> PentAGI + Haddix methodology</h2>
-        <p>Connect to an existing PentAGI instance for read-only flow review, and generate a project-scoped reconnaissance, API and checkout test plan.</p>
+        <h2><FileText size={18} /> BugHunter AI + PentAGI + Haddix</h2>
+        <p>Run a Haddix and checkout investigation using your selected BugHunter model. External PentAGI flow review is optional.</p>
       </div>
     </div>
     <p className="muted">
+      {connection?.ai?.ready
+        ? 'Selected BugHunter AI: ' + connection.ai.provider + ' / ' + connection.ai.model +
+          ' (' + connection.ai.kind + (connection.ai.local_only ? ', local-only' : '') + ').'
+        : 'Select a model in BugHunter Settings first.'}
+      {' '}Uses the existing subscription login, local inference server, or saved cloud API key.
+    </p>
+    <p className="muted">
       {connection?.configured
-        ? 'PentAGI API configured at ' + connection.origin + '.'
-        : 'Set PENTAGI_API_URL and PENTAGI_API_TOKEN in the backend environment.'}
-      {' '}PentAGI flow execution remains separate from BugHunter's gateway.
+        ? 'External PentAGI flow history connected at ' + connection.origin + '.'
+        : 'External PentAGI is optional; flow review requires its own API connection.'}
+      {' '}BugHunter-native investigation uses the existing request approval gateway.
     </p>
     <div className="cart-audit-actions">
       <label htmlFor="pentagi-project">Project</label>
@@ -68,10 +86,12 @@ export default function PentagiBridgePanel() {
         {!projects.length && <option value="">No scoped project available</option>}
         {projects.map(item => <option key={String(item.id)} value={String(item.id)}>{String(item.name || item.id)}</option>)}
       </select>
-      <Button icon={FileText} disabled={!selectedProject || busy} onClick={() => void buildPlan()}>Prepare Haddix + commerce plan</Button>
+      <Button icon={Play} disabled={!selectedProject || !connection?.ai?.ready || busy || Boolean(nativeRun)} onClick={() => void startNativeInvestigation()}>Run with selected BugHunter AI</Button>
+      <Button icon={FileText} disabled={!selectedProject || busy} onClick={() => void buildPlan()}>Preview Haddix + commerce plan</Button>
       <Button icon={RefreshCw} disabled={!connection?.configured || busy} onClick={() => void loadFlows()}>Read PentAGI flows</Button>
     </div>
     {error && <p role="alert" className="conversation-error">{error}</p>}
+    {nativeRun && <p role="status">BugHunter investigation {String(nativeRun.id)} started with {String(nativeRun.provider)} / {String(nativeRun.model)}. Monitor it in the existing Runs/Approvals workspace.</p>}
     {plan && <>
       <p className="muted">{plan.methodology.length} planning stages, including cart, coupon, shipping, currency and checkout-state validation.</p>
       <textarea readOnly rows={15} value={plan.prompt}
@@ -87,7 +107,7 @@ export default function PentagiBridgePanel() {
     </div>}
     <p className="muted">
       Reference: <a href="https://github.com/jhaddix/tbhm" target="_blank" rel="noreferrer">The Bug Hunter's Methodology</a>.
-      The generated plan is a review artifact, not evidence of completed testing.
+      The native investigation reuses BugHunter settings. External PentAGI is a separate engine and requires independent model configuration.
     </p>
   </section>;
 }
