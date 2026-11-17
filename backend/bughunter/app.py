@@ -30,6 +30,7 @@ from .skills import SkillService
 from .model_routing import ModelRoutes
 from .research import WebResearch
 from .commerce_audit import CommerceAudit
+from .pentagi_bridge import PentagiBridge
 from .staging_price import StagingPriceAudit
 from .website_audit import WebsiteAudit
 from .pointer_notebook import PointerNotebook
@@ -111,6 +112,7 @@ class Application:
         self.verification_p9 = VerificationP9(self)
         self.investigation_p10 = InvestigationP10(self)
         self.commerce = CommerceAudit(self)
+        self.pentagi = PentagiBridge(self)
         self.staging_price = StagingPriceAudit(self)
         self.website_audit = WebsiteAudit(self)
         self.pointer_notebook = PointerNotebook(self.store)
@@ -285,6 +287,8 @@ class Application:
             return self.memory_mappings.dispatch(method,p)
         if method.startswith('website.audit.'):
             return self.website_audit.dispatch(method,p)
+        if method.startswith('pentagi.'):
+            return self.pentagi.dispatch(method, p)
         if method.startswith('commerce.staging.'):
             return self.staging_price.dispatch(method,p)
         if method.startswith('commerce.'):
