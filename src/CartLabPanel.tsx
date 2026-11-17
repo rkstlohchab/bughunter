@@ -3,6 +3,7 @@ import { ArrowRight, FlaskConical, Play, Square, ShieldCheck } from 'lucide-reac
 import { rpc } from './api';
 import type { RecordData as Row } from './api';
 import { Button, Status } from './components';
+import PentagiBridgePanel from './PentagiBridgePanel';
 
 type Props = { navigate: (page: any) => void; selectProject?: (id: string) => Promise<void> };
 const active = (s: string) => ['starting', 'running'].includes(s);
@@ -37,19 +38,19 @@ export default function CartLabPanel({ navigate, selectProject }: Props) {
   }
   const result: Row = job?.result || {};
   const cases: Row[] = result.cases || [];
-  return <section className="surface cart-audit">
+  return <><section className="surface cart-audit">
     <div className="section-title">
       <div><h2><FlaskConical size={18}/> Automated cart security lab</h2>
         <p>One click runs real HTTP tests against the application's own disposable shop. It compares a vulnerable example against a fixed control, captures evidence, and creates draft findings.</p></div>
       {job && <Status value={job.status}/>}
     </div>
     <div className="cart-audit-actions">
-      <div className="cart-audit-contract"><ShieldCheck size={20}/><span>Runs only on <strong>127.0.0.1</strong> using 10 predefined test requests. No live websites, payments, or external transactions.</span></div>
+      <div className="cart-audit-contract"><ShieldCheck size={20}/><span>Runs only on <strong>127.0.0.1</strong> using fixed synthetic cart and checkout quote cases. No live websites, payments, or external transactions.</span></div>
       {!job || !active(String(job.status)) ? <Button variant="primary" icon={Play} disabled={busy} onClick={() => void run()}>{busy ? 'Starting…' : 'Run automatic lab audit'}</Button> : <Button icon={Square} disabled={busy} onClick={() => void stop()}>Stop</Button>}
     </div>
     {error && <p role="alert" className="conversation-error">{error}</p>}
     {job && <div className="cart-audit-results" aria-live="polite">
-      <div className="cart-audit-stat"><b>{cases.length} / 10</b><small>Requests observed</small></div>
+      <div className="cart-audit-stat"><b>{cases.length}</b><small>Requests observed</small></div>
       <div className="cart-audit-stat"><b>{result.observed_failures ?? 0}</b><small>Lab failures reproduced</small></div>
       <div className="cart-audit-stat"><b>{result.passed_controls ?? 0}</b><small>Fixed controls passed</small></div>
       <Button icon={ArrowRight} onClick={() => navigate('Team')}>Open task history</Button>
@@ -57,5 +58,5 @@ export default function CartLabPanel({ navigate, selectProject }: Props) {
     </div>}
     {job?.error && <p role="alert" className="conversation-error">{job.error}</p>}
     <p className="muted">For a real store, use a project with documented authorization, captured staging requests, and per-request approval. This lab runner cannot be redirected to arbitrary websites.</p>
-  </section>;
+  </section><PentagiBridgePanel /></>;
 }
