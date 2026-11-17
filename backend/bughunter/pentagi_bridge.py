@@ -36,21 +36,55 @@ def _text(value, length=180) -> str:
 
 
 class PentagiBridge:
-    def __init__(self, store):
-        self.store = store
+    def __init__(self, app_or_store):
+        self.app = app_or_store if hasattr(app_or_store, "runs") and hasattr(app_or_store, "settings") else None
+        self.store = self.app.store if self.app is not None else app_or_store
 
-    @staticmethod
-    def status() -> dict:
+    def selected_model(self) -> dict:
+        if self.app is None:
+            return {"ready": False, "provider": "", "model": "", "kind": "unavailable",
+                    "local_only": False, "detail": "BugHunter application required."}
+        from .providers import LOCAL_PROVIDERS, SUBSCRIPTION_PROVIDERS
+        settings = self.app.settings.get()
+        provider = str(settings.get("provider") or "")
+        model = str(settings.get("model") or "")
+        kind = ("subscription" if provider in SUBSCRIPTION_PROVIDERS
+                else "local" if provider in LOCAL_PROVIDERS else "api")
+        return {"ready": bool(provider and model), "provider": provider, "model": model,
+                "kind": kind, "local_only": bool(settings.get("local_only", False)),
+                "engine": "bughunter",
+                "detail": "The native run uses the selected BugHunter provider; no extra AI credential is needed.",
+                "external_pentagi_note": (
+                    "CLI subscriptions work through BugHunter, not directly through PentAGI."
+                    if kind == "subscription" else
+                    "Configure the same reachable local model endpoint in PentAGI separately."
+                    if kind == "local" else
+                    "PentAGI has separate provider configuration; BugHunter does not export API secrets."
+                )}
+
+    def run_native(self, project_id: str, approved: bool = False) -> dict:
+        if approved is not True:
+            raise ValueError("Start this investigation explicitly from the desktop.")
+        if self.app is None:
+            raise ValueError("BugHunter's run manager is unavailable.")
+        plan = self.plan(project_id)
+        run = self.app.runs.start(project_id=project_id, prompt=plan["prompt"])
+        return {"id": run["id"], "status": run["status"],
+                "project_id": project_id, "provider": run["provider"],
+                "model": run["model"], "engine": "bughunter"}
+
+    def status(self) -> dict:
         raw = os.environ.get("PENTAGI_API_URL", "").strip()
         token = os.environ.get("PENTAGI_API_TOKEN", "").strip()
         try:
             origin = _endpoint(raw)
             return {"configured": bool(token), "origin": origin,
                     "read_only": True, "token_present": bool(token),
+                    "ai": self.selected_model(),
                     "detail": "Existing PentAGI flows can be reviewed. Flow launch is kept in PentAGI."}
         except ValueError:
             return {"configured": False, "origin": "", "read_only": True,
-                    "token_present": bool(token), "detail": "Configure PENTAGI_API_URL and PENTAGI_API_TOKEN."}
+                    "token_present": bool(token), "ai": self.selected_model(), "detail": "Configure PENTAGI_API_URL and PENTAGI_API_TOKEN."}
 
     @staticmethod
     def flows() -> list[dict]:
@@ -137,4 +171,8 @@ class PentagiBridge:
             return self.plan(params["project_id"])
         if method == "pentagi.methodology":
             return checklist()
+        if method == "pentagi.selected_model":
+            return self.selected_model()
+        if method == "pentagi.run_native":
+            return self.run_native(params["project_id"], approved=params.get("approved", False))
         raise ValueError("Unknown PentAGI bridge method.")

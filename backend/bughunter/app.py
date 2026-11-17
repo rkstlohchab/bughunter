@@ -112,7 +112,7 @@ class Application:
         self.verification_p9 = VerificationP9(self)
         self.investigation_p10 = InvestigationP10(self)
         self.commerce = CommerceAudit(self)
-        self.pentagi = PentagiBridge(self.store)
+        self.pentagi = PentagiBridge(self)
         self.staging_price = StagingPriceAudit(self)
         self.website_audit = WebsiteAudit(self)
         self.pointer_notebook = PointerNotebook(self.store)
