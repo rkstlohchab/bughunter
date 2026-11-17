@@ -8,6 +8,8 @@ from bughunter.store import Store
 from bughunter.testing import TestingService
 from bughunter.traffic import TrafficService
 
+pytestmark = pytest.mark.approval_gate
+
 
 @pytest.fixture
 def lab(tmp_path):

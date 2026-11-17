@@ -150,22 +150,13 @@ def _graphql_effect(request: dict) -> tuple[str, str] | None:
 
 
 def classify_effect(project: dict, request: dict) -> tuple[str, str]:
-    """Classify the effect of a request.
+    """Classify what a request actually does. Always truthful.
 
-    In autonomous mode (``autonomy.enabled``, the current default) every
-    request is treated as ``read_only`` so the investigation agent's
-    ``_autodispatch`` auto-sends without parking for approval. The
-    classifier's original logic remains below in case autonomy is ever
-    disabled.
+    Autonomous mode decides whether a state-changing request needs an approval
+    click (see ``PolicyService.queue``); it must not relabel the request itself,
+    because read-only crawlers (website audit, Burp history filters, staging
+    checks) rely on this classification to avoid following destructive links.
     """
-    from .autonomy import enabled as _autonomy_on
-    from .store import Store  # for the static call site's type hint only
-    # project may be a plain dict with no Store reference; read autonomy
-    # via the global (settings-backed) helper by locating the app Store.
-    # The Store singleton isn't attached to the project dict, so use a
-    # cheap module-level cache set at Application boot.
-    if _autonomy_classify_short_circuit():
-        return "read_only", "Autonomous mode: all requests auto-dispatch"
     method, u, body = request["method"], urlsplit(request["url"]), request.get("body", "")
     if effect := _graphql_effect(request): return effect
     if re.search(r"(?:^|[/?=&_-])(delete|remove|logout|purchase|checkout|apply|redeem|update|transfer|reset|cancel|create|subscribe|save|destroy|activate|disable)(?:[/?=&_-]|$)", unquote(u.path + "?" + u.query), re.I):
@@ -181,24 +172,8 @@ def classify_effect(project: dict, request: dict) -> tuple[str, str]:
     return ("state_changing", "Request may modify server state") if method == "POST" else ("unknown", "No explicit read-only rule covers this operation")
 
 
-_AUTONOMY_STORE_REF: list = []
-
-
-def _autonomy_classify_short_circuit() -> bool:
-    """Lookup the active Store via the module-level ref set by Application."""
-    if not _AUTONOMY_STORE_REF:
-        return True  # default on when no store yet bound (bootstrap)
-    try:
-        from .autonomy import enabled as _on
-        return _on(_AUTONOMY_STORE_REF[0])
-    except Exception:
-        return True
-
-
 def bind_autonomy_store(store) -> None:
-    """Application calls this once so classify_effect can read the flag."""
-    _AUTONOMY_STORE_REF.clear()
-    _AUTONOMY_STORE_REF.append(store)
+    """Retained for compatibility; autonomy is now read from each PolicyService's own store."""
 
 
 class PolicyService:
@@ -236,10 +211,25 @@ class PolicyService:
         request = normalized_request(request)
         validate_scope(project, request["url"], resolve=False)
         effect, reason = classify_effect(project, request)
+        # Autonomous mode skips the approval click for this store only. Any failure
+        # reading the flag falls back to the approval gate (fail closed).
+        try:
+            from .autonomy import enabled as autonomy_enabled
+            auto_release = effect != "read_only" and autonomy_enabled(self.store)
+        except Exception:
+            auto_release = False
+        if auto_release:
+            reason += " (auto-released: autonomous mode is on)"
+        digest = request_hash(request, session_id, project_id)
+        # An auto-release is the same single-use, hash-bound, expiring approval a
+        # desktop click creates, so _claim and the gateway ticket checks still apply.
+        approval = {"request_hash": digest, "session_id": session_id, "approved_at": now(), "approved_by": "autonomous_mode",
+                    "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat(), "consumed": False} if auto_release else None
+        status = "ready" if effect == "read_only" else "approved" if auto_release else "pending_approval"
         action = self.store.put("action", {"project_id": project_id, "request": request, "session_id": session_id,
-            "run_id": run_id, "test_id": test_id, "status": "ready" if effect == "read_only" else "pending_approval",
-            "effect": effect, "reason": reason, "request_hash": request_hash(request, session_id, project_id),
-            "scope_hash": scope_hash(project), "approval": None, "evidence_ids": []})
+            "run_id": run_id, "test_id": test_id, "status": status,
+            "effect": effect, "reason": reason, "auto_released": auto_release, "request_hash": digest,
+            "scope_hash": scope_hash(project), "approval": approval, "evidence_ids": []})
         self.store.event("action.queued", {"id": action["id"], "status": action["status"]})
         return action
 

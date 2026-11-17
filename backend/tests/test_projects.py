@@ -5,6 +5,8 @@ import pytest
 from bughunter.app import Application
 from bughunter.model_tools import ModelTools
 
+pytestmark = pytest.mark.approval_gate
+
 
 def test_deleting_project_cancels_requests_removes_related_data_and_keeps_library(tmp_path):
     app = Application(tmp_path,primary=False)

@@ -164,6 +164,11 @@ class OperatorTools:
             harness_id=self._game_task('game_feature_monitor'),
         )
 
+    def desktop_background_input(self,pid,steps):
+        self.authorize('desktop_background_input')
+        from .background_input import send
+        return send(pid,steps,check=self.check)
+
     def desktop_status(self):
         self.authorize('desktop_status');return self.app.harness.desktop.status()
 
@@ -629,7 +634,7 @@ def _summarize(result: Any) -> dict:
 TOOL_CAPABILITIES={
  'invoke_adapter':'shell','shell':'shell','http':'shell','code_exec':'shell',
  'file_read':'files','file_write':'files','assets_query':'app','vault_list':'shell',
- 'desktop_status':'computer','desktop_tools':'computer','desktop_call':'computer','desktop_describe':'computer',
+ 'desktop_status':'computer','desktop_background_input':'computer','desktop_tools':'computer','desktop_call':'computer','desktop_describe':'computer',
  'app_features':'app','app_action':'app','install_plan':'install','install_tool':'install','install_status':'install',
  'adapter_tools':'shell',
  'delegate_task':'app','worker_status':'app','remember_context':'app','install_search':'install',
@@ -642,10 +647,12 @@ TOOL_CAPABILITIES={
 HARNESS_TOOLS={'desktop_status','desktop_tools','desktop_call','desktop_describe','app_features','app_action','adapter_tools','install_plan','install_tool','install_status','install_search','delegate_task','worker_status','remember_context'}
 HARNESS_TOOLS.update({'plugin_list','plugin_tools','plugin_call','web_search'})
 HARNESS_TOOLS.add('browser_workspace')
+HARNESS_TOOLS.add('desktop_background_input')
 HARNESS_TOOLS.update({'library_sources','library_search','library_read'})
 HARNESS_TOOLS.update({'agent_skills','agent_skill_read','rea_status','rea_tools','rea_call','rea_evidence'})
 for name,description,properties,required in [
  ('desktop_status','Check the installed Vercel desktop engine and OS permissions.',{},[]),
+ ('desktop_background_input','Windows/Linux: send keys or text straight to one app window WITHOUT focusing it or moving the cursor. On macOS this is refused (the OS drops such events); use desktop_call semantic actions or game memory tools instead. Use for keyboard-driven apps and games in background mode. Get the pid from desktop list-apps or game targets. Steps: {"key":"cmd+s"}, {"key":"right","hold_ms":800}, {"text":"hello"}, {"wait_ms":300}. Then verify the effect with a window screenshot, accessibility read or memory read; some apps ignore process-targeted input.',{'pid':{'type':'integer'},'steps':{'type':'array','items':{'type':'object'}}},['pid','steps']),
  ('browser_workspace','Operate a separate background web page without OS focus. Open a URL, observe fresh controls, then fill/click/press their refs. Existing Chrome logins are not shared. Prefer this for browser tasks over inaccessible desktop controls.',{'action':{'type':'string','enum':['open','observe','click','fill','press','back','screenshot','close']},'url':{'type':'string'},'ref':{'type':'string'},'text':{'type':'string'},'key':{'type':'string'}},['action']),
  ('desktop_tools','Discover exact agent-desktop MCP schemas. Search by a command or skill name to avoid truncated output.',{'query':{'type':'string'}},[]),
  ('desktop_call','Call an exact discovered agent-desktop MCP tool. Read desktop and platform skills first. Verify state before retrying.',{'name':{'type':'string'},'arguments':{'type':'object'}},['name']),

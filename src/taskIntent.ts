@@ -67,11 +67,30 @@ export function wantsGameLab(message: string, scopedThread = false): boolean {
   // uploaded course or indexed library; those references are passed
   // through as knowledge-aware investigation context. Only outside a
   // scoped thread do learning/setup queries fall back to ordinary chat.
-  const explicitGameTask = /\b(?:among us|codm|bgmi|pubg|valorant|cs2|fortnite)\b/i.test(message) && /\b(?:cooldown|esp|cheat|mod|health|pointer)\b/i.test(message);
-  if (explicitGameTask || /\b(?:test|check)\b.{0,50}\bgame runtime\b/i.test(message)) return true;
-  if (!scopedThread && /\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model)|ollama|whisper|learn rust|rust programming)\b/i.test(message)) return false;
+  if (!scopedThread && /\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model)|ollama|whisper|learn rust|rust programming)\b/i.test(message)
+      && !/\b(?:attach|memory|coins?|unlimited|cooldown|esp|aimbot)\b/i.test(message)) return false;
   if (scopedThread) return true;
-  const game = /\b(?:cod|codm|call of duty|valorant|cs2|counter-strike|bgmi|pubg|fortnite|apex legends|tarkov|warzone|among us|dayz|fivem|rust game)\b/i;
-  const mechanic = /\b(?:aimbot|esp|wallhack|triggerbot|cheat|no recoil|mod menu|anticheat|anti-cheat|remove cooldown|cooldown removal)\b/i;
-  return game.test(message) && mechanic.test(message);
+  if (/\b(?:test|check)\b.{0,50}\bgame runtime\b/i.test(message)) return true;
+
+  // Intent-based routing: any named process plus a memory/value request, so a
+  // game the app has never heard of works the same as a well-known one.
+  const attach = /\b(?:attach(?:ed)?|hook|connect|bind)\b.{0,40}\b(?:to|into)\b|\b(?:in|inside|for|on)\b\s+(?:my\s+)?(?:running\s+)?\b\w[\w .'-]{1,30}\b\s*(?:game|process|app)\b/i;
+  const resource = /\b(?:coins?|gold|money|cash|gems?|diamonds?|credits?|currency|score|points?|health|hp|lives?|ammo|mana|stamina|energy|fuel|xp|level)\b/i;
+  const unlimited = /\b(?:unlimited|infinite|max(?:ed)?(?: out)?|999+|give me (?:more|all)|top up|refill|never (?:run out|dies?|decreases?)|god ?mode|freeze)\b/i;
+  const memoryVerb = /\b(?:scan|search|find|locate|read|write|modify|change|edit|set|patch|inject|freeze|trainer|mod(?:ify|ding)?)\b/i;
+  const gameWord = /\b(?:game|player|save ?file|process|apk|emulator)\b/i;
+  const mechanic = /\b(?:aimbot|esp|wallhack|triggerbot|cheat|no recoil|mod menu|anti-?cheat|cooldown)\b/i;
+
+  if (mechanic.test(message)) return true;
+  // "give me unlimited coins", "max out my gold"
+  if (unlimited.test(message) && resource.test(message)) return true;
+  // "attach to supertux and set coins to 9999"
+  if (attach.test(message) && (resource.test(message) || memoryVerb.test(message))) return true;
+  // "find the coin value in <something>'s memory"
+  if (memoryVerb.test(message) && resource.test(message) && gameWord.test(message)) return true;
+  // "find the coin value in <anything> memory and change it" — a named resource
+  // plus the word memory is already unambiguous without naming a known game.
+  if (memoryVerb.test(message) && /\bmemory\b/i.test(message) && (gameWord.test(message) || resource.test(message))) return true;
+  return false;
 }
+

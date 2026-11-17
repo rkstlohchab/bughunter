@@ -12,6 +12,8 @@ from bughunter.model_tools import ModelTools, TOOL_SPECS
 from bughunter.providers import DEFAULT_SETTINGS, subscription_env
 from bughunter.security import redact, redact_text
 
+pytestmark = pytest.mark.approval_gate
+
 
 @pytest.fixture
 def app(tmp_path):

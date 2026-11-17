@@ -123,7 +123,7 @@ test('top bar actions have visible labels and Stop all remains at the right',asy
     const header=page.locator('header.topbar');
     const stop=header.getByRole('button',{name:'Stop all',exact:true});
     await expect(stop).toBeInViewport();
-    await expect(header.getByRole('button',{name:'Tools',exact:true})).toHaveText('Tools');
+    await expect(header.getByRole('button',{name:'Tools',exact:true})).toHaveCount(0);
     await expect(header.getByRole('button',{name:'Refresh workspace',exact:true})).toHaveText('Refresh');
     const stopBox=await stop.boundingBox();const refreshBox=await header.getByRole('button',{name:'Refresh workspace',exact:true}).boundingBox();
     expect(stopBox!.x).toBeGreaterThan(refreshBox!.x);

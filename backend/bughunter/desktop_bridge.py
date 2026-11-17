@@ -133,7 +133,7 @@ class DesktopBridge:
     def background_guard(name,arguments,background):
         if not background:return
         if name in {'desktop_press','desktop_mouse','desktop_hover','desktop_drag','desktop_focus','desktop_activate','desktop_hotkey'} or arguments.get('headed') or arguments.get('activate'):
-            raise PermissionError('This step needs foreground input. Ask the user to switch this task to Foreground in the task panel; background work cannot take over their keyboard or mouse.')
+            raise PermissionError('This step needs foreground input. Ask the user to say "show me" in Chat so the task can work in the foreground; background work cannot take over their keyboard or mouse.')
 
     def _overlay(self,saved,visible,check=None):
         args={'label':saved['label'],'max_words':8,'accent':saved['accent'],'size':.65,'dwell_ms':120} if visible else {}

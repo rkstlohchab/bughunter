@@ -59,7 +59,7 @@ test('composer selects per-model execution mode and new chats leave background t
  await expect(page.getByRole('region',{name:'Task permissions'})).toHaveCount(0);
  await expect(page.getByText('Working in background…',{exact:true})).toBeVisible();
  await page.screenshot({path:'artifacts/assistant-runtime-2026-11-13/chat-modes.png'});
- expect(calls.find(c=>c.method==='harness.start').params).toMatchObject({execution_mode:'full',background:true});
+ expect(calls.find(c=>c.method==='harness.start').params).toMatchObject({execution_mode:'full'});expect(calls.find(c=>c.method==='harness.start').params).not.toHaveProperty('background');
  await expect(page.getByText('Tool activity',{exact:true})).toHaveCount(0);await expect(page.getByText('Task access',{exact:true})).toHaveCount(0);await expect(page.getByText('Ready for your reply',{exact:true})).toHaveCount(0);
  await page.getByRole('button',{name:'New chat',exact:true}).click();await expect(page.getByRole('textbox',{name:'Message',exact:true})).toBeEnabled();
  expect(calls.filter(c=>c.method==='harness.stop')).toHaveLength(0);
@@ -93,11 +93,11 @@ test('microphone streams partials locally, cleans fillers, and Stop all closes r
  await expect.poll(()=>calls.filter(c=>c.method==='voice.stop').length).toBeGreaterThan(0);
 });
 
-test('Agent settings groups access, work location, scope and automatic search in one panel',async({page})=>{
+test('Agent settings groups access, scope and automatic search; work location follows chat wording',async({page})=>{
  const {calls}=await fixture(page);await page.goto('/');await page.getByRole('button',{name:'Agent settings',exact:true}).click();const panel=page.getByRole('dialog',{name:'Agent settings',exact:true});
- await expect(panel.getByRole('radio',{name:'Auto',exact:true}).first()).toHaveAttribute('aria-checked','true');await expect(panel.getByRole('radio',{name:'Background',exact:true})).toHaveAttribute('aria-checked','true');
- await panel.getByRole('combobox',{name:'Apply agent settings to'}).selectOption('all');await panel.getByRole('radio',{name:'Foreground',exact:true}).click();await panel.getByRole('radio',{name:'Off',exact:true}).click();await panel.getByRole('button',{name:'Save access and settings',exact:true}).click();
- expect(calls.find(c=>c.method==='harness.preferences.save').params).toMatchObject({scope:'all',background:false,web_search_mode:'off'});
+ await expect(panel.getByRole('radio',{name:'Auto',exact:true}).first()).toHaveAttribute('aria-checked','true');await expect(panel.getByRole('radio',{name:'Background',exact:true})).toHaveCount(0);await expect(panel.getByText('Work location',{exact:true})).toHaveCount(0);
+ await panel.getByRole('combobox',{name:'Apply agent settings to'}).selectOption('all');await panel.getByRole('radio',{name:'Off',exact:true}).click();await panel.getByRole('button',{name:'Save access and settings',exact:true}).click();
+ expect(calls.find(c=>c.method==='harness.preferences.save').params).toMatchObject({scope:'all',web_search_mode:'off'});
  await page.getByRole('button',{name:'Agent settings',exact:true}).click();await expect(panel.getByRole('combobox',{name:'Apply agent settings to'})).toContainText('This chat');await expect(panel.getByRole('combobox',{name:'Apply agent settings to'})).toContainText('This model');await page.keyboard.press('Escape');await expect(panel).toHaveCount(0);
  await expect(page.getByRole('combobox',{name:'Execution mode',exact:true})).toHaveCount(0);
 });

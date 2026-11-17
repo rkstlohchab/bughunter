@@ -1,7 +1,7 @@
 {
-  "id": "workbench-methods-v1",
-  "version": 1,
-  "reviewed_on": "2026-11-11",
+  "id": "workbench-methods-v3",
+  "version": 3,
+  "reviewed_on": "2026-11-16",
   "kind": "authored_synthesis",
   "documents": [
     {
@@ -88,6 +88,71 @@
       "sha256": "f37dbb6a5bfe034a56638e16c0356f1a04fcef3f1f03d6bd34c7f83800426b71",
       "references": [
         "https://owasp.github.io/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/10-Business_Logic/01-Business_Logic_Data_Validation"
+      ]
+    },
+    {
+      "filename": "macos-memory-research.md",
+      "title": "macOS process-memory research workflow",
+      "sha256": "38ef5fc33aa1c7306949b551896eba86e5922f77adf82a7f6370a59ac716f47c",
+      "references": [
+        "https://developer.apple.com/documentation/security/hardened-runtime",
+        "https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.security.get-task-allow"
+      ]
+    },
+    {
+      "filename": "macos-practice-targets.md",
+      "title": "Practice targets on macOS (offline, open source)",
+      "sha256": "f7c0b4129e68844ecbb5e8948047b4d6e6e954486ec4bdd91baa2ba0b3f7bcac",
+      "references": [
+        "https://github.com/SuperTux/supertux",
+        "https://github.com/OpenTTD/OpenTTD",
+        "https://github.com/nxengine/nxengine-evo",
+        "https://github.com/Anuken/Mindustry"
+      ]
+    },
+    {
+      "filename": "bughunter-app-guide.md",
+      "title": "How BugHunterClaudex works (operator and agent guide)",
+      "sha256": "2364f65e258527a39ba9abe36ec2e6350d81c4cd8300ced9a9469553af13ad89",
+      "references": [
+        "https://developer.apple.com/documentation/security/hardened-runtime"
+      ]
+    },
+    {
+      "filename": "website-testing-playbook.md",
+      "title": "Authorized website testing playbook",
+      "sha256": "08f3c9b4c4d9ba44d4e8fe3be455c6421434a0c44210052d7e943e175789e28a",
+      "references": [
+        "https://owasp.org/www-project-web-security-testing-guide/",
+        "https://api-security.owasp.org/editions/2023/en/0xa1-broken-object-level-authorization/",
+        "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+      ]
+    },
+    {
+      "filename": "memory-scanning-playbook.md",
+      "title": "Memory scanning playbook",
+      "sha256": "bb65a680f1b19f4df3d0cc4597cc126f64e37db3889244863d307a4570c96ea5",
+      "references": [
+        "https://cheatengine.org/help/tutorial.htm"
+      ]
+    },
+    {
+      "filename": "android-apk-modding.md",
+      "title": "Android APK inspection and offline modding",
+      "sha256": "cd8b7c1878d47665bf3fc25ea2bf14172677966797c143592d374cb0ab0797b9",
+      "references": [
+        "https://github.com/skylot/jadx",
+        "https://apktool.org/",
+        "https://developer.android.com/guide/components/fundamentals",
+        "https://developer.android.com/tools/apksigner"
+      ]
+    },
+    {
+      "filename": "supertux-live-demo.md",
+      "title": "SuperTux: a verified live demo target",
+      "sha256": "80097f8c7985b4e86dc841b38837c014b203d128fc9df941f575f714218aa612",
+      "references": [
+        "https://github.com/SuperTux/supertux"
       ]
     }
   ]

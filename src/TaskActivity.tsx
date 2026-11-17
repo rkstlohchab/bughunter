@@ -93,7 +93,7 @@ export default function TaskActivity({ taskId, onOpenTasks }: { taskId: string; 
   const latest = events.at(-1);
   const summary = task?.summary || task?.result?.summary || task?.result?.report || task?.result?.message;
   const working = RUNNING.has(String(task?.status));
-  return <section className="chat-task-activity" aria-label="Task progress and results">
+  return <section className="chat-task-activity" aria-label="Task activity and results">
     <div className="chat-task-heading" role="status">
       {working || !task ? <LoaderCircle className="spin" size={16}/> : <Activity size={16}/>}
       <strong>{task?.title || 'Task activity'}</strong>

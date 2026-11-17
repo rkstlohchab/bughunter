@@ -191,7 +191,7 @@ class ModelTools:
         with the real result -- autonomy within the gate, not instead of it."""
         if not isinstance(action, dict) or not action.get("id"):
             return action
-        if action.get("effect") not in {"read_only", "read-only"}:
+        if action.get("effect") not in {"read_only", "read-only"} and not action.get("auto_released"):
             return {**action, "autonomous": False, "awaiting_approval": True,
                     "approval_required": action.get("status") == "pending_approval",
                     "note": "This request may change state, so it was QUEUED for the operator to review and send from the desktop -- it was NOT sent. Do not assume it ran. Continue with read-only evidence gathering and report that this request is awaiting the operator's approval."}

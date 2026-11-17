@@ -229,6 +229,16 @@ def _validate_spec(spec: dict) -> None:
         for dep in node.get("depends_on", []):
             if dep not in ids:
                 raise ValueError(f"unknown dep: {dep}")
+    # Reject cycles at save time instead of deadlocking at run time.
+    remaining = {node["id"]: set(node.get("depends_on", [])) for node in spec["nodes"]}
+    while remaining:
+        free = [nid for nid, deps in remaining.items() if not deps]
+        if not free:
+            raise ValueError("workflow has a dependency cycle: " + ", ".join(sorted(remaining)))
+        for nid in free:
+            del remaining[nid]
+        for deps in remaining.values():
+            deps.difference_update(free)
 
 
 def _predicate_ok(when: str | None, state: dict) -> bool:

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowUp, Download, History, LoaderCircle, MessageSquarePlus, Paperclip, Plus, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
+import { ArrowUp, Download, History, LoaderCircle, MessageSquarePlus, PanelLeftClose, PanelLeftOpen, Paperclip, Plus, Search, Sparkles, Square, Trash2, X } from 'lucide-react';
 import { fileBase64, rpc } from './api';
 import { wantsMappingResearch, wantsHarnessTask, gameLabPrefix, wantsGameLab } from './taskIntent';
 import { mappingActive, useMappingChat } from './useMappingChat';
 import MappingChatActivity from './MappingChatActivity';
 import GameRuntimeActivity from './GameRuntimeActivity';
+import TaskActivity from './TaskActivity';
 import HarnessSetup from './HarnessSetup';
 import ChatContent from './ChatContent';
 import ChatPromptNavigator from './ChatPromptNavigator';
@@ -20,12 +21,12 @@ import type {ProviderInfo} from './ChatModelPicker';
 import type { RecordData as Row } from './api';
 type RecordData = Row;
 
-type ChatProps = { navigate: (page: 'Settings' | 'Team') => void; projectId?: string; projectName?: string; stopped?:boolean; initialPrompt?:{id:number;text:string}|null; onPromptConsumed?:()=>void; selectProject?:(id:string)=>Promise<void> };
+type ChatProps = { navigate: (page: 'Settings' | 'Team') => void; projectId?: string; projectName?: string; stopped?:boolean; initialPrompt?:{id:number;text:string}|null; onPromptConsumed?:()=>void; selectProject?:(id:string)=>Promise<void>; offline?:boolean };
 type Message = { role: 'user' | 'assistant'; content: string; run_id?: string; task_id?: string; pending?: boolean; citations?:{title:string;url?:string;source_id?:string}[] };
 type Session = RecordData & { id: string; title: string; messages: Message[] };
 const MAX_FILE_BYTES = 64 * 1024 * 1024;
 
-export default function Chat({ navigate, projectId, projectName, stopped=false, initialPrompt, onPromptConsumed, selectProject }: ChatProps) {
+export default function Chat({ navigate, offline=false, projectId, projectName, stopped=false, initialPrompt, onPromptConsumed, selectProject }: ChatProps) {
   const [modeProfile,setModeProfile]=useState<ModeProfile>(defaultMode);
   const [voiceSubmit,setVoiceSubmit]=useState(false);
   const [history, setHistory] = useState<RecordData[]>([]);
@@ -44,6 +45,8 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
   const [taskId, setTaskId] = useState('');
   const [trackingError, setTrackingError] = useState('');
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyCollapsed, setHistoryCollapsed] = useState(() => { try { return localStorage.getItem('bughunter.chat.history.collapsed') === '1'; } catch { return false; } });
+  useEffect(() => { try { localStorage.setItem('bughunter.chat.history.collapsed', historyCollapsed ? '1' : '0'); } catch { /* storage unavailable */ } }, [historyCollapsed]);
   const [visionMode,setVisionMode]=useState('current');
   const [imageCapable,setImageCapable]=useState(false);
   const [attached, setAttached] = useState<RecordData[]>([]);
@@ -224,7 +227,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
   }
 
   async function startConfiguredHarness(message:string,mode:string,version:number){
-    const result=await rpc<Row>('harness.start',{id:session?.id,message,mode,project_id:projectId||null,source_ids:[],attachment_ids:attached.map(file=>file.id),vision_mode:visionMode,grants:modeProfile.grants,execution_mode:modeProfile.execution_mode,background:modeProfile.background,web_search_mode:modeProfile.web_search_mode||'auto'});
+    const result=await rpc<Row>('harness.start',{id:session?.id,message,mode,project_id:projectId||null,source_ids:[],attachment_ids:attached.map(file=>file.id),vision_mode:visionMode,grants:modeProfile.grants,execution_mode:modeProfile.execution_mode,web_search_mode:modeProfile.web_search_mode||'auto'});
     if(version!==scopeVersion.current)return;
     setHarness(result);setSession(result.session as Session);setText('');setAttached([]);setSending(result.status==='running');void refreshHistory();
   }
@@ -257,7 +260,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
       }
       const leavingForLearning=harness?.mode!=='game' && !gameRequest && /\b(?:course|lesson|library|transcri(?:be|ption)|video analysis|vision model|local (?:ai|model))\b/i.test(message);
       if(session?.harness_id && !leavingForLearning){
-        if(harness&&(['cancelled','interrupted'].includes(harness.status)||(harness.execution_mode&&harness.execution_mode!==modeProfile.execution_mode)||(harness.background!==undefined&&harness.background!==modeProfile.background)||(harness.web_search_mode&&harness.web_search_mode!==(modeProfile.web_search_mode||'auto'))||(modeProfile.permissions_configured&&modeProfile.execution_mode==='auto'&&JSON.stringify([...(harness.grants||[])].sort())!==JSON.stringify([...(modeProfile.grants||[])].sort())))){
+        if(harness&&(['cancelled','interrupted'].includes(harness.status)||(harness.execution_mode&&harness.execution_mode!==modeProfile.execution_mode)||(harness.web_search_mode&&harness.web_search_mode!==(modeProfile.web_search_mode||'auto'))||(modeProfile.permissions_configured&&modeProfile.execution_mode==='auto'&&JSON.stringify([...(harness.grants||[])].sort())!==JSON.stringify([...(modeProfile.grants||[])].sort())))){
           if(modeProfile.permissions_configured){await startConfiguredHarness(message,harness.mode||'task',version);return;}
           setHarnessPlan({message,mode:harness.mode||'task'});setSending(false);return;
         }
@@ -341,7 +344,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
   const messages = session?.messages || [];
   const taskIds: string[] = [...new Set<string>([...(session?.task_ids || []), ...(session?.task_id ? [session.task_id] : []), ...(session?.run_id ? [session.run_id] : [])])];
   const working = activeTask && ['starting','running','queued','cancelling','awaiting_approval'].includes(activeTask.status);
-  return <div className={`chat-shell ${historyOpen ? 'show-chat-history' : ''}`} onKeyDown={event => { if (event.key === 'Escape' && historyOpen) { event.preventDefault(); closeHistory(); } }}>
+  return <div className={`chat-shell ${historyOpen ? 'show-chat-history' : ''} ${historyCollapsed ? 'history-collapsed' : ''}`} onKeyDown={event => { if (event.key === 'Escape' && historyOpen) { event.preventDefault(); closeHistory(); } }}>
     {historyOpen && <button className="chat-history-backdrop" type="button" aria-label="Close chat history overlay" tabIndex={-1} onClick={closeHistory}/>}
     <aside id="chat-history" className="chat-side" aria-label="Saved conversations">
       <div className="chat-history-actions"><button type="button" className="chat-new" onClick={newChat}><MessageSquarePlus size={17}/> New chat</button><button type="button" className="chat-tool-btn chat-history-close" aria-label="Close chat history" onClick={closeHistory}><X size={18}/></button></div>
@@ -353,17 +356,21 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
 
     <section className="chat-main">
       <div className="chat-head">
+        <div className="chat-head-start">
+        <button type="button" className="chat-tool-btn chat-history-collapse" aria-label={historyCollapsed ? 'Show chat list' : 'Hide chat list'} aria-controls="chat-history" aria-expanded={!historyCollapsed} title={historyCollapsed ? 'Show chat list' : 'Hide chat list'} onClick={() => setHistoryCollapsed(v => !v)}>{historyCollapsed ? <PanelLeftOpen size={17}/> : <PanelLeftClose size={17}/>}</button>
+        {historyCollapsed && <button type="button" className="chat-tool-btn chat-head-new" aria-label="Start a new chat" title="New chat" onClick={newChat}><MessageSquarePlus size={17}/></button>}
         <button ref={historyButton} className="chat-tool-btn chat-history-toggle" aria-label="Chat history" aria-controls="chat-history" aria-expanded={historyOpen} onClick={() => setHistoryOpen(v => !v)}><History size={18}/></button>
-        <span className="chat-scope">{projectName || 'All knowledge'}</span><BackgroundTasks projectId={projectId} onOpen={id=>void selectChat(id)}/>{session && <button className="chat-tool-btn" aria-label="Download conversation and results" onClick={() => void downloadConversation()}><Download size={17}/></button>}
+        {projectName ? <span className="chat-scope">{projectName}</span> : null}</div><div className="chat-head-end"><BackgroundTasks projectId={projectId} onOpen={id=>void selectChat(id)}/>{session && <button className="chat-tool-btn" aria-label="Download conversation and results" onClick={() => void downloadConversation()}><Download size={17}/></button>}</div>
       </div>
 
       <div className="conversation-scroll" ref={conversation} onScroll={event=>{const stream=event.currentTarget;followLatest.current=stream.scrollHeight-stream.scrollTop-stream.clientHeight<80;}}>
         {!messages.length && !sending ? <div className="conversation-welcome"><div className="conversation-welcome-icon"><Sparkles size={28}/></div><h2>What should I do?</h2><p>Describe your goal. I’ll collect the setup and permissions, run the supported steps, and report back here. You can stop work at any time.</p><div className="conversation-starters">
-          {['Control an app on my computer', 'Run app checks', 'Check my knowledge base', 'Study a course I upload'].map(prompt => <button key={prompt} onClick={() => {setText(prompt);}}>{prompt}</button>)}
+          {['Audit my authorized website', 'Control an app on my computer', 'Run app checks', 'Check my knowledge base', 'Study a course I upload'].map(prompt => <button key={prompt} onClick={() => {setText(prompt);}}>{prompt}</button>)}
         </div></div> : <div className="conversation-transcript">
           {messages.map((entry, i) => entry.pending ? null : <article className={`conversation-message ${entry.role}`} data-prompt-index={entry.role==='user'?i:undefined} key={i}><div className="conversation-content"><span className="conversation-author">{entry.role === 'user' ? 'You' : 'Assistant'}</span><div className="conversation-text"><ChatContent content={entry.content}/></div>{!!entry.citations?.length && <div className="conversation-citations">{entry.citations.map((cite,j)=>/^https?:\/\//i.test(cite.url||'')?<a key={j} href={cite.url} target="_blank" rel="noreferrer">[{j+1}] {cite.title}</a>:<span key={j}>[{j+1}] {cite.title}{cite.source_id?` · ${cite.source_id}`:''}</span>)}</div>}</div></article>)}
         </div>}
         {session?.mapping_id && <MappingChatActivity controller={mapping}/>}
+        {taskId && !session?.harness_id && !session?.mapping_id && !messages.some(m=>(m as any).run_id===taskId) && <TaskActivity key={taskId} taskId={taskId} onOpenTasks={()=>navigate('Team')}/>}
         {(sending||working)&&<div className="chat-working" role="status"><LoaderCircle size={14} className="spin"/><span>{harness?.background===false?'Working…':'Working in background…'}</span><button type="button" className="chat-tool-btn" aria-label="Stop task" onClick={()=>void stopTask()}><Square size={14}/></button></div>}
         {trackingError&&<p role="status">{trackingError}</p>}
         {(harness?.error||activeTask?.error)&&<p role="alert">{harness?.error||activeTask?.error}</p>}
@@ -377,7 +384,7 @@ export default function Chat({ navigate, projectId, projectName, stopped=false, 
       <ChatPromptNavigator prompts={messages.flatMap((message,index)=>message.role==='user'?[{index,text:message.content}]:[])} stream={conversation} sessionId={session?.id}/>
       <div className="chat-compose">
         {stopped&&<p className="chat-stopped" role="status">All tasks are stopped. Use Resume tasks in the top-right corner to start new work.</p>}
-        {error && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
+        {error && !offline && <div role="alert" className="conversation-error">{error}<button type="button" aria-label="Dismiss" onClick={() => setError('')}><X size={15}/></button></div>}
         {attached.length>0&&<p className="muted chat-reference-note">Chat references only · Not added to Library</p>}
         <ChatAttachments provider={activeModel.provider} model={activeModel.model} hasImages={attached.some(file=>file.has_images||file.kind==='image')} value={visionMode} onChange={setVisionMode} onConfigure={()=>navigate('Settings')} onCapability={setImageCapable}/>
         {attached.length > 0 && <div className="conversation-attachments">{attached.map(a => <div key={a.id} className="conversation-attachment ready"><Paperclip size={15}/><span>{a.title || a.filename || 'File'}</span><button type="button" aria-label="Remove" onClick={() => {setAttached(prev => prev.filter(x => x.id !== a.id));void rpc('chat.attachments.remove',{id:a.id}).catch(()=>{});}}><X size={13}/></button></div>)}</div>}

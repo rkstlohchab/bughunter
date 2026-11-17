@@ -57,7 +57,7 @@ export default function ModelEffort({info,value,onChange,disabled=false,variant=
     {children&&<div className="effort-card-model">{children}</div>}
     <div className="effort-card-track"><div className="effort-card-rail" aria-hidden="true"><div className="effort-card-fill" style={{width:`${index/Math.max(1,levels.length-1)*100}%`}}/><div className="effort-card-dots">{levels.map(level=><span key={level} title={labels[level]||level}/>)}</div></div>{slider}</div>
     {levelDescription}
-    <div className="effort-card-scale" aria-hidden="true"><span>{labels[levels[0]]||levels[0]}</span><span>{labels[levels[levels.length-1]]||levels[levels.length-1]}</span></div>
+    <div className="effort-card-scale" aria-hidden="true">{levels.map((level,i)=><span key={level} className={i===index?'current':''}>{labels[level]||level}</span>)}</div>
   </div>;
   return <div className="model-effort-slider" aria-label="Model reasoning effort">
     <div className="effort-slider-caption"><label htmlFor={id}>Effort <strong>{text}</strong></label><button type="button" aria-label="Use provider default effort" aria-pressed={!value} disabled={disabled} onClick={reset}>Default</button></div>

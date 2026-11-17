@@ -176,7 +176,9 @@ class CommerceAudit:
                         'headers': {'content-type': 'application/json', 'x-test-account': 'alice'},
                         'body': json.dumps(scenario.body)}, session_id='cart-lab-'+task_id[:12])
                     # Approved batch applies ONLY to app-owned loopback test fixtures.
-                    self.app.policy.approve(action['id'])
+                    # Autonomous mode may already have released it; approving again would fail.
+                    if action.get('status') == 'pending_approval':
+                        self.app.policy.approve(action['id'])
                     result = self.app.policy.execute(action['id'])
                     status, response = self._observed_response(action, result)
                     passed, observed = self._score(scenario, mode, status, response)

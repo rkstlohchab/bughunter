@@ -68,7 +68,8 @@ class AssetDB:
         record = {
             "id": host_id,
             "project_id": project_id,
-            "ip": ip, "hostname": hostname,
+            # Merge: a later observation without a field must not erase a known value.
+            "ip": ip or (existing or {}).get("ip"), "hostname": hostname or (existing or {}).get("hostname"),
             "os_hint": os_hint or (existing or {}).get("os_hint"),
             "source": source or (existing or {}).get("source"),
             "first_seen": (existing or {}).get("first_seen", now()),

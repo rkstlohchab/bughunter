@@ -173,7 +173,11 @@ class Application:
         self._claude_cache_time = 0
         if primary:
             from .reference_pack import seed_pack
-            seed_pack(self.knowledge)
+            try:
+                seed_pack(self.knowledge)
+            except Exception as error:
+                # Bundled references are optional; they must never prevent startup.
+                self.store.event('reference_pack.seed_failed', {'error': str(error)[:300]})
             self.policy.recover()
             self.runs.recover()
             self.store.set_setting("lab_runtime",{})
@@ -414,7 +418,20 @@ class Application:
         if method == "system.resume":
             self.store.set_setting("emergency_stop",False)
             self.harness.desktop.reset()
+            if self.primary:
+                # A seed deferred by Stop all runs once tasks are allowed again.
+                from .reference_pack import seed_pack
+                try:seed_pack(self.knowledge)
+                except Exception as error:self.store.event('reference_pack.seed_failed',{'error':str(error)[:300]})
             return {"resumed":True,"message":"New tasks are enabled. Stopped work is not restarted."}
+        if method == "system.autonomy":
+            # Desktop-only switch; model tools have no route to this method.
+            if "enabled" in p:
+                if not isinstance(p["enabled"], bool):raise ValueError("Choose on or off.")
+                self.store.set_setting("autonomy_mode", p["enabled"])
+                self.store.event("system.autonomy", {"enabled": p["enabled"]})
+            from .autonomy import enabled as autonomy_enabled
+            return {"enabled": autonomy_enabled(self.store)}
         if method == "events.list":
             return self.store.events(**p)
         if method == "system.backup.create":
@@ -467,7 +484,8 @@ class Application:
                 self._claude_cache_time = time.monotonic()
             return {"version":"0.1.0","platform":platform.system(),"architecture":platform.machine(),
                 "data_dir":str(self.store.root),"provider":self.settings.get()["provider"],"claude":self._claude_cache,
-                "emergency_stop":self.store.setting("emergency_stop",False)}
+                "emergency_stop":self.store.setting("emergency_stop",False),
+                "autonomy_mode":bool(self.store.setting("autonomy_mode",True))}
         if method == "dashboard.get":
             return {"counts":{kind:len(self.store.list(kind)) for kind in ("project","source","traffic","test","action","finding","run")},
                 "pending_approvals":len(self.store.list("action",status="pending_approval")),

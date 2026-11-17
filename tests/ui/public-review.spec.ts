@@ -1,6 +1,6 @@
 import {expect, test} from '@playwright/test';
 import {chatFixture} from './chat-fixture';
-import {openTool, openWeb} from './navigation';
+import {openTool, openWeb,openWorkspaces} from './navigation';
 
 test('retired AI workspace is absent and public rendering remains an explicit option', async ({page}) => {
   const state = await chatFixture(page);
@@ -23,10 +23,8 @@ test('retired AI workspace is absent and public rendering remains an explicit op
     await route.fulfill({json:{id,result},headers:{'Access-Control-Allow-Origin':'*'}});
   });
   await page.goto('/');
-  await page.getByRole('button',{name:'Tools',exact:true}).click();
-  const menu=page.getByRole('dialog',{name:'Tools',exact:true});
+  const menu=await openWorkspaces(page);
   await expect(menu.getByRole('button',{name:'AI testing',exact:true})).toHaveCount(0);
-  await menu.getByText('Open individual workspaces',{exact:true}).click();
   await menu.getByRole('button',{name:'Training lab',exact:true}).click();
   await expect(page.getByRole('button',{name:'AI red team',exact:false})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Cheat Engine',exact:false}).last()).toBeVisible();

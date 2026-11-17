@@ -5,6 +5,7 @@ import platform
 import plistlib
 from pathlib import Path
 import re
+from xml.parsers.expat import ExpatError
 
 
 def _key(value):return re.sub(r'[^a-z0-9]','',str(value).casefold())
@@ -30,9 +31,10 @@ def _mac(roots):
             for candidate in candidates:
                 try:
                     if candidate.stat().st_size>2_000_000:continue
-                    with candidate.open('rb') as stream:info=plistlib.load(stream)
-                    if isinstance(info,dict):info_path=candidate;break
-                except (OSError,ValueError,plistlib.InvalidFileException):continue
+                    with candidate.open('rb') as stream:parsed=plistlib.load(stream)
+                    if isinstance(parsed,dict):info=parsed;info_path=candidate;break
+                # Third-party bundles ship malformed plists; one bad app must not hide the rest.
+                except (OSError,ValueError,ExpatError,plistlib.InvalidFileException):continue
             item={'name':info.get('CFBundleDisplayName') or info.get('CFBundleName') or path.stem,'path':str(path),
                   'bundle_id':info.get('CFBundleIdentifier'),'version':info.get('CFBundleShortVersionString'),
                   'build':str(info.get('CFBundleVersion','')) or None,'platform':'macOS','metadata_verified':bool(info_path)}

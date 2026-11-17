@@ -46,6 +46,10 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 AMONG_US_WRAPPED = Path(
     "/Applications/AmongUs.app/Wrapper/AmongUs.app"
 )
+COMBAT_MASTER_BUNDLE = Path(
+    Path.home()
+    / "Library/Application Support/Steam/steamapps/common/Combat Master/CombatMaster.app"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -386,3 +390,154 @@ def test_identity_rejects_hashed_wrong_arch_windows_module(tmp_path):
         modules=[Module(name=mod.name,base_rva="+0x0",size=hex(mod.stat().st_size),sha256=sha256_file(mod))])
     with pytest.raises(ValueError,match="module architecture"):
         verify_target_files(target)
+
+
+# ---------------------------------------------------------------------------
+# Conventional-macOS Unity layout (Combat Master-style)
+# ---------------------------------------------------------------------------
+
+
+def _write_conventional_unity_bundle(bundle: Path) -> dict[str, Path]:
+    """Lay out a synthetic conventional-macOS Unity IL2CPP bundle:
+
+    * ``Contents/Info.plist`` + ``Contents/MacOS/<exec>``
+    * ``Contents/Frameworks/UnityPlayer.dylib``
+    * ``Contents/Frameworks/GameAssembly.dylib``
+    * ``Contents/Resources/Data/il2cpp_data/Metadata/global-metadata.dat``
+    * ``Contents/Resources/Data/boot.config`` with a ``build-guid`` line
+    """
+    import plistlib
+    contents = bundle / "Contents"
+    macos_dir = contents / "MacOS"
+    frameworks = contents / "Frameworks"
+    data = contents / "Resources" / "Data"
+    il2cpp_meta = data / "il2cpp_data" / "Metadata"
+    for d in (macos_dir, frameworks, il2cpp_meta):
+        d.mkdir(parents=True)
+    exec_path = macos_dir / "SyntheticGame"
+    unity_player = frameworks / "UnityPlayer.dylib"
+    game_assembly = frameworks / "GameAssembly.dylib"
+    _write_fake_macho64(exec_path)
+    _write_fake_macho64(unity_player)
+    _write_fake_macho64(game_assembly)
+    metadata = il2cpp_meta / "global-metadata.dat"
+    metadata.write_bytes(b"synthetic il2cpp metadata")
+    (data / "boot.config").write_text(
+        "scripting-runtime-version=latest\nbuild-guid=deadbeefcafe\n"
+    )
+    (contents / "Info.plist").write_bytes(plistlib.dumps({
+        "CFBundleExecutable": "SyntheticGame",
+        "CFBundleIdentifier": "com.test.SyntheticGame",
+        "CFBundleShortVersionString": "1.0.0",
+    }))
+    return {
+        "bundle": bundle,
+        "exec": exec_path,
+        "unity_player": unity_player,
+        "game_assembly": game_assembly,
+        "metadata": metadata,
+    }
+
+
+def test_discover_installed_recognises_conventional_unity_bundle(tmp_path):
+    """A conventional macOS Unity IL2CPP bundle (UnityPlayer + GameAssembly,
+    Il2cpp metadata under Contents/Resources/Data) must be discovered as
+    a macos target with both modules recorded and the layout tag set."""
+    bundle = tmp_path / "SyntheticGame.app"
+    bundle.mkdir()
+    _write_conventional_unity_bundle(bundle)
+    targets = discover_installed(platform_filter="macos", macos_roots=[tmp_path])
+    assert len(targets) == 1
+    target = targets[0]
+    assert target.platform == "macos"
+    assert target.runtime == "il2cpp"
+    assert target.architecture == "arm64"
+    assert target.pointer_width == 8
+    assert {m.name for m in target.modules} == {"UnityPlayer", "GameAssembly"}
+    extras = target.build_fingerprint.extras
+    assert extras["layout"] == "conventional_macos"
+    assert extras["wrapper_layout"] is False
+    paths = extras["module_paths"]
+    assert paths["UnityPlayer"] == "Contents/Frameworks/UnityPlayer.dylib"
+    assert paths["GameAssembly"] == "Contents/Frameworks/GameAssembly.dylib"
+    assert extras["unity_build_guid"] == "deadbeefcafe"
+    assert "il2cpp_metadata_present" in target.capabilities
+    assert "il2cpp_gameassembly_present" in target.capabilities
+
+
+def test_verify_target_files_accepts_conventional_layout(tmp_path):
+    from bughunter.game_runtime.targets import verify_target_files
+    bundle = tmp_path / "SyntheticGame.app"
+    bundle.mkdir()
+    _write_conventional_unity_bundle(bundle)
+    targets = discover_installed(platform_filter="macos", macos_roots=[tmp_path])
+    measured = verify_target_files(targets[0])
+    roles = {m["role"] for m in measured}
+    # main + UnityPlayer + GameAssembly + metadata
+    assert roles == {"main", "UnityPlayer", "GameAssembly", "metadata"}
+
+
+def test_fat_macho_prefers_host_arch_slice(tmp_path):
+    """A universal binary whose first slice is NOT the host's arch must
+    still be reported with the host-matching slice in ``architecture``.
+    Running arm64 Mac + a (x86_64, arm64) fat binary must pick arm64."""
+    from bughunter.game_runtime.targets import (
+        CPU_TYPE_X86_64, FAT_CIGAM, _host_architecture,
+    )
+    exe = tmp_path / "FatGame"
+    # Minimal fat header, big-endian: magic, nfat=2; entries listed with
+    # x86_64 FIRST and arm64 second so we can tell the choice came from
+    # host matching, not slice order.
+    header = struct.pack(">I", FAT_CIGAM) + struct.pack(">I", 2)
+    # 20-byte 32-bit fat_arch entries.
+    for cpu in (CPU_TYPE_X86_64, CPU_TYPE_ARM64):
+        header += struct.pack(">IIIII", cpu, 0, 0x100, 0x100, 0)
+    # Pad to 4 KiB to give read_macho_info the header window it reads.
+    exe.write_bytes(header + b"\x00" * (4096 - len(header)))
+    info = read_macho_info(exe)
+    assert info.is_fat is True
+    assert set(info.sub_architectures) == {"x86_64", "arm64"}
+    host = _host_architecture()
+    if host in ("arm64", "x86_64"):
+        assert info.architecture == host
+    else:
+        assert info.architecture in ("arm64", "x86_64")
+
+
+# ---------------------------------------------------------------------------
+# Live Combat Master (conventional-macOS) target, skip if not installed
+# ---------------------------------------------------------------------------
+
+
+_COMBAT_MASTER_PRESENT = COMBAT_MASTER_BUNDLE.is_dir() and (
+    COMBAT_MASTER_BUNDLE / "Contents" / "Frameworks" / "UnityPlayer.dylib"
+).is_file()
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS-only live test")
+@pytest.mark.skipif(
+    not _COMBAT_MASTER_PRESENT,
+    reason=f"Combat Master not installed at {COMBAT_MASTER_BUNDLE}",
+)
+def test_target_memory_access_against_installed_combat_master():
+    from bughunter.game_runtime.targets import verify_target_files
+    targets = discover_installed(
+        platform_filter="macos",
+        macos_roots=[COMBAT_MASTER_BUNDLE.parent],
+    )
+    combat = [t for t in targets if t.game_id == "combatmaster"]
+    assert combat, "discover_installed did not surface Combat Master"
+    target = combat[0]
+    enforce_identity(target)
+    measured = verify_target_files(target)
+    roles = {m["role"] for m in measured}
+    assert {"main", "UnityPlayer", "GameAssembly", "metadata"} <= roles
+    result = probe_runtime_access(target, attempt=True, bytes_to_read=64)
+    assert result.status in ("runtime_ready", "runtime_access_blocked")
+    if result.status == "runtime_ready":
+        assert result.bytes_read == 64
+        assert result.pid and result.pid > 0
+        assert result.sample_sha256 is not None
+        assert result.access_mode in ("in_process", "external")
+    else:
+        assert result.reason
