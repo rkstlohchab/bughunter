@@ -3,7 +3,7 @@ import {chatFixture} from './chat-fixture';
 
 test('game course follow-up preserves its task and exposes durable Stop evidence',async({page})=>{
  const state=await chatFixture(page);let current:any=null;
- let session:any={id:'game_session',state:'running',descriptor:{name:'Disposable test target',fixture:true,fields:{countdown:{address:'0x1000',vtype:'uint'}}},knowledge_plan_id:'plan_course',cleanup_operation_ids:['cleanup'],feature_runs:[{id:'feature',feature_id:'cooldown',enabled:true}],mappings:[{id:'mapping',name:'Saved countdown',revision:1,verification_status:'observed'}],operations:[{id:'scan',kind:'scan',status:'succeeded',result:{scan_id:'scan_1',progress:{phase:'partial',bytes_read:65536},total_matches:2,complete:false,reason:'unreadable region',results:[{address:'0x1000',value:60}],next_cursor:'next'}},{id:'read',kind:'read',status:'succeeded',result:{value:60}},{id:'cleanup',kind:'write',status:'queued'}]};
+ let session:any={id:'game_session',state:'running',descriptor:{name:'Disposable test target',fixture:true,fields:{countdown:{address:'0x1000',vtype:'uint'}}},knowledge_plan_id:'plan_course',cleanup_operation_ids:['cleanup'],feature_runs:[{id:'feature',feature_id:'cooldown',enabled:true}],mappings:[{id:'mapping',name:'Saved countdown',revision:1,verification_status:'observed'}],engine:'unity_il2cpp',findings:[{id:'finding_1',title:'IL2CPP class Game.PlayerWeapon',address:'abs:0x20001000',status:'observed',recipe_id:null}],operations:[{id:'watch',kind:'read',status:'succeeded',result:{watch:true,samples:11,achieved_hz:5.2,windows:[{rows_total:3}],complete:true,findings:[{kind:'value_behavior'}]}},{id:'probe',kind:'read',status:'succeeded',result:{job_id:'job_1',probe:'il2cpp_class',phase:'bases',complete:false,findings:[]}},{id:'scan',kind:'scan',status:'succeeded',result:{scan_id:'scan_1',progress:{phase:'partial',bytes_read:65536},total_matches:2,complete:false,reason:'unreadable region',results:[{address:'0x1000',value:60}],next_cursor:'next'}},{id:'read',kind:'read',status:'succeeded',result:{value:60}},{id:'cleanup',kind:'write',status:'queued'}]};
  await page.route('http://127.0.0.1:8765/rpc',async route=>{
   if(route.request().method()==='OPTIONS')return route.fallback();
   const {id,method,params={}}=route.request().postDataJSON();let result:any;
@@ -28,6 +28,12 @@ test('game course follow-up preserves its task and exposes durable Stop evidence
  const runtime=page.getByRole('region',{name:'Game runtime'});
  await expect(runtime).toBeVisible();await expect(runtime.getByRole('button',{name:'Read test value'})).toBeEnabled();
  await expect(runtime.getByText(/Search incomplete/)).toBeVisible();
+ await expect(runtime.getByText('Engine: unity il2cpp',{exact:true})).toBeVisible();
+ await expect(runtime.getByText(/Findings \(1\)/)).toBeVisible();
+ await expect(runtime.getByText(/IL2CPP class Game\.PlayerWeapon/)).toBeVisible();
+ await expect(runtime.getByText(/watch · 11 samples · 5\.2\/s measured · 3 changing slots/)).toBeVisible();
+ await expect(runtime.getByText(/probe il2cpp class · continues \(bases\)/)).toBeVisible();
+ await expect(runtime.getByText('1 finding recorded',{exact:true})).toBeVisible();
  await runtime.getByRole('button',{name:'More scan results'}).click();
  expect(state.calls.find(c=>c.method==='gamelab.scans.control')?.params.cursor).toBe('next');
  await runtime.getByRole('button',{name:'Stop cooldown',exact:true}).click();

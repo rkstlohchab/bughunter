@@ -8,7 +8,9 @@ READ_APP={'burp.health','burp.history','burp.issues','burp.web.review','burp.aud
 READ_TOOLS={'app_features','app_action','desktop_status','desktop_tools','desktop_call','desktop_describe','file_read','assets_query','install_plan','worker_status','delegate_task','plugin_list','plugin_tools','plugin_call','web_search','browser_workspace'}
 READ_DESKTOP={'desktop_snapshot','desktop_find','desktop_get','desktop_is','desktop_screenshot','desktop_list_windows','desktop_list_displays','desktop_list_apps','desktop_list_surfaces','desktop_status','desktop_version','desktop_permissions','desktop_skills_list','desktop_skills_get','desktop_skills_path'}
 READ_TOOLS.update({'game_targets','game_status','game_session','game_read','game_stop'})
+READ_TOOLS.update({'game_engine_detect','game_metadata_search','game_engine_probe','game_object_dissect','game_watch','game_watch_stop','game_snapshot','game_findings'})
 READ_TOOLS.update({'library_sources','library_search','library_read'})
+READ_TOOLS.update({'tbhm_methodology','tbhm_progress','site_monitor','route_review'})
 READ_TOOLS.update({'agent_skills','agent_skill_read','rea_status','rea_tools','rea_call','rea_evidence'})
 
 

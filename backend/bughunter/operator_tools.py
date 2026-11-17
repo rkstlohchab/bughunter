@@ -164,6 +164,98 @@ class OperatorTools:
             harness_id=self._game_task('game_feature_monitor'),
         )
 
+    def _task_project(self,name):
+        self.authorize(name)
+        run=self.check() or {}
+        task=self.app.harness.check(run['harness_id']) if run.get('harness_id') else {}
+        chat=self.store.get('chat',task.get('chat_id','')) or {}
+        return chat.get('project_id')
+
+    def tbhm_methodology(self,section_id=None):
+        project_id=self._task_project('tbhm_methodology')
+        if section_id:return self.app.tbhm.section(section_id,project_id)
+        return self.app.tbhm.outline(project_id)
+
+    def tbhm_progress(self,section_id=None,status=None,note=None,evidence_ids=None):
+        project_id=self._task_project('tbhm_progress')
+        if not project_id:raise ValueError('Open this chat in a project to track TBHM coverage.')
+        if section_id or status:
+            from .harness_modes import require_tool
+            run=self.check() or {}
+            if run.get('harness_id'):require_tool(self.app.harness.check(run['harness_id']),'tbhm_progress_record')
+            return self.app.tbhm.record(project_id,section_id,status,note,evidence_ids)
+        return self.app.tbhm.progress(project_id)
+
+    def _write_allowed(self,label):
+        from .harness_modes import require_tool
+        run=self.check() or {}
+        if run.get('harness_id'):require_tool(self.app.harness.check(run['harness_id']),label)
+
+    def site_monitor(self,action='summary',path=None,source_id=None,watch=False,interval_s=60,min_severity='low',incident_id=None,status=None,note=None):
+        project_id=self._task_project('site_monitor')
+        if not project_id:raise ValueError('Open this chat in the website\'s project to monitor it.')
+        monitor=self.app.site_monitor
+        if action=='summary':return monitor.summary(project_id)
+        if action=='incidents':return monitor.incidents(project_id,min_severity)
+        if action=='sources':return monitor.sources(project_id)
+        self._write_allowed('site_monitor_write')
+        if action=='add_source':return monitor.add_source(project_id,path,watch=watch,interval_s=interval_s)
+        if action=='ingest':
+            if source_id is None or self.store.get('monitor_source',source_id) is None or self.store.get('monitor_source',source_id)['project_id']!=project_id:
+                raise ValueError('Use a source_id from this project\'s sources.')
+            return monitor.ingest(source_id)
+        if action=='resolve':
+            incident=self.store.get('monitor_incident',str(incident_id))
+            if not incident or incident['project_id']!=project_id:raise ValueError('Use an incident from this project.')
+            return monitor.resolve(incident_id,status,note)
+        raise ValueError('action must be summary, incidents, sources, add_source, ingest or resolve.')
+
+    def route_review(self,action='latest',source=None,review_id=None,min_severity='low',kind=None,path_contains=None):
+        project_id=self._task_project('route_review')
+        if not project_id:raise ValueError('Open this chat in the website\'s project to review its code.')
+        reviews=self.app.route_review
+        if action=='latest':return reviews.latest(project_id) or {'review':None,'detail':'No review yet; run action=review with a folder or repo URL.'}
+        if review_id is not None and (self.store.get('route_review',str(review_id)) or {}).get('project_id')!=project_id:
+            raise ValueError('Use a review from this project.')
+        if action=='summary':return reviews.summary(review_id)
+        if action=='routes':return reviews.routes(review_id,min_severity,kind,path_contains)
+        self._write_allowed('route_review_run')
+        if action=='review':return reviews.review(project_id,source)
+        raise ValueError('action must be latest, summary, routes or review.')
+
+    def game_engine_detect(self,session_id):
+        return self.app.game_runtime.engine_detect(session_id,harness_id=self._game_task('game_engine_detect'))
+
+    def game_metadata_search(self,session_id,query,limit=100):
+        return self.app.game_runtime.metadata_search(session_id,query,limit=limit,harness_id=self._game_task('game_metadata_search'))
+
+    def game_engine_probe(self,session_id,probe=None,job_id=None,name=None,namespace=None,class_address=None,name_layout=None):
+        return self.app.game_runtime.engine_probe(session_id,probe=probe,job_id=job_id,name=name,namespace=namespace,
+            class_address=class_address,name_layout=name_layout,harness_id=self._game_task('game_engine_probe'))
+
+    def game_object_dissect(self,session_id,address,size=256,il2cpp_name_slot=None):
+        return self.app.game_runtime.object_dissect(session_id,address,size=size,il2cpp_name_slot=il2cpp_name_slot,
+            harness_id=self._game_task('game_object_dissect'))
+
+    def game_watch(self,session_id,address=None,size=256,addresses=None,duration_s=3.0,interval_ms=100,repeat=1):
+        return self.app.game_runtime.watch(session_id,address=address,size=size,addresses=addresses,duration_s=duration_s,
+            interval_ms=interval_ms,repeat=repeat,harness_id=self._game_task('game_watch'))
+
+    def game_watch_stop(self,session_id,watch_id):
+        return self.app.game_runtime.watch_stop(session_id,watch_id,harness_id=self._game_task('game_watch_stop'))
+
+    def game_snapshot(self,session_id,address=None,size=256,snapshot_id=None):
+        task=self._game_task('game_snapshot')
+        if snapshot_id:return self.app.game_runtime.snapshot_diff(session_id,snapshot_id,harness_id=task)
+        return self.app.game_runtime.snapshot(session_id,address,size=size,harness_id=task)
+
+    def game_findings(self,session_id):
+        return self.app.game_runtime.findings(session_id,harness_id=self._game_task('game_findings'))
+
+    def game_finding_promote(self,session_id,finding_id,name,value_type=None,steps=None):
+        return self.app.game_runtime.finding_promote(session_id,finding_id,name=name,value_type=value_type,steps=steps,
+            harness_id=self._game_task('game_finding_promote'))
+
     def desktop_background_input(self,pid,steps):
         self.authorize('desktop_background_input')
         from .background_input import send
@@ -706,7 +798,22 @@ GAME_SPECS=[
  ('game_pointer_search','Discover bounded pointer paths to a measured address.',{'session_id':{'type':'string'},'address':{'type':'string'},'depth':{'type':'integer'},'offset_window':{'type':'integer'}},['session_id','address']),
  ('game_mapping_export','Export saved mappings with provenance.',{'session_id':{'type':'string'},'recipe_ids':{'type':'array','items':{'type':'string'}}},['session_id']),
  ('game_mapping_import','Validate and import mappings as unverified candidates; imported verification is never trusted.',{'session_id':{'type':'string'},'payload':{'type':'object'}},['session_id','payload']),
+ ('game_engine_detect','Identify the engine of the attached process (Unity IL2CPP / Unity Mono / Unreal / unknown) from loaded modules and the qualified bundle. Read-only; poll game_status for the receipt.',{'session_id':{'type':'string'}},['session_id']),
+ ('game_metadata_search','Search type, field, method and property names in the qualified build\'s IL2CPP global-metadata.dat (static, no process access). Use it to choose exact class and field names for game_engine_probe.',{'session_id':{'type':'string'},'query':{'type':'string'},'limit':{'type':'integer'}},['session_id','query']),
+ ('game_engine_probe','Map engine structures by measurement, read-only. il2cpp_class(name[,namespace]) finds class records; il2cpp_instances(class_address) finds objects whose header is that class; il2cpp_field(name,class_address) finds the field record and instance-offset candidates; unreal_names derives the FName pool layout; unreal_objects(name_layout) derives the UObject layout and object array. Probes run in bounded slices: when the receipt says complete=false, call again with only job_id to continue. Results are candidates with evidence, never fixed offsets.',{'session_id':{'type':'string'},'probe':{'type':'string','enum':['il2cpp_class','il2cpp_instances','il2cpp_field','unreal_names','unreal_objects']},'job_id':{'type':'string'},'name':{'type':'string'},'namespace':{'type':'string'},'class_address':{'type':'string'},'name_layout':{'type':'object'}},['session_id']),
+ ('game_object_dissect','ReClass-style view of 8..1024 bytes at an address: each 8-byte row as hex, ints, floats, pointer target (module+offset) and text. Pass il2cpp_name_slot from a class probe to label IL2CPP object pointers with class names.',{'session_id':{'type':'string'},'address':{'type':'string'},'size':{'type':'integer'},'il2cpp_name_slot':{'type':'string'}},['session_id','address']),
+ ('game_watch','Sample memory live while the user acts in game: one window (address + size up to 4096) or up to 64 addresses, for 0.2..10 s at 20..2000 ms intervals; repeat runs up to 60 consecutive windows. The receipt classifies each changing slot (timer with measured rate, counter, flag, pointer, vector3 candidate) and reports the achieved sample rate, which is set by the attach backend (about 5 samples/s measured over lldb on macOS), not by interval_ms. Read-only.',{'session_id':{'type':'string'},'address':{'type':'string'},'size':{'type':'integer'},'addresses':{'type':'array','items':{'type':'string'}},'duration_s':{'type':'number'},'interval_ms':{'type':'number'},'repeat':{'type':'integer'}},['session_id']),
+ ('game_watch_stop','Stop further windows of a repeating watch.',{'session_id':{'type':'string'},'watch_id':{'type':'string'}},['session_id','watch_id']),
+ ('game_snapshot','Take a snapshot of up to 4096 bytes (address, size), or with snapshot_id compare the same window now against it and report changed slots. Use before and after one in-game action.',{'session_id':{'type':'string'},'address':{'type':'string'},'size':{'type':'integer'},'snapshot_id':{'type':'string'}},['session_id']),
+ ('game_findings','List durable findings for this build: class layouts, fields, name pools, static roots, object arrays and value behaviours, each with status and evidence receipts.',{'session_id':{'type':'string'}},['session_id']),
+ ('game_finding_promote','Save a finding as a mapping recipe (optionally with extra pointer steps) so it can be revalidated, observed and used by features.',{'session_id':{'type':'string'},'finding_id':{'type':'string'},'name':{'type':'string'},'value_type':{'type':'string','enum':['u8','u16','u32','u64','i8','i16','i32','i64','f32','f64','bytes']},'steps':{'type':'array','items':{'type':'object'}}},['session_id','finding_id','name']),
 
+]
+GAME_SPECS += [
+ ('site_monitor','Watch the user\'s deployed website for attacks using its access logs from any host (nginx/Apache, Vercel/Netlify log drains, Cloudflare, AWS ALB/CloudFront, GCP/Azure JSON). action=add_source path=<log file or folder> [watch=true interval_s=60] registers logs; ingest reads new lines and detects TBHM attacker techniques (sensitive file probes, traversal, SQLi/XSS/command/template injection, SSRF and open redirect attempts, scanners, content discovery bursts, fuzzing, login brute force, IDOR id enumeration, floods, host probing); summary/incidents report them with severity, sample requests, possibly-successful hits, the code fix and nginx/Cloudflare block rules; resolve marks an incident fixed/blocked/false_positive. Never changes the server.',{'action':{'type':'string','enum':['summary','incidents','sources','add_source','ingest','resolve']},'path':{'type':'string'},'source_id':{'type':'string'},'watch':{'type':'boolean'},'interval_s':{'type':'integer'},'min_severity':{'type':'string','enum':['info','low','medium','high','critical']},'incident_id':{'type':'string'},'status':{'type':'string','enum':['open','fixed','blocked','false_positive','accepted']},'note':{'type':'string'}},[]),
+ ('route_review','Review the user\'s website source code route by route. action=review source=<local folder or https GitHub/GitLab/Bitbucket URL> finds every route (Express/Fastify/Hono, Next.js, SvelteKit, Remix, Flask, FastAPI, Django, Rails, Laravel, Spring, NestJS, Go, ASP.NET) and flags missing auth, missing ownership checks on id routes, unvalidated input, SQL built from input, server-side fetch of user URLs, command execution, file paths from input, open redirects, unsafe uploads, XSS sinks, unthrottled auth routes, mass assignment, permissive CORS and hard-coded secrets, each with file:line, fix, TBHM section and a live check. action=latest|summary|routes reads results. Flags are leads: read the handler, then confirm on the live site.',{'action':{'type':'string','enum':['latest','summary','routes','review']},'source':{'type':'string'},'review_id':{'type':'string'},'min_severity':{'type':'string','enum':['info','low','medium','high','critical']},'kind':{'type':'string'},'path_contains':{'type':'string'}},[]),
+ ('tbhm_methodology','The Bug Hunter\'s Methodology (TBHM) for authorized website testing, from the stored Bug Hunter\'s Methodology Live decks. Without section_id: the phase outline (scope, recon, application analysis, vulnerability classes, reporting) with this project\'s coverage. With section_id: that section\'s checks, traffic rule, app tools to use, and cited slide and talk excerpts (deck title plus page).',{'section_id':{'type':'string'}},[]),
+ ('tbhm_progress','Read this project\'s TBHM coverage, or record one section: status in_progress (orange), no_findings (green), findings (red, needs a note or evidence IDs) or not_applicable. Recording is app bookkeeping only; it sends nothing to a target.',{'section_id':{'type':'string'},'status':{'type':'string','enum':['todo','in_progress','no_findings','findings','not_applicable']},'note':{'type':'string'},'evidence_ids':{'type':'array','items':{'type':'string'}}},[]),
 ]
 for name,description,properties,required in GAME_SPECS:
     TOOL_CAPABILITIES[name]='app';HARNESS_TOOLS.add(name)

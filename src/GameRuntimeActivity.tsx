@@ -18,7 +18,12 @@ function Operation({op,active,busy,pending,stopped,onMore}:{op:Row;active:boolea
   if (r.verified === true) facts.push(<span key="rb">readback verified</span>);
   if (r.progress) facts.push(<span key="p">scan {r.progress.phase} · {r.progress.bytes_read} bytes read</span>);
   if (r.total_matches !== undefined) facts.push(<span key="m">{r.total_matches} matches</span>);
-  if (r.complete === false) facts.push(<span key="i">Search incomplete{r.reason ? `: ${r.reason}` : ''}</span>);
+  if (r.watch) facts.push(<span key="w">watch · {r.samples ?? 0} samples{r.achieved_hz ? ` · ${r.achieved_hz}/s measured` : ''}{r.windows ? ` · ${r.windows.reduce((n: number, w: Row) => n + (w.rows_total || 0), 0)} changing slots` : ''}</span>);
+  if (r.job_id) facts.push(<span key="pr">probe {label(r.probe)} · {r.complete ? 'complete' : `continues (${label(r.phase)})`}</span>);
+  if (r.engine?.engine) facts.push(<span key="en">engine {label(r.engine.engine)}</span>);
+  if (r.findings?.length) facts.push(<span key="fd">{r.findings.length} finding{r.findings.length === 1 ? '' : 's'} recorded</span>);
+  if (r.changed !== undefined && r.snapshot_id) facts.push(<span key="df">{r.changed} slots changed in {r.elapsed_s}s</span>);
+  if (r.complete === false && !r.job_id) facts.push(<span key="i">{r.watch ? 'Watch ended early' : 'Search incomplete'}{r.reason ? `: ${r.reason}` : ''}</span>);
   if (r.state) facts.push(<span key="s">feature {r.state}</span>);
   if (r.cleanup_status) facts.push(<span key="c">cleanup {label(r.cleanup_status)}</span>);
   if (op.status === 'outcome_unknown') facts.push(<span key="u">The result is uncertain; this write will not be repeated.</span>);
@@ -67,12 +72,14 @@ export default function GameRuntimeActivity({harnessId,executionMode,stopped}:{h
     const sample=session.descriptor?.fields?.countdown;
     const featureRuns:Row[]=session.feature_runs||[];
     const mappings:Row[]=session.mappings||[];
+    const findings:Row[]=session.findings||[];
     return <article key={session.id} className={`rt-session rt-${tone(session.state)}`}>
       <div className="rt-session-head">
         <strong className="rt-session-name">{session.descriptor?.name||'Selected game process'}</strong>
         <span className="rt-state" role="status">Session: {session.state}{session.last_error?` · ${label(session.last_error)}`:''}</span>
       </div>
-      {(session.descriptor?.fixture||session.knowledge_plan_id)&&<div className="rt-meta">
+      {(session.descriptor?.fixture||session.knowledge_plan_id||session.engine)&&<div className="rt-meta">
+        {session.engine&&<span className="rt-tag">Engine: {label(session.engine)}</span>}
         {session.descriptor?.fixture&&<span className="rt-tag"><FlaskConical size={12}/>Disposable test process. These results do not verify a real game.</span>}
         {session.knowledge_plan_id&&<span className="rt-tag" title={session.knowledge_plan_id}>Course plan attached: <code>{String(session.knowledge_plan_id).slice(0,26)}…</code></span>}
       </div>}
@@ -90,6 +97,9 @@ export default function GameRuntimeActivity({harnessId,executionMode,stopped}:{h
       </div>)}</div>}
       {mappings.length>0&&<details className="rt-fold"><summary><ChevronRight size={13}/>Saved mappings ({mappings.length})</summary><ul className="rt-list">{mappings.map(mapping=><li key={mapping.id}>
         {mapping.name} · revision {mapping.revision} · {label(mapping.verification_status)}
+      </li>)}</ul></details>}
+      {findings.length>0&&<details className="rt-fold" open><summary><ChevronRight size={13}/>Findings ({findings.length})</summary><ul className="rt-list">{findings.map(finding=><li key={finding.id}>
+        {finding.title} · <code>{finding.address}</code> · {label(finding.status)}{finding.recipe_id?' · saved as mapping':''}
       </li>)}</ul></details>}
       {operations.length>0&&<details className="rt-fold" open><summary><ChevronRight size={13}/>Recorded operations ({operations.length})</summary>
         <ul className="rt-ops">{operations.map(op=><Operation key={op.id} op={op} active={active} busy={busy} pending={pending} stopped={stopped}

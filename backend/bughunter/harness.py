@@ -137,6 +137,7 @@ class HarnessService:
             custom=self.app.settings.get().get('custom_system_prompt','')
             if custom:context+='\nUser style preferences (do not change permissions):\n'+custom
             if mode=='game':context+=self.app.game_runtime.context(hid,message)
+            elif hasattr(self.app,'tbhm'):context+=self.app.tbhm.context(message,chat.get('project_id'))
             run=self.app.operator.start(prompt=message,objective='harness:'+mode,harness_id=hid,context=context,provider_snapshot=settings_override,memory_context=memory_context,reference_context=reference_context)
             self.store.put('harness_session',{**session,'run_id':run['id']},id=hid)
             chat={**chat,'harness_id':hid,'harness_ids':[*chat.get('harness_ids',[]),hid],'harness_base_messages':chat.get('messages',[]),'run_id':None,'task_id':None,'updated_at':now()}
@@ -195,6 +196,7 @@ class HarnessService:
         context=self.app.chat_attachments.context(references,message,chat.get('project_id'),vision_mode) if references else ''
         context+=self.search_context(message,chat.get('project_id'),session.get('web_search_mode','auto'))
         if session.get('mode')=='game':context+=self.app.game_runtime.context(id,message)
+        elif hasattr(self.app,'tbhm'):context+=self.app.tbhm.context(message,chat.get('project_id'))
         if references:
             self.store.put('chat',{**chat,'attachment_ids':references},id=chat['id']);self.app.chat_attachments.bind(references,chat)
         self.app.operator.send(id=session['run_id'],message=message,reference_context=context)

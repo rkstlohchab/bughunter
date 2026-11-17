@@ -30,6 +30,10 @@ from .skills import SkillService
 from .model_routing import ModelRoutes
 from .research import WebResearch
 from .commerce_audit import CommerceAudit
+from .pentagi_bridge import PentagiBridge
+from .tbhm import TbhmService
+from .site_monitor import SiteMonitor
+from .route_review import RouteReview
 from .staging_price import StagingPriceAudit
 from .website_audit import WebsiteAudit
 from .pointer_notebook import PointerNotebook
@@ -111,6 +115,12 @@ class Application:
         self.verification_p9 = VerificationP9(self)
         self.investigation_p10 = InvestigationP10(self)
         self.commerce = CommerceAudit(self)
+        self.pentagi = PentagiBridge(self)
+        self.tbhm = TbhmService(self)
+        self.site_monitor = SiteMonitor(self)
+        self.route_review = RouteReview(self)
+        if primary:
+            self.site_monitor.start_watchers()
         self.staging_price = StagingPriceAudit(self)
         self.website_audit = WebsiteAudit(self)
         self.pointer_notebook = PointerNotebook(self.store)
@@ -289,6 +299,14 @@ class Application:
             return self.memory_mappings.dispatch(method,p)
         if method.startswith('website.audit.'):
             return self.website_audit.dispatch(method,p)
+        if method.startswith('pentagi.'):
+            return self.pentagi.dispatch(method, p)
+        if method.startswith('tbhm.'):
+            return self.tbhm.dispatch(method, p)
+        if method.startswith('monitor.'):
+            return self.site_monitor.dispatch(method, p)
+        if method.startswith('routes.'):
+            return self.route_review.dispatch(method, p)
         if method.startswith('commerce.staging.'):
             return self.staging_price.dispatch(method,p)
         if method.startswith('commerce.'):
@@ -969,6 +987,7 @@ class Application:
         self.browser_workspaces.shutdown()
         self.memory_mappings.stop_all()
         self.readiness_p7.shutdown()
+        self.site_monitor.shutdown()
         try: self.capabilities.shutdown()
         except Exception: pass
         self.agent_jobs.shutdown()

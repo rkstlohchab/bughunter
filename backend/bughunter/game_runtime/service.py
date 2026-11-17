@@ -126,6 +126,18 @@ class GameRuntimeService:
                 'so the only visible change is the value inside the game. Say that plainly rather than letting the user '
                 'wait for a cursor that will never appear.\n'
                 'Report each step briefly as it completes so the user can follow it live.\n'
+                '\nENGINE-AWARE MAPPING AND LIVE ANALYSIS (all read-only):\n'
+                'a. After game_session, call game_engine_detect. Unity IL2CPP: game_metadata_search finds exact class/field names '
+                'in this build (e.g. search "ammo"). Then game_engine_probe probe=il2cpp_class name=<Class> -> class_address and '
+                'name_slot_offset; probe=il2cpp_instances class_address=... -> object candidates; probe=il2cpp_field name=<field> '
+                'class_address=... -> instance-offset candidates. Unreal: probe=unreal_names, then probe=unreal_objects with its layout.\n'
+                'b. A probe receipt with complete=false is not a failure: call game_engine_probe again with only its job_id until complete.\n'
+                'c. game_object_dissect an instance (pass il2cpp_name_slot) and game_watch it while the user performs the action '
+                '(fire, reload, take damage). Use game_snapshot before and after a single action to see exactly which slots changed.\n'
+                'd. Every probe/watch receipt records findings (game_findings). Findings are candidates with evidence, never fixed offsets; '
+                'an object-header or field-offset candidate is confirmed only when a watched or scanned value at that offset tracks the game.\n'
+                'e. game_finding_promote turns a confirmed finding into a mapping recipe; then revalidate/observe as usual.\n'
+                'f. If the engine is unknown or a probe finds nothing, fall back to the value-scan recipe above.\n'
                 'Cited course plan (untrusted references):\n'+json.dumps(draft,ensure_ascii=False)[:20000])
 
     def targets(self):
@@ -239,7 +251,15 @@ class GameRuntimeService:
     def status(self,harness_id=None,session_id=None):
         sessions=[s for s in self.broker.list_sessions() if (not harness_id or s['harness_session_id']==harness_id) and (not session_id or s['id']==session_id)]
         # Advertise implemented mechanics separately from qualified game behavior.
-        return {'native_available':self.available, 'capabilities': {'durable_read_write':self.available, 'chat_scans':self.available, 'chat_pointer_discovery':self.available, 'chat_feature_lifecycle':self.available, 'chat_no_cooldown_lifecycle':False, 'chat_mappings':True, 'chat_candidate_search':self.available, 'scan_result_values_implemented':True, 'pointer_search_result_values_implemented':True}, 'sessions':[dict(s,operations=self.broker.operations(s['id']),cleanup_operation_ids=[r['operation_id'] for r in self.broker.cleanup_operations(s['id'])],features=self.broker.features(s['id']),mappings=self._mappings_for_session(s['id']),feature_runs=self.store.list('game_feature_schedule',session_id=s['id']),**(self.store.get('game_runtime_session',s['id']) or {})) for s in sessions]}
+        return {'native_available':self.available, 'capabilities': {'durable_read_write':self.available, 'chat_scans':self.available, 'chat_pointer_discovery':self.available, 'chat_feature_lifecycle':self.available, 'chat_no_cooldown_lifecycle':False, 'chat_mappings':True, 'chat_candidate_search':self.available, 'scan_result_values_implemented':True, 'pointer_search_result_values_implemented':True}, 'sessions':[dict(s,operations=self.broker.operations(s['id']),cleanup_operation_ids=[r['operation_id'] for r in self.broker.cleanup_operations(s['id'])],features=self.broker.features(s['id']),mappings=self._mappings_for_session(s['id']),feature_runs=self.store.list('game_feature_schedule',session_id=s['id']),findings=self._session_findings(s),watches=self.store.list('game_watch_schedule',session_id=s['id']),**(self.store.get('game_runtime_session',s['id']) or {})) for s in sessions]}
+
+    def _session_findings(self, session):
+        from .findings import list_for
+        try:
+            return list_for(self.store,target_fingerprint=self.broker.session_fingerprint(session['id']),
+                            process_instance_id=session['process_instance_id'])[:100]
+        except Exception:
+            return []
 
     # --- P05/P06 broker-owned chat surfaces --------------------------------
 
@@ -409,6 +429,160 @@ class GameRuntimeService:
         op=self.broker.enqueue(session_id,'pointer_search','read_only',{'search_mode':'among_us_candidates','cooldown_hint':cooldown_hint,'max_candidates':max_candidates})
         return {'operation_id':op['id'],'candidate_kind':kind}
 
+    # --- Engine mapping and realtime analysis (read-only) -------------------
+
+    def _analysis_args(self, session):
+        descriptor=(self.store.get('game_runtime_session',session['id']) or {}).get('descriptor',{})
+        if not descriptor.get('fixture'):return {}
+        regions=descriptor.get('regions') or []
+        return {'regions':regions,'module_ranges':[{'name':name,'base':base,'size':next(r['size'] for r in regions if r['base']==base)}
+                                                    for name,base in descriptor.get('module_bases',{}).items()]}
+
+    def _analysis(self, session_id, harness_id, action, **arguments):
+        session=self._active_task(session_id,harness_id);self._require_native()
+        args={**self._analysis_args(session),'analysis_action':action,**{k:v for k,v in arguments.items() if v is not None}}
+        op=self.broker.enqueue(session_id,'read','read_only',args)
+        return {'operation_id':op['id'],'analysis_action':action}
+
+    def _receipt_value(self, session_id, key, value):
+        """True when a succeeded receipt in this session returned ``result[key] == value``."""
+        return any(o['status']=='succeeded' and (o.get('result') or {}).get(key)==value for o in self.broker.operations(session_id))
+
+    def _game_target(self, session):
+        record=self.store.get('game_target',session['target_id'])
+        if not record:raise ValueError('This session is not bound to an installed game target (the disposable fixture has no metadata).')
+        return record
+
+    def engine_detect(self, session_id, *, harness_id=None):
+        session=self._active_task(session_id,harness_id)
+        record=self.store.get('game_target',session['target_id']) or {}
+        return self._analysis(session_id,harness_id,'engine_detect',bundle_path=record.get('executable_or_package'))
+
+    def metadata_search(self, session_id, query, *, limit=100, harness_id=None):
+        """Static IL2CPP identifier search in the qualified build's metadata file. No native work."""
+        from .engine_map.il2cpp_metadata import read_metadata, search_identifiers, MetadataError
+        session=self._active_task(session_id,harness_id)
+        record=self._game_target(session)
+        fp=record.get('build_fingerprint') or {};extras=fp.get('extras') or {}
+        relative,bundle=extras.get('metadata_path'),extras.get('bundle_path') or record.get('executable_or_package')
+        if not relative or not bundle:raise ValueError('The qualified target has no IL2CPP metadata file.')
+        path=(Path(bundle)/relative).resolve()
+        if not path.is_relative_to(Path(bundle).resolve()):raise ValueError('Metadata path escapes the qualified bundle.')
+        stat=path.stat();key=(str(path),stat.st_size,stat.st_mtime_ns)
+        cached=getattr(self,'_metadata_cache',None)
+        if not cached or cached[0]!=key:
+            with path.open('rb') as source:digest=hashlib.file_digest(source,'sha256').hexdigest()
+            if fp.get('sha256_metadata') and digest!=fp['sha256_metadata']:raise ValueError('Metadata file differs from the qualified build; re-inspect targets.')
+            try:metadata=read_metadata(path)
+            except MetadataError as exc:return {'status':exc.code,'detail':str(exc)}
+            self._metadata_cache=cached=(key,metadata)
+        metadata=cached[1]
+        return {'status':'ok','metadata':metadata.summary(),**search_identifiers(metadata,query,limit=limit),
+                'limitation':'Names only; owning types come from game_engine_probe on the live process.'}
+
+    def engine_probe(self, session_id, *, probe=None, job_id=None, name=None, namespace=None, class_address=None,
+                     name_layout=None, harness_id=None):
+        if job_id is not None:
+            if not isinstance(job_id,str) or not self._receipt_value(session_id,'job_id',job_id):
+                raise ValueError('Probe job belongs to another task or has no receipt; start a new probe.')
+            return self._analysis(session_id,harness_id,'probe',job_id=job_id)
+        if probe in ('il2cpp_instances','il2cpp_field'):self._value_args(class_address,'uint64')
+        if probe=='unreal_objects' and not isinstance(name_layout,dict):raise ValueError('unreal_objects needs name_layout from an unreal_names result.')
+        layout=None
+        if name_layout is not None:
+            layout={'blocks_slot':name_layout.get('blocks_slot'),**{k:name_layout.get(k) for k in ('header_bytes','len_shift','len_bits','align')}}
+        return self._analysis(session_id,harness_id,'probe',probe=probe,name=name,namespace=namespace,
+                              class_address=class_address,name_layout=layout)
+
+    def object_dissect(self, session_id, address, *, size=256, il2cpp_name_slot=None, harness_id=None):
+        self._value_args(address,'uint64')
+        if type(size) is not int or not 8<=size<=1024:raise ValueError('dissect size is 8..1024 bytes')
+        return self._analysis(session_id,harness_id,'dissect',address=address,size=size,il2cpp_name_slot=il2cpp_name_slot)
+
+    def watch(self, session_id, *, address=None, size=256, addresses=None, duration_s=3.0, interval_ms=100,
+              repeat=1, harness_id=None):
+        if addresses is not None:
+            if not isinstance(addresses,list) or not 1<=len(addresses)<=64:raise ValueError('addresses must list 1..64 addresses')
+            for value in addresses:self._value_args(value,'uint64')
+            address=size=None
+        else:
+            self._value_args(address,'uint64')
+            if type(size) is not int or not 4<=size<=4096:raise ValueError('watch size is 4..4096 bytes')
+        if type(repeat) is not int or not 1<=repeat<=60:raise ValueError('repeat is 1..60 windows')
+        for value,low,high,name in ((duration_s,0.2,10,'duration_s'),(interval_ms,20,2000,'interval_ms')):
+            if type(value) not in (int,float) or not math.isfinite(value) or not low<=value<=high:raise ValueError(f'{name} must be {low}..{high}')
+        started=self._analysis(session_id,harness_id,'watch',address=address,size=size,addresses=addresses,
+                               duration_s=duration_s,interval_ms=interval_ms)
+        watch_id=new_id('watch')
+        args=self.broker.get_operation(started['operation_id'])['arguments']
+        self.store.put('game_watch_schedule',{'session_id':session_id,'watch_id':watch_id,'arguments':args,
+            'remaining':repeat-1,'windows':1,'enabled':repeat>1,'last_operation_id':started['operation_id']},id=session_id+':'+watch_id)
+        return {**started,'watch_id':watch_id,'windows_requested':repeat}
+
+    def watch_stop(self, session_id, watch_id, *, harness_id=None):
+        self._session(session_id,harness_id)
+        schedule=self.store.get('game_watch_schedule',session_id+':'+str(watch_id))
+        if not schedule:raise ValueError('Unknown watch for this session.')
+        self.store.put('game_watch_schedule',{**schedule,'enabled':False,'remaining':0},id=schedule['id'])
+        op=self.broker.get_operation(schedule['last_operation_id'])
+        return {'watch_id':watch_id,'stopped':True,'windows':schedule['windows'],'last_operation_status':op['status']}
+
+    def _pump_watches(self):
+        with self._lock:
+            for schedule in self.store.list('game_watch_schedule',enabled=True):
+                session=self.broker.get_session(schedule['session_id'])
+                op=self.broker.get_operation(schedule['last_operation_id'])
+                if session['state']!='running' or self.store.setting('emergency_stop',False) or op['status'] in ('failed','outcome_unknown','cancelled_before_dispatch'):
+                    schedule.update(enabled=False)
+                elif op['status']=='succeeded' and schedule['remaining']>0:
+                    try:
+                        nxt=self.broker.enqueue(session['id'],'read','read_only',schedule['arguments'])
+                        schedule.update(last_operation_id=nxt['id'],remaining=schedule['remaining']-1,windows=schedule['windows']+1)
+                    except BrokerError:schedule.update(enabled=False)
+                elif op['status']=='succeeded':
+                    schedule.update(enabled=False)
+                self.store.put('game_watch_schedule',schedule,id=schedule['id'])
+
+    def snapshot(self, session_id, address, *, size=256, harness_id=None):
+        self._value_args(address,'uint64')
+        if type(size) is not int or not 4<=size<=4096:raise ValueError('snapshot size is 4..4096 bytes')
+        return self._analysis(session_id,harness_id,'snapshot',address=address,size=size)
+
+    def snapshot_diff(self, session_id, snapshot_id, *, harness_id=None):
+        if not isinstance(snapshot_id,str) or not self._receipt_value(session_id,'snapshot_id',snapshot_id):
+            raise ValueError('Snapshot belongs to another task or has no receipt.')
+        return self._analysis(session_id,harness_id,'diff',snapshot_id=snapshot_id)
+
+    def findings(self, session_id, *, harness_id=None):
+        session=self._session(session_id,harness_id)
+        from .findings import list_for
+        return list_for(self.store,target_fingerprint=self.broker.session_fingerprint(session_id),
+                        process_instance_id=session['process_instance_id'])
+
+    def finding_promote(self, session_id, finding_id, *, name, value_type=None, steps=None, harness_id=None):
+        session=self._active_task(session_id,harness_id,mutate=True)
+        finding=self.store.get('game_finding',str(finding_id))
+        if not finding or finding['target_fingerprint']!=self.broker.session_fingerprint(session_id):raise ValueError('Finding belongs to another build.')
+        if finding['address'].startswith('abs:') and finding['process_instance_id']!=session['process_instance_id']:
+            raise ValueError('Absolute finding came from an earlier process; re-measure it in this one.')
+        value_type=value_type or finding.get('value_type')
+        if not value_type:raise ValueError('Choose the value_type to read at this address.')
+        recipe=self.mapping_save(session_id,name=name,root=finding['address'],steps=list(steps or []),value_type=value_type,
+                                 evidence_ids=list(finding['operation_ids']),harness_id=harness_id)
+        self.store.put('game_finding',{**finding,'recipe_id':recipe['id']},id=finding['id'])
+        return recipe
+
+    def _record_analysis(self, operation):
+        args=operation.get('arguments') or {}
+        if not args.get('analysis_action') or operation['status']!='succeeded':return
+        from .findings import record_from_receipt
+        runtime=self.store.get('game_runtime_session',operation['session_id']) or {}
+        result=operation.get('result') or {}
+        if args['analysis_action']=='engine_detect' and isinstance(result.get('engine'),dict):
+            runtime['engine']=result['engine'].get('engine')
+            self.store.put('game_runtime_session',runtime,id=operation['session_id'])
+        record_from_receipt(self.store,operation,engine=runtime.get('engine'))
+
     @_serialized_service
     def feature_start(self,session_id,*,recipe_id,feature_id,apply_value,disable_value=None,guards=None,harness_id=None):
         session=self._active_task(session_id,harness_id,mutate=True);self._require_native()
@@ -527,7 +701,7 @@ class GameRuntimeService:
         args={k:v for k,v in p.items() if k!='credential_hex'}
         if method=='gamelab.native.stop_all':return self.stop()
         if method=='gamelab.native.poll':
-            self._last_poll=time.monotonic();self.reconcile();self._pump_features();sessions=[]
+            self._last_poll=time.monotonic();self.reconcile();self._pump_features();self._pump_watches();sessions=[]
             for s in self.broker.list_sessions():
                 if s['state'] not in ('running','starting','stopping'):continue
                 descriptor=(self.store.get('game_runtime_session',s['id']) or {}).get('descriptor',{})
@@ -551,6 +725,8 @@ class GameRuntimeService:
             # A receipt still must carry the current revision; Rust refreshes it.
             with self._lock:
                 operation=self.broker.complete(**args,accept_cancelled_attempt=True)
+                try:self._record_analysis(operation)
+                except Exception as exc:self.store.event('game_runtime.finding_error',{'operation_id':operation['id'],'error':str(exc)[:300]})
                 if operation['arguments'].get('runtime_action') in ('feature_start','feature_tick'):
                     key=operation['session_id']+':'+operation['arguments']['feature_id']
                     schedule=self.store.get('game_feature_schedule',key)
@@ -620,6 +796,16 @@ class GameRuntimeService:
         if method=='gamelab.mappings.export':return self.mapping_export(**p)
         if method=='gamelab.mappings.import':return self.mapping_import(**p)
         if method=='gamelab.scans.candidate_search':return self.candidate_search(**p)
+        if method=='gamelab.analysis.engine':return self.engine_detect(**p)
+        if method=='gamelab.analysis.metadata':return self.metadata_search(**p)
+        if method=='gamelab.analysis.probe':return self.engine_probe(**p)
+        if method=='gamelab.analysis.dissect':return self.object_dissect(**p)
+        if method=='gamelab.analysis.watch':return self.watch(**p)
+        if method=='gamelab.analysis.watch_stop':return self.watch_stop(**p)
+        if method=='gamelab.analysis.snapshot':return self.snapshot(**p)
+        if method=='gamelab.analysis.diff':return self.snapshot_diff(**p)
+        if method=='gamelab.analysis.findings':return self.findings(**p)
+        if method=='gamelab.analysis.promote':return self.finding_promote(**p)
         if method=='gamelab.runtime.status':return self.status(p.get('harness_id'))
         if method=='gamelab.runtime.fixture':return self.fixture(p['harness_id'])
         if method=='gamelab.runtime.read':return self.read(**p)

@@ -59,6 +59,19 @@ Freezing is a repeated write on a timer. It needs an explicit stop and must end 
 - **Server-authoritative values.** If the server owns the balance, local memory is a display cache: changing it changes nothing real.
 - **JIT/managed runtimes** (JVM, .NET, Unity IL2CPP) move objects with garbage collection. Raw addresses go stale quickly; pointer paths from a stable static root are mandatory.
 
+## Engine-aware mapping (Unity IL2CPP and Unreal)
+
+When the engine is known, map structures instead of scanning blind. All of these are read-only and every result is a candidate with evidence, not a fixed offset.
+
+1. `game_engine_detect` identifies the engine from loaded modules and the bundle.
+2. **Unity IL2CPP.** `game_metadata_search` lists exact type, field and method names from the build's `global-metadata.dat` (for example search `ammo`). `game_engine_probe probe=il2cpp_class name=<Class>` finds the class record: the base that the rest of memory points at most, plus the measured name-slot offset and namespace. `probe=il2cpp_instances` lists objects whose header is that class; `probe=il2cpp_field` finds the field record and instance-offset candidates.
+3. **Unreal.** `probe=unreal_names` derives the name-entry header from the `None`/`ByteProperty` pair and finds the block table; `probe=unreal_objects` derives the object layout from the self-referencing `Class` object and finds object-array entries. Not yet verified on a real Unreal build.
+4. Probes run in bounded slices. A receipt with `complete=false` continues with the same `job_id`.
+5. `game_object_dissect` an instance, then `game_watch` it while the player acts (fire, reload, take damage), or `game_snapshot` before and after one action. The slot that tracks the action is the field; a matching offset candidate from the field probe confirms it.
+6. `game_findings` lists what was measured; `game_finding_promote` turns a confirmed finding into a mapping recipe for revalidation and restart checks.
+
+The watch rate comes from the attach backend, not the requested interval: about 5 samples per second was measured over lldb on macOS. Watch for long enough to see the action several times.
+
 ## Evidence to record for every run
 
 OS build, architecture, target name and version, pid, attach path (mach or lldb), address, region permissions, value type, each observed value per refinement step, the write, the readback, the in-game confirmation, and cleanup. A disposable fixture result proves the engine, never a real game.

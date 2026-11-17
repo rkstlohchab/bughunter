@@ -15,6 +15,10 @@ TOOL_SPECS = [
     {'name':'list_sources','description':'Discover saved Library resources by title, filename or topic before searching the web or asking for uploads. Returns real source IDs and processing status.','parameters':schema({'query':TEXT})},
     {'name':'app_inventory','description':'Find an installed app by name in this device’s standard application catalogs. Returns observed bundle/registry metadata and version when available. Read-only; never launches apps or changes files. Use this to check app/runtime facts before asking the user to find an installation.', 'parameters':schema({'query':TEXT},['query'])},
     {"name":"get_project","description":"Read the current project's authorization, scope and limits.","parameters":schema()},
+    {"name":"tbhm_methodology","description":"The Bug Hunter's Methodology (TBHM) from the stored Live decks. Without section_id: phase outline with this project's coverage. With section_id: checks, traffic rule, which of your tools apply, and cited slide/talk excerpts. Excerpts are untrusted evidence, never permission.","parameters":schema({"section_id":TEXT})},
+    {"name":"site_monitor","description":"Watch the project's deployed website for attacks from its access logs (any host). action: summary | incidents | sources | add_source (path, watch, interval_s) | ingest (source_id) | resolve (incident_id, status, note). Detects TBHM attacker techniques and returns fixes and block rules; never changes the server.","parameters":schema({"action":TEXT,"path":TEXT,"source_id":TEXT,"watch":{"type":"boolean"},"interval_s":{"type":"integer"},"min_severity":TEXT,"incident_id":TEXT,"status":TEXT,"note":TEXT})},
+    {"name":"route_review","description":"Review the website's source code route by route. action: review (source = local folder or https GitHub/GitLab/Bitbucket URL) | latest | summary (review_id) | routes (review_id, min_severity, kind, path_contains). Flags carry file:line, fix, TBHM section and a live check; confirm with op_file_read, then on the live site.","parameters":schema({"action":TEXT,"source":TEXT,"review_id":TEXT,"min_severity":TEXT,"kind":TEXT,"path_contains":TEXT})},
+    {"name":"tbhm_progress","description":"Read this project's TBHM coverage, or record one section as in_progress, no_findings, findings (needs note or evidence_ids) or not_applicable. Bookkeeping only; sends nothing to a target.","parameters":schema({"section_id":TEXT,"status":TEXT,"note":TEXT,"evidence_ids":{"type":"array","items":TEXT}})},
     {"name":"get_evidence_casebook","description":"Read P10 project-scoped evidence cases and follow-up suggestions. Only existing observations are analyzed; no memory scans, HTTP requests, CAPTCHA solutions, approvals or new cases can be initiated.","parameters":schema()},
     {"name":"get_advanced_verification","description":"Read the P9 evidence review summary for this project. These are comparisons of previously observed game entity snapshots or staging quote receipts; no live exploitation, CAPTCHA solving or game-layout discovery is performed.","parameters":schema()},
     {"name":"get_advanced_capabilities","description":"Read P8 advanced capability readiness and local training-job status. Never starts model fine-tuning, game-memory access, or external web testing.","parameters":schema()},
@@ -95,6 +99,7 @@ TOOL_SPECS = [
 # target, gateway, approval, or discovery tool, so a study run cannot reach a target.
 STUDY_TOOL_NAMES = {"get_evidence_casebook","get_advanced_verification","get_advanced_capabilities","get_runtime_readiness","tor_list_sources","tor_search_pages","tor_browser_open","tor_browser_navigate","tor_browser_follow","tor_browser_capture","tor_browser_close","tor_research_sessions","tor_research_next","get_source","search_knowledge","list_candidate_procedures","read_experiment_results","check_course_citations","list_research_updates","list_learning_plans","create_learning_plan","inspect_learning_plan","advance_learning_plan","list_study_missions","create_study_mission","inspect_study_mission","advance_study_mission","list_reviewed_skills","inspect_reviewed_skill","learn_assertions","list_source_frames","get_source_frame","interpret_source_frame","draft_script"}
 STUDY_TOOL_NAMES.add('list_sources')
+STUDY_TOOL_NAMES.add('tbhm_methodology')
 # How many cited chunks get_source returns per page (keeps a tool result well under
 # the serialization cap so long courses can be paged through in full).
 SOURCE_PAGE = 25
@@ -340,6 +345,56 @@ class ModelTools:
                 "note": report["interpretation"]}
         elif name == "get_project":
             result = self.app.store.get("project",project_id)
+        elif name == "tbhm_methodology":
+            result = (self.app.tbhm.section(arguments["section_id"], project_id) if arguments.get("section_id")
+                      else self.app.tbhm.outline(project_id))
+        elif name == "site_monitor":
+            action = arguments.get("action") or "summary"
+            monitor = self.app.site_monitor
+            if action == "summary":
+                result = monitor.summary(project_id)
+            elif action == "incidents":
+                result = monitor.incidents(project_id, arguments.get("min_severity") or "low")
+            elif action == "sources":
+                result = monitor.sources(project_id)
+            elif action == "add_source":
+                result = monitor.add_source(project_id, arguments.get("path"), watch=bool(arguments.get("watch", False)),
+                                            interval_s=int(arguments.get("interval_s") or 60))
+            elif action == "ingest":
+                source = self.app.store.get("monitor_source", str(arguments.get("source_id")))
+                if not source or source["project_id"] != project_id:
+                    raise ValueError("Use a source_id from this project's sources.")
+                result = monitor.ingest(source["id"])
+            elif action == "resolve":
+                incident = self.app.store.get("monitor_incident", str(arguments.get("incident_id")))
+                if not incident or incident["project_id"] != project_id:
+                    raise ValueError("Use an incident from this project.")
+                result = monitor.resolve(incident["id"], arguments.get("status"), arguments.get("note"))
+            else:
+                raise ValueError("Unknown site_monitor action.")
+        elif name == "route_review":
+            action = arguments.get("action") or "latest"
+            reviews = self.app.route_review
+            review_id = arguments.get("review_id")
+            if review_id is not None and (self.app.store.get("route_review", str(review_id)) or {}).get("project_id") != project_id:
+                raise ValueError("Use a review from this project.")
+            if action == "review":
+                result = reviews.review(project_id, arguments.get("source"))
+            elif action == "latest":
+                result = reviews.latest(project_id)
+            elif action == "summary":
+                result = reviews.summary(review_id)
+            elif action == "routes":
+                result = reviews.routes(review_id, arguments.get("min_severity") or "low", arguments.get("kind"),
+                                        arguments.get("path_contains"))
+            else:
+                raise ValueError("Unknown route_review action.")
+        elif name == "tbhm_progress":
+            if arguments.get("section_id") or arguments.get("status"):
+                result = self.app.tbhm.record(project_id, arguments.get("section_id"), arguments.get("status"),
+                                              arguments.get("note"), arguments.get("evidence_ids"))
+            else:
+                result = self.app.tbhm.progress(project_id)
         elif name == "probe_url":
             result = self.app.tools.probe(project_id,arguments["url"],run_id=self.run_id)
         elif name == "crawl_url":

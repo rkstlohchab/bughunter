@@ -121,7 +121,7 @@
     {
       "filename": "website-testing-playbook.md",
       "title": "Authorized website testing playbook",
-      "sha256": "08f3c9b4c4d9ba44d4e8fe3be455c6421434a0c44210052d7e943e175789e28a",
+      "sha256": "3015442b8949c8aa1c8a0fe9858711e65178c666ae6b990fd9337df759556c8f",
       "references": [
         "https://owasp.org/www-project-web-security-testing-guide/",
         "https://api-security.owasp.org/editions/2023/en/0xa1-broken-object-level-authorization/",
@@ -131,7 +131,7 @@
     {
       "filename": "memory-scanning-playbook.md",
       "title": "Memory scanning playbook",
-      "sha256": "bb65a680f1b19f4df3d0cc4597cc126f64e37db3889244863d307a4570c96ea5",
+      "sha256": "f7753a012cd65933f40428d47e5449344068a1945d13acdc67f622cbba9fc30a",
       "references": [
         "https://cheatengine.org/help/tutorial.htm"
       ]
