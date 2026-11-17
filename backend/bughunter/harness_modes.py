@@ -10,7 +10,7 @@ READ_DESKTOP={'desktop_snapshot','desktop_find','desktop_get','desktop_is','desk
 READ_TOOLS.update({'game_targets','game_status','game_session','game_read','game_stop'})
 READ_TOOLS.update({'game_engine_detect','game_metadata_search','game_engine_probe','game_object_dissect','game_watch','game_watch_stop','game_snapshot','game_findings'})
 READ_TOOLS.update({'library_sources','library_search','library_read'})
-READ_TOOLS.update({'tbhm_methodology','tbhm_progress','site_monitor','route_review'})
+READ_TOOLS.update({'tbhm_methodology','tbhm_progress','site_monitor','route_review','pentest_flow'})
 READ_TOOLS.update({'agent_skills','agent_skill_read','rea_status','rea_tools','rea_call','rea_evidence'})
 
 

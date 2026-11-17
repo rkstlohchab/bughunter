@@ -339,6 +339,8 @@ class KnowledgeService:
         p = params or {}
         routes = {
             "sources.list": lambda: self.list_sources(p.get("project_id", "*")),
+            "sources.folders": lambda: self.source_folders(p.get("project_id", "*")),
+            "sources.organize": lambda: self.organize_sources(p["ids"], author=p.get("author"), course=p.get("course")),
             "sources.import": lambda: self.import_source(**p),
             "sources.get": lambda: self.get_source(p["id"]),
             "sources.models": lambda: self.set_models(p["ids"], p.get("analysis_model")),
@@ -467,10 +469,41 @@ class KnowledgeService:
         return KnowledgeArchive(self)
 
     def list_sources(self, project_id="*") -> list[dict]:
+        from .library_folders import annotate
         sources = self.store.list("source")
-        if project_id == "*":
-            return sources
-        return [s for s in sources if s.get("project_id") in (None, project_id)]
+        if project_id != "*":
+            sources = [s for s in sources if s.get("project_id") in (None, project_id)]
+        return annotate(sources, str(self.store.root))
+
+    def source_folders(self, project_id="*") -> list[dict]:
+        from .library_folders import tree
+        sources = self.store.list("source")
+        if project_id != "*":
+            sources = [s for s in sources if s.get("project_id") in (None, project_id)]
+        return tree(sources, str(self.store.root))
+
+    def organize_sources(self, ids, author=None, course=None) -> dict:
+        """Put sources in a user-named author/course folder; empty values return them to the automatic folder."""
+        if not isinstance(ids, list) or not 1 <= len(ids) <= 500 or any(not isinstance(i, str) for i in ids):
+            raise ValueError("Choose 1-500 resources to organize.")
+        values = {}
+        for name, value in (("library_author", author), ("library_course", course)):
+            if value is not None and (not isinstance(value, str) or len(value.strip()) > 120):
+                raise ValueError("Author and course names must be text up to 120 characters.")
+            values[name] = (value or "").strip() or None
+        updated = []
+        with self.store.connection(immediate=True) as db:
+            for ident in ids:
+                row = db.execute("SELECT data FROM entities WHERE kind='source' AND id=?", (ident,)).fetchone()
+                if not row:
+                    raise ValueError("Resource not found: " + ident)
+                updated.append(ident)
+        for ident in updated:
+            source = self.store.get("source", ident)
+            self.store.put("source", {**source, **values}, id=ident)
+        self.store.event("sources.organized", {"ids": updated, **values})
+        from .library_folders import annotate
+        return {"updated": len(updated), "sources": annotate([self.store.get("source", i) for i in updated], str(self.store.root))}
 
     def get_source(self, id: str) -> dict:
         source = self.store.get("source", id)
@@ -551,6 +584,10 @@ class KnowledgeService:
                 break
         if not records:
             raise ValueError("The collection did not expose video IDs for import.")
+        collection = str(listing.get("channel") or listing.get("uploader") or listing.get("title") or "YouTube collection")[:150]
+        for record in records:
+            if not record.get("duplicate") or not record.get("collection_title"):
+                self._update(record["id"], collection_title=collection, collection_url=url)
         return {"id": "batch_youtube_" + _digest(url)[:18],
                 "title": str(listing.get("title") or "YouTube collection")[:150],
                 "status": "queued", "source_ids": [r["id"] for r in records],
@@ -642,6 +679,10 @@ class KnowledgeService:
                 if not candidates:
                     raise ValueError("The folder contains no supported documents or media.")
                 sources = [self.import_source(path=str(p), copy_original=copy_original, project_id=project_id, analysis_model=analysis_model) for p in candidates]
+                for candidate, source in zip(candidates, sources):
+                    if not source.get("duplicate") and not source.get("import_root"):
+                        inner = candidate.relative_to(original).parent.as_posix()
+                        self._update(source["id"], import_root=str(original), import_relpath="" if inner == "." else inner)
                 return {"id": new_id("batch"), "title": original.name, "status": "queued",
                         "source_ids": [s["id"] for s in sources], "sources": sources}
             if not original.is_file():

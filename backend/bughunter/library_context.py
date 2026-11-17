@@ -14,12 +14,16 @@ class LibraryContext:
     @staticmethod
     def info(row):
         progress=row.get('media_progress') or {}
-        return {'source_id':row['id'],'title':row.get('title') or row.get('filename'),'filename':row.get('filename'),'status':row.get('status'),'indexed_passages':row.get('chunk_count',0),'visual_samples_completed':progress.get('saved_analyzed',progress.get('analyzed')),'planned_visual_samples':progress.get('total'),'warning_count':len(row.get('warnings') or [])}
+        from .library_folders import classify, folder_label
+        folder=classify(row)
+        return {'source_id':row['id'],'title':row.get('title') or row.get('filename'),'folder':folder['origin']+': '+folder_label(folder)+((' / '+folder['section']) if folder.get('section') else ''),'filename':row.get('filename'),'status':row.get('status'),'indexed_passages':row.get('chunk_count',0),'visual_samples_completed':progress.get('saved_analyzed',progress.get('analyzed')),'planned_visual_samples':progress.get('total'),'warning_count':len(row.get('warnings') or [])}
     def sources(self,query='',project_id=None,limit=12):
         if not isinstance(query,str) or len(query)>5000:raise ValueError('Use a resource name or short search query.')
         requested=set(tokens(query))-STOP;day=re.search(r'\bday\s*(\d+)\b',' '.join(tokens(query)));ranked=[]
         for row in self._sources(project_id):
             label=' '.join(str(row.get(k) or '') for k in ('title','filename'));label_words=set(tokens(label));score=len(requested&label_words)
+            from .library_folders import classify,folder_label
+            folder_words=set(tokens(folder_label(classify(row))))-label_words;score+=len(requested&folder_words)
             if day and not re.search(r'\bday\s*'+day[1]+r'\b',' '.join(tokens(label))):continue
             if row['id'] in query:score+=100
             if row.get('title') and str(row['title']).strip().casefold() in query.casefold():score+=20

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ClipboardCopy, FileText, RefreshCw, Play } from 'lucide-react';
+import { ClipboardCopy, FileText, RefreshCw, Play, ShieldCheck, Square } from 'lucide-react';
 import { asList, rpc } from './api';
 import type { RecordData as Row } from './api';
 import { Button } from './components';
@@ -7,6 +7,12 @@ import { Button } from './components';
 type ModelChoice = { provider: string; model: string; kind: string; local_only: boolean; ready: boolean };
 type Connection = { configured: boolean; origin: string; detail: string; read_only: boolean; ai: ModelChoice };
 type Plan = { prompt: string; methodology: { id: string; title: string; reference: string; checks: string[]; tbhm_sections?: { id: string }[] }[] };
+type Profile = { id: string; label: string; goal: string };
+type Coverage = { summary: { roles_native: number; roles_total: number; functions_native: number; functions_total: number; tools_available: number; tools_total: number; all_functions_native: boolean } };
+type FlowTask = { id: string; title: string; status: string; subtasks: { id: string; goal: string; status: string }[] };
+type FlowStatus = { flow: { id: string; status: string; goal: string }; profile: { label: string }; status: string; tasks: FlowTask[]; progress: { subtasks_completed: number; subtasks_total: number; current_task: string | null }; actions: { name: string; status: string }[]; run: { status: string; summary: string } | null; findings: { id: string; title: string; severity: string }[] };
+const FLOW_TONE: Record<string, string> = { active: 'rt-busy', completed: 'rt-ok', failed: 'rt-bad' };
+const TASK_TONE: Record<string, string> = { running: 'rt-busy', done: 'rt-ok', failed: 'rt-bad', pending: 'rt-idle' };
 type TbhmSection = { id: string; title: string; traffic: string; status?: string };
 type TbhmOutline = { phases: { phase: string; title: string; sections: TbhmSection[] }[]; sources: Record<string, { title: string; passages: number }> };
 const TBHM_STATUS: Record<string, string> = { todo: 'to do', in_progress: 'in progress', no_findings: 'no findings', findings: 'findings', not_applicable: 'not applicable' };
@@ -21,6 +27,11 @@ export default function PentagiBridgePanel() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [nativeRun, setNativeRun] = useState<Row | null>(null);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profile, setProfile] = useState('ecommerce');
+  const [coverage, setCoverage] = useState<Coverage | null>(null);
+  const [flowId, setFlowId] = useState('');
+  const [flow, setFlow] = useState<FlowStatus | null>(null);
   const [tbhm, setTbhm] = useState<TbhmOutline | null>(null);
 
   useEffect(() => {
@@ -46,6 +57,30 @@ export default function PentagiBridgePanel() {
   const tbhmDone = tbhmSections.filter(section => section.status && !['todo', 'in_progress'].includes(section.status)).length;
   const tbhmDecks = ['deck:day1', 'deck:day2'].filter(key => tbhm?.sources[key]).length;
   const tbhmTalks = ['transcript:day1', 'transcript:day2'].filter(key => tbhm?.sources[key]).length;
+
+  useEffect(() => {
+    void rpc<{ profiles: Profile[] }>('pentest.profiles').then(v => setProfiles(v.profiles || [])).catch(() => {});
+    void rpc<Coverage>('pentest.catalog').then(setCoverage).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!flowId) return; let live = true; let timer: ReturnType<typeof setTimeout>;
+    const poll = async () => {
+      try { const v = await rpc<FlowStatus>('pentest.status', { flow_id: flowId }); if (live) setFlow(v); }
+      catch (err) { if (live) setError(String(err)); }
+      if (live && (!flow || flow.status === 'active')) timer = setTimeout(() => void poll(), 1500);
+    };
+    void poll(); return () => { live = false; clearTimeout(timer); };
+  }, [flowId]);
+
+  async function startPentest() {
+    if (!selectedProject || busy) return; setError(''); setBusy(true);
+    try { const v = await rpc<FlowStatus>('pentest.create', { project_id: selectedProject, profile }); setFlowId(v.flow.id); setFlow(v); }
+    catch (err) { setError(String(err)); } finally { setBusy(false); }
+  }
+  async function stopPentest() {
+    if (!flowId) return; setBusy(true);
+    try { setFlow(await rpc<FlowStatus>('pentest.stop', { flow_id: flowId })); } catch (err) { setError(String(err)); } finally { setBusy(false); }
+  }
 
   async function loadFlows() {
     setError(''); setBusy(true);
@@ -78,6 +113,32 @@ export default function PentagiBridgePanel() {
   }
 
   return <section className="surface cart-audit" aria-label="PentAGI methodology bridge">
+    <div className="section-title">
+      <div>
+        <h2><ShieldCheck size={18} /> Autonomous pentest (native PentAGI engine)</h2>
+        <p>Runs entirely on BugHunter's own scoped tools — no external PentAGI server. Flow → Task → SubTask → Action.</p>
+      </div>
+    </div>
+    {coverage && <p className="muted">Native coverage: {coverage.summary.functions_native}/{coverage.summary.functions_total} PentAGI functions and {coverage.summary.roles_native}/{coverage.summary.roles_total} agent roles run on BugHunter tools. Security binaries available now: {coverage.summary.tools_available}/{coverage.summary.tools_total}.</p>}
+    <div className="cart-audit-actions">
+      <label htmlFor="pentest-profile">Engagement</label>
+      <select id="pentest-profile" value={profile} onChange={e => setProfile(e.target.value)}>
+        {profiles.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+      </select>
+      <Button icon={ShieldCheck} disabled={!selectedProject || busy || (flow?.status === 'active')} onClick={() => void startPentest()}>Start autonomous pentest</Button>
+      {flow?.status === 'active' && <Button icon={Square} disabled={busy} onClick={() => void stopPentest()}>Stop flow</Button>}
+    </div>
+    {flow && <div className="rt-card" aria-label="Pentest flow">
+      <div className="rt-head"><span className={`rt-pill ${FLOW_TONE[flow.status] || 'rt-idle'}`}>{flow.profile.label} · {flow.status}</span>
+        <span className="muted"> · {flow.progress.subtasks_completed}/{flow.progress.subtasks_total} subtasks{flow.progress.current_task ? ` · at ${flow.progress.current_task}` : ''}</span></div>
+      <ul className="rt-list">{flow.tasks.map(task => <li key={task.id}>
+        <span className={`rt-dot ${TASK_TONE[task.status] || 'rt-idle'}`} /> <strong>{task.title}</strong> <span className="rt-muted">· {task.status}</span>
+        {task.subtasks.length > 0 && <ul className="rt-list">{task.subtasks.map(s => <li key={s.id}><span className="rt-muted">{s.goal} — {s.status}</span></li>)}</ul>}
+      </li>)}</ul>
+      {flow.findings.length > 0 && <details className="rt-fold" open><summary>Findings ({flow.findings.length})</summary><ul className="rt-list">{flow.findings.map(f => <li key={f.id}>{f.title} · {f.severity}</li>)}</ul></details>}
+      {flow.run?.summary && <p className="muted">{flow.run.summary}</p>}
+    </div>}
+    <hr/>
     <div className="section-title">
       <div>
         <h2><FileText size={18} /> BugHunter AI + PentAGI + Haddix</h2>

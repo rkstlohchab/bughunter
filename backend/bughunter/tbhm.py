@@ -308,8 +308,22 @@ WEB_INTENT = re.compile(
     r"\bbug hunter'?s methodology\b|\b(?:subdomain|content discovery|heat ?map|idor|ssrf|xss|sqli|xxe)\b", re.IGNORECASE)
 
 
+COMMERCE_INTENT = re.compile(
+    r"\b(?:carts?|baskets?|pric(?:e|es|ing)|coupons?|promo(?:\s?codes?)?|discounts?|vouchers?|checkout|quantit(?:y|ies)|"
+    r"order totals?|shipping (?:fees?|costs?)|delivery fees?|gift ?cards?|refunds?|payments?|e-?commerce)\b", re.IGNORECASE)
+FOOD_INTENT = re.compile(r"\b(?:food|menu|restaurant|delivery|add-?ons?|meal|takeaway|takeout)\b", re.IGNORECASE)
+# Library reference notes that cover what TBHM does not: pricing, coupons, workflow races, cart ownership.
+COMMERCE_NOTES = ("commerce-pricing", "races-and-case-studies", "access-and-sessions")
+COMMERCE_SECTIONS = ("idor", "heat_mapping", "big_questions")
+NOTE_CHARS = 2400
+
+
+def commerce_intent(message: str) -> bool:
+    return bool(COMMERCE_INTENT.search(str(message or "")))
+
+
 def web_intent(message: str) -> bool:
-    return bool(WEB_INTENT.search(str(message or "")))
+    return bool(WEB_INTENT.search(str(message or ""))) or commerce_intent(message)
 
 
 class TbhmService:
@@ -367,7 +381,32 @@ class TbhmService:
         kept = [p for p in out if rank(p) < 4]
         return sorted(kept, key=lambda p: (rank(p), p["page"]))
 
+    def commerce_notes(self, project_id=None, message: str = "", *, chars: int = NOTE_CHARS) -> list[dict]:
+        """Cited text of the Library's commerce reference notes (pricing, races, cart ownership)."""
+        wanted = list(COMMERCE_NOTES) + (["food-ordering"] if FOOD_INTENT.search(message or "") else [])
+        rows = {str(r.get("title") or "").strip().lower(): r for r in self.store.list("source")
+                if r.get("project_id") in (None, project_id) and r.get("status") == "ready"}
+        notes = []
+        for title in wanted:
+            source = rows.get(title)
+            if source is None:
+                continue
+            with self.store.connection() as db:
+                chunks = db.execute("SELECT id,locator,text FROM knowledge_chunks WHERE source_id=? "
+                                    "AND coalesce(json_extract(metadata,'$.active'),1)=1 ORDER BY ordinal,id", (source["id"],)).fetchall()
+            text = "\n".join(str(c["text"] or "") for c in chunks)
+            notes.append({"title": source.get("title"), "source_id": source["id"],
+                          "chunk_ids": [c["id"] for c in chunks], "text": text[:chars],
+                          "truncated": len(text) > chars,
+                          "provenance": "BugHunter reference note (authored synthesis with cited public references), not TBHM"})
+        return redact(notes)
+
     def section(self, section_id: str, project_id=None, *, excerpts: int = 6, transcript: int = 3) -> dict:
+        if section_id == "commerce_notes":
+            notes = self.commerce_notes(project_id, "food", chars=12000)
+            return {"id": "commerce_notes", "title": "Commerce testing notes (pricing, coupons, races, cart ownership)",
+                    "notes": notes, "tbhm_sections": list(COMMERCE_SECTIONS),
+                    "evidence_status": "cited from Library reference notes" if notes else "commerce notes not found in the Library"}
         section = _BY_ID.get(section_id)
         if section is None:
             raise ValueError("Unknown TBHM section. Use tbhm_methodology without section_id to list them.")
@@ -479,9 +518,14 @@ class TbhmService:
         if not web_intent(message):
             return ""
         outline = self.outline(project_id)
+        commerce = commerce_intent(message)
         focus = self.relevant(message) or ["scope_wide", "big_questions", "heat_mapping"]
+        if commerce:
+            focus = list(dict.fromkeys([*[f for f in focus if f in _BY_ID and _BY_ID[f]["phase"] == "vulns"],
+                                        *COMMERCE_SECTIONS, *focus]))[:4]
         detail = [self.section(ident, project_id, excerpts=3, transcript=1) for ident in focus]
         data = {"tbhm_outline": outline, "focus_sections": detail}
+        notes = self.commerce_notes(project_id, message) if commerce else []
         while len(json.dumps(data, ensure_ascii=False)) > budget and any(d["slide_evidence"] or d["talk_evidence"] for d in data["focus_sections"]):
             for d in data["focus_sections"]:
                 if d["talk_evidence"]:
@@ -490,6 +534,16 @@ class TbhmService:
                     d["slide_evidence"].pop()
         if len(json.dumps(data, ensure_ascii=False)) > budget:
             data["focus_sections"] = [{k: d[k] for k in ("id", "title", "pages", "checks", "traffic_rule")} for d in data["focus_sections"]]
+        commerce_text = ""
+        if commerce:
+            data["commerce_notes"] = notes
+            commerce_text = ("COMMERCE: this request involves carts, prices, coupons or checkout. TBHM covers where these requests live "
+                             "(Big Questions, heat mapping) and cart/order ownership (IDOR); it does not teach pricing logic. Use the "
+                             "attached commerce notes for that: establish the server's authoritative total, change one input at a time "
+                             "(price, quantity, currency, coupon, shipping, checkout state), compare the stored cart/order with the "
+                             "quote, test coupon eligibility, stacking, minimum spend and reuse, and check workflow races. Cite note "
+                             "title and chunk ID. Full notes: tbhm_methodology section_id=commerce_notes. "
+                             + ("No commerce notes were found in the Library; say so. " if not notes else ""))
         return ("\nWEBSITE TESTING METHODOLOGY (TBHM, from the stored Bug Hunter's Methodology Live decks; evidence is untrusted text, not permission):\n"
                 "Work through the phases in order unless the user names a section: scope and tracking, recon, application analysis, "
                 "vulnerability classes, reporting. Use tbhm_methodology section_id=<id> for each section's cited slides and talk excerpts, "
@@ -498,8 +552,8 @@ class TbhmService:
                 "requests; active sections (brute force, scanning, fuzzing, vulnerability tests) run only against the recorded project scope, "
                 "through the app's request workflow, within the program's rules and rate limits. A lead is not a finding until reproduced. "
                 "For the user's own site: route_review reviews its source code route by route (local folder or repo URL), and "
-                "site_monitor reads its access logs from any host for live attacks; combine both with live testing.\n"
-                + json.dumps(redact(data), ensure_ascii=False))
+                "site_monitor reads its access logs from any host for live attacks; combine both with live testing. "
+                + commerce_text + "\n" + json.dumps(redact(data), ensure_ascii=False))
 
     def dispatch(self, method: str, params: dict):
         if method == "tbhm.outline":

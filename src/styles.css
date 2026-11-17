@@ -1201,3 +1201,10 @@ main,.surface,.training-stack,.split-view,.inspector,.inspector-meta,.ce-stack,.
 .settings-categories button[aria-selected="true"]:hover{border-color:var(--accent)}
 .settings-category{padding-top:20px}
 .history-details>summary{font-size:14px;font-weight:500;padding:16px 22px}
+.library-folders{display:grid;gap:4px;padding:6px 20px 14px}
+.library-origin>summary,.library-folder>summary{cursor:pointer;display:flex;align-items:center;gap:7px;padding:10px 0;font-size:13px;color:var(--ink)}
+.library-origin>summary svg{color:var(--accent)}
+.library-origin+.library-origin{border-top:1px solid var(--line-soft)}
+.library-folder{margin-left:18px;border-left:1px solid var(--line);padding-left:12px}
+.library-folder>summary{font-size:12px}
+.library-folder .table-scroll{margin:0 0 10px}

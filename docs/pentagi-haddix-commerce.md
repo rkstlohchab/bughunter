@@ -62,3 +62,13 @@ npx tsc --noEmit
 ```
 
 The PentAGI API tests are mocked and never require a live instance. A real PentAGI connection check requires a separately running server and configured credentials.
+
+## Native autonomous pentest engine (no external PentAGI required)
+
+BugHunter now reproduces PentAGI's model on its own stack, so the AI runs PentAGI's techniques without deploying or depending on an external PentAGI server (`backend/bughunter/pentest/`).
+
+- **Faithful catalog** (`catalog.py`): every PentAGI agent role (orchestrator, pentester, coder, installer, searcher, memorist, adviser, enricher, reporter, generator, refiner, reflector, assistant) and every agent function (`terminal`, `file`, `browser`, `web_search`, `search_in_memory`/`store_in_memory`, `search_guide`/`search_answer`/`search_code`, the specialist delegation tools, and the flow-control functions `get_flow_status`/`stop_flow`/`submit_flow_input`/`patch_flow_subtasks`/`wait_flow_completion`) is mapped to the BugHunter tool that performs the same job. Security binaries (nmap, nuclei, ffuf, httpx, sqlmap, hydra, …) run through BugHunter's own adapters; ones not installed are marked `needs_tool`.
+- **Faithful state model** (`flows.py`): Flow → Task → SubTask → Action with PentAGI's exact statuses, derived from a real investigation run, its plan and its events.
+- **Engine** (`engine.py`): a flow is one autonomous investigation run driven by a PentAGI-style orchestrator prompt built from a profile's phases (recon → enumeration → analysis → vulnerability discovery → confirmation → reporting). Profiles: `web_app`, `ecommerce`, `api`, `network`. Everything runs through the scoped policy gateway, approvals, adapters, TBHM, route review and site monitoring.
+- **RPC**: `pentest.catalog|profiles|list|create|start|status|stop|patch_subtasks|submit`. **Agent tool**: `pentest_flow` (both the chat agent and the investigation agent). **UI**: the cart-lab PentAGI panel's "Autonomous pentest (native PentAGI engine)" section starts a flow and shows its Flow→Task→SubTask→Action state live.
+- The optional external PentAGI connector still exists for reviewing flows on a separately deployed PentAGI, but it is not required for any testing.

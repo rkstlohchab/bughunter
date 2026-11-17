@@ -50,6 +50,10 @@ def app(tmp_path, monkeypatch):
         ("Frame at 05:10:00", "Heat mapping uploads are a common place for bugs."),
     ])
     _seed(a.store, "Unrelated course on cooking", [("Page 1", "Recon your pantry before cooking.")])
+    _seed(a.store, "commerce-pricing", [("section-1", "# Commerce pricing and discount validation. Establish the authoritative calculation; change one input at a time.")])
+    _seed(a.store, "races-and-case-studies", [("section-1", "# Race conditions, workflow states. Apply one coupon concurrently and inspect the durable final state.")])
+    _seed(a.store, "access-and-sessions", [("section-1", "# API access control. Two accounts, known ownership of carts and orders.")])
+    _seed(a.store, "food-ordering", [("section-1", "# Food-ordering methods. Menu, add-ons, delivery and promotions are priced separately.")])
     a.store.put("project", {"name": "Shop", "scope": ["https://shop.example.test/"], "authorization": "Owned staging"}, id="proj_shop")
     yield a
     a.close()
@@ -148,3 +152,20 @@ def test_rpc_checklist_and_pentagi_plan_link_tbhm(app):
     assert all(stage["reference"].startswith("https://") for stage in stages.values())
     prompt = app.pentagi.plan("proj_shop")["prompt"]
     assert "TBHM idor: IDOR and access control" in prompt and "tbhm_methodology section_id=" in prompt
+
+
+def test_commerce_requests_attach_notes_and_cart_sections(app):
+    context = app.tbhm.context("check my cart: change the price and quantity and apply a coupon at checkout", "proj_shop")
+    assert context and "COMMERCE:" in context
+    data = json.loads(context.rsplit("\n", 1)[1])
+    titles = [n["title"] for n in data["commerce_notes"]]
+    assert titles == ["commerce-pricing", "races-and-case-studies", "access-and-sessions"]
+    assert all(n["chunk_ids"] and "not TBHM" in n["provenance"] for n in data["commerce_notes"])
+    assert {"idor", "heat_mapping", "big_questions"} <= {s["id"] for s in data["focus_sections"]}
+    food = json.loads(app.tbhm.context("test coupon and delivery fee on my food menu", "proj_shop").rsplit("\n", 1)[1])
+    assert "food-ordering" in [n["title"] for n in food["commerce_notes"]]
+    plain = json.loads(app.tbhm.context("test the website for xss", "proj_shop").rsplit("\n", 1)[1])
+    assert "commerce_notes" not in plain
+    bundle = app.tbhm.section("commerce_notes")
+    assert len(bundle["notes"]) == 4 and bundle["tbhm_sections"] == ["idor", "heat_mapping", "big_questions"]
+    assert "commerce_notes" in app.pentagi.plan("proj_shop")["prompt"]

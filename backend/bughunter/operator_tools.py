@@ -171,6 +171,27 @@ class OperatorTools:
         chat=self.store.get('chat',task.get('chat_id','')) or {}
         return chat.get('project_id')
 
+    def pentest_flow(self,action='status',profile='web_app',goal=None,mode='automation',flow_id=None,subtasks=None,message=None):
+        project_id=self._task_project('pentest_flow')
+        engine=self.app.pentest
+        if action=='catalog':return engine.catalog()
+        if action=='profiles':return {'profiles':engine.profiles()}
+        if action=='list':return {'flows':engine.list(project_id)}
+        if action=='status':
+            if not flow_id:raise ValueError('Provide flow_id, or use action=list.')
+            if (self.store.get('pentest_flow',flow_id) or {}).get('project_id')!=project_id:raise ValueError('Use a flow from this project.')
+            return engine.status(flow_id)
+        self._write_allowed('pentest_flow_control')
+        if not project_id:raise ValueError('Open this chat in the website\'s project to run a pentest flow.')
+        if action=='create':return engine.create(project_id,profile,goal,mode,start=True)
+        if flow_id and (self.store.get('pentest_flow',flow_id) or {}).get('project_id')!=project_id:
+            raise ValueError('Use a flow from this project.')
+        if action=='start':return engine.start(flow_id)
+        if action=='stop':return engine.stop(flow_id)
+        if action=='patch_subtasks':return engine.patch_subtasks(flow_id,subtasks or [])
+        if action=='submit':return engine.submit(flow_id,message)
+        raise ValueError('action must be catalog, profiles, list, status, create, start, stop, patch_subtasks or submit.')
+
     def tbhm_methodology(self,section_id=None):
         project_id=self._task_project('tbhm_methodology')
         if section_id:return self.app.tbhm.section(section_id,project_id)
@@ -810,9 +831,10 @@ GAME_SPECS=[
 
 ]
 GAME_SPECS += [
+ ('pentest_flow','Run an autonomous penetration test of the project\'s website using BugHunter\'s native PentAGI-style engine (no external server). action=create profile=web_app|ecommerce|api|network [goal] starts an autonomous flow that works recon -> enumeration -> analysis -> vulnerability discovery -> confirmation -> reporting through the scoped gateway, adapters (nmap/nuclei/ffuf/httpx/sqlmap), TBHM, route_review and site_monitor, recording findings. status/list track Flow->Task->SubTask->Action state; catalog shows every PentAGI role and function mapped to its native tool; profiles lists engagement types; patch_subtasks revises the plan; stop ends it; submit adds operator input after it pauses.',{'action':{'type':'string','enum':['catalog','profiles','list','status','create','start','stop','patch_subtasks','submit']},'profile':{'type':'string','enum':['web_app','ecommerce','api','network']},'goal':{'type':'string'},'mode':{'type':'string','enum':['automation','assistant']},'flow_id':{'type':'string'},'subtasks':{'type':'array','items':{'type':'object'}},'message':{'type':'string'}},[]),
  ('site_monitor','Watch the user\'s deployed website for attacks using its access logs from any host (nginx/Apache, Vercel/Netlify log drains, Cloudflare, AWS ALB/CloudFront, GCP/Azure JSON). action=add_source path=<log file or folder> [watch=true interval_s=60] registers logs; ingest reads new lines and detects TBHM attacker techniques (sensitive file probes, traversal, SQLi/XSS/command/template injection, SSRF and open redirect attempts, scanners, content discovery bursts, fuzzing, login brute force, IDOR id enumeration, floods, host probing); summary/incidents report them with severity, sample requests, possibly-successful hits, the code fix and nginx/Cloudflare block rules; resolve marks an incident fixed/blocked/false_positive. Never changes the server.',{'action':{'type':'string','enum':['summary','incidents','sources','add_source','ingest','resolve']},'path':{'type':'string'},'source_id':{'type':'string'},'watch':{'type':'boolean'},'interval_s':{'type':'integer'},'min_severity':{'type':'string','enum':['info','low','medium','high','critical']},'incident_id':{'type':'string'},'status':{'type':'string','enum':['open','fixed','blocked','false_positive','accepted']},'note':{'type':'string'}},[]),
  ('route_review','Review the user\'s website source code route by route. action=review source=<local folder or https GitHub/GitLab/Bitbucket URL> finds every route (Express/Fastify/Hono, Next.js, SvelteKit, Remix, Flask, FastAPI, Django, Rails, Laravel, Spring, NestJS, Go, ASP.NET) and flags missing auth, missing ownership checks on id routes, unvalidated input, SQL built from input, server-side fetch of user URLs, command execution, file paths from input, open redirects, unsafe uploads, XSS sinks, unthrottled auth routes, mass assignment, permissive CORS and hard-coded secrets, each with file:line, fix, TBHM section and a live check. action=latest|summary|routes reads results. Flags are leads: read the handler, then confirm on the live site.',{'action':{'type':'string','enum':['latest','summary','routes','review']},'source':{'type':'string'},'review_id':{'type':'string'},'min_severity':{'type':'string','enum':['info','low','medium','high','critical']},'kind':{'type':'string'},'path_contains':{'type':'string'}},[]),
- ('tbhm_methodology','The Bug Hunter\'s Methodology (TBHM) for authorized website testing, from the stored Bug Hunter\'s Methodology Live decks. Without section_id: the phase outline (scope, recon, application analysis, vulnerability classes, reporting) with this project\'s coverage. With section_id: that section\'s checks, traffic rule, app tools to use, and cited slide and talk excerpts (deck title plus page).',{'section_id':{'type':'string'}},[]),
+ ('tbhm_methodology','The Bug Hunter\'s Methodology (TBHM) for authorized website testing, from the stored Bug Hunter\'s Methodology Live decks. Without section_id: the phase outline (scope, recon, application analysis, vulnerability classes, reporting) with this project\'s coverage. With section_id: that section\'s checks, traffic rule, app tools to use, and cited slide and talk excerpts (deck title plus page). section_id=commerce_notes returns the Library\'s pricing, coupon, workflow-race and cart-ownership notes for cart and checkout testing.',{'section_id':{'type':'string'}},[]),
  ('tbhm_progress','Read this project\'s TBHM coverage, or record one section: status in_progress (orange), no_findings (green), findings (red, needs a note or evidence IDs) or not_applicable. Recording is app bookkeeping only; it sends nothing to a target.',{'section_id':{'type':'string'},'status':{'type':'string','enum':['todo','in_progress','no_findings','findings','not_applicable']},'note':{'type':'string'},'evidence_ids':{'type':'array','items':{'type':'string'}}},[]),
 ]
 for name,description,properties,required in GAME_SPECS:

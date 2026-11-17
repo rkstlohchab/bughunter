@@ -47,7 +47,7 @@ def test_ui_task_to_tool_to_one_saved_assistant_reply(app,monkeypatch):
  assert [m['content'] for m in record['session']['messages']]==['Check this source','The saved source is ready.']
  assert not any(m.get('role') in {'system','tool'} for m in record['session']['messages'])
  assert len(record['activity'])==2
- assert all(s['name'] in {'app_action','app_features','assets_query','delegate_task','worker_status','remember_context','web_search','library_sources','library_search','library_read','agent_skills','agent_skill_read','rea_status','tbhm_methodology','tbhm_progress','site_monitor','route_review'} for s in calls[0]['tool_specs'])
+ assert all(s['name'] in {'app_action','app_features','assets_query','delegate_task','worker_status','remember_context','web_search','library_sources','library_search','library_read','agent_skills','agent_skill_read','rea_status','tbhm_methodology','tbhm_progress','site_monitor','route_review','pentest_flow'} for s in calls[0]['tool_specs'])
  assert app.dispatch('chat.get',{'id':record['session']['id']})['harness_id']==record['id']
  # A follow-up resumes the actual worker rather than setting running without a thread.
  monkeypatch.setattr('bughunter.provider_api.single_tool_turn',lambda **kw:{'message':{'role':'assistant','content':'Here is the citation.'},'tool_calls':[]})
@@ -114,7 +114,7 @@ def test_codex_harness_attaches_native_tools_and_persists_their_receipts(app,mon
   def __exit__(self,*args):pass
   def run(self,model,system,prompt,**kwargs):
    assert 'JSON is an application RPC' not in system
-   assert {s['name'] for s in kwargs['specs']}=={'app_features','app_action','assets_query','delegate_task','worker_status','remember_context','web_search','library_sources','library_search','library_read','agent_skills','agent_skill_read','rea_status','tbhm_methodology','tbhm_progress','site_monitor','route_review'}
+   assert {s['name'] for s in kwargs['specs']}=={'app_features','app_action','assets_query','delegate_task','worker_status','remember_context','web_search','library_sources','library_search','library_read','agent_skills','agent_skill_read','rea_status','tbhm_methodology','tbhm_progress','site_monitor','route_review','pentest_flow'}
    assert kwargs['final_only'] is True
    result=kwargs['tool_handler']('app_action',{'method':'sources.list'})
    assert isinstance(result,list)

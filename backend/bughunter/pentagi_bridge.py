@@ -150,6 +150,8 @@ class PentagiBridge:
             "- Call tbhm_methodology for the phase outline and tbhm_methodology section_id=<id> for each section's",
             "  checks, traffic rule, matching tools and cited slide/talk excerpts. Cite deck title and page.",
             "- Work scope -> recon -> application analysis -> vulnerability classes -> reporting.",
+            "- For carts, prices, quantities, coupons, shipping and checkout states, read tbhm_methodology",
+            "  section_id=commerce_notes (pricing, coupon, race and cart-ownership notes) alongside TBHM idor/heat_mapping.",
             "- Record each section with tbhm_progress: in_progress, no_findings, findings (with evidence) or not_applicable.",
             "- Active sections (brute force, scanning, fuzzing, vulnerability tests) stay within the recorded scope,",
             "  the program's rules and rate limits, and the app's request workflow.",

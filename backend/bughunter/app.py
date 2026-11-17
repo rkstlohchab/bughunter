@@ -34,6 +34,7 @@ from .pentagi_bridge import PentagiBridge
 from .tbhm import TbhmService
 from .site_monitor import SiteMonitor
 from .route_review import RouteReview
+from .pentest import PentestEngine
 from .staging_price import StagingPriceAudit
 from .website_audit import WebsiteAudit
 from .pointer_notebook import PointerNotebook
@@ -119,6 +120,7 @@ class Application:
         self.tbhm = TbhmService(self)
         self.site_monitor = SiteMonitor(self)
         self.route_review = RouteReview(self)
+        self.pentest = PentestEngine(self)
         if primary:
             self.site_monitor.start_watchers()
         self.staging_price = StagingPriceAudit(self)
@@ -307,6 +309,8 @@ class Application:
             return self.site_monitor.dispatch(method, p)
         if method.startswith('routes.'):
             return self.route_review.dispatch(method, p)
+        if method.startswith('pentest.'):
+            return self.pentest.dispatch(method, p)
         if method.startswith('commerce.staging.'):
             return self.staging_price.dispatch(method,p)
         if method.startswith('commerce.'):
